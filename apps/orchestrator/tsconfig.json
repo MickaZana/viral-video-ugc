@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/shared-schema" },
+    { "path": "../../packages/shared-config" },
+    { "path": "../../packages/mcp-discovery" },
+    { "path": "../../packages/mcp-transcript" },
+    { "path": "../../packages/mcp-video-gen" },
+    { "path": "../../packages/mcp-assembly" },
+    { "path": "../../packages/review-queue" }
+  ]
+}

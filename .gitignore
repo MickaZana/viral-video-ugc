@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+runs/*
+!runs/.gitkeep
+*.sqlite
+*.sqlite-journal
+.turbo/
+*.tsbuildinfo
+coverage/
+.claude/settings.local.json

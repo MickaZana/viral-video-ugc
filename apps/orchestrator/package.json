@@ -1,0 +1,32 @@
+{
+  "name": "@vvugc/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vvugc": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "cli": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vvugc/shared-schema": "workspace:*",
+    "@vvugc/shared-config": "workspace:*",
+    "@vvugc/mcp-discovery": "workspace:*",
+    "@vvugc/mcp-transcript": "workspace:*",
+    "@vvugc/mcp-video-gen": "workspace:*",
+    "@vvugc/mcp-assembly": "workspace:*",
+    "@vvugc/review-queue": "workspace:*",
+    "@anthropic-ai/sdk": "^0.32.1",
+    "commander": "^12.1.0",
+    "pino": "^9.5.0",
+    "nanoid": "^5.0.8",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2"
+  }
+}

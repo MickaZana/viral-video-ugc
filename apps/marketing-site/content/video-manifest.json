@@ -1,0 +1,141 @@
+[
+  {
+    "id": "hero-reel",
+    "type": "product-demo",
+    "niche": "hero reel",
+    "platform": "tiktok",
+    "aspectRatio": "9:16",
+    "hook": "Wait... this whole video was made from a TikTok that went viral last week?",
+    "points": [
+      "Discovered automatically from this week's trending fitness content",
+      "Script rewritten to keep the hook, lose the copy-paste"
+    ],
+    "cta": "This is what Viral Video UGC ships every week.",
+    "viralityScore": null,
+    "videoPath": "/videos/hero-reel.mp4",
+    "posterPath": "/videos/hero-reel.svg",
+    "status": "ready"
+  },
+  {
+    "id": "demo-fitness",
+    "type": "product-demo",
+    "niche": "fitness",
+    "platform": "tiktok",
+    "aspectRatio": "9:16",
+    "hook": "Nobody told you this about your morning routine",
+    "points": [
+      "The one habit stacking mistake killing your gains",
+      "What to do instead, starting tomorrow"
+    ],
+    "cta": "Follow for part 2.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/demo-fitness.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "demo-beauty",
+    "type": "product-demo",
+    "niche": "beauty",
+    "platform": "instagram_reels",
+    "aspectRatio": "9:16",
+    "hook": "POV: you've been applying this wrong your whole life",
+    "points": [
+      "The 3-second fix dermatologists don't advertise",
+      "Why your skin has been fighting you, not the product"
+    ],
+    "cta": "Save this before it's gone.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/demo-beauty.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "demo-tech",
+    "type": "product-demo",
+    "niche": "tech gadgets",
+    "platform": "youtube_shorts",
+    "aspectRatio": "9:16",
+    "hook": "This $19 gadget just made my $2,000 setup obsolete",
+    "points": [
+      "The teardown nobody expected",
+      "Why it actually outperforms the premium version"
+    ],
+    "cta": "Link in bio, it's selling out.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/demo-tech.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "demo-finance",
+    "type": "product-demo",
+    "niche": "personal finance",
+    "platform": "tiktok",
+    "aspectRatio": "9:16",
+    "hook": "Your bank will never tell you this",
+    "points": [
+      "The account fee costing you $300/year for nothing",
+      "The 90-second fix to stop it today"
+    ],
+    "cta": "Send this to someone who needs it.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/demo-finance.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "ugc-review-1",
+    "type": "ugc-review",
+    "niche": "creator testimonial",
+    "platform": "tiktok",
+    "aspectRatio": "9:16",
+    "creatorHandle": "@jordan.creates",
+    "hook": "I was skeptical about another 'AI video tool'... then I saw the queue.",
+    "points": [
+      "It found the trend before I did",
+      "The script actually sounded like me, not a robot"
+    ],
+    "cta": "I approved 4 videos before my coffee finished.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/ugc-review-1.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "ugc-review-2",
+    "type": "ugc-review",
+    "niche": "creator testimonial",
+    "platform": "instagram_reels",
+    "aspectRatio": "9:16",
+    "creatorHandle": "@mariah.grows",
+    "hook": "My agency quoted me $3,400 a month for this. I pay way less.",
+    "points": [
+      "Same hook-point-CTA structure, way faster turnaround",
+      "I still get to approve everything before it posts"
+    ],
+    "cta": "Never going back to manual editing.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/ugc-review-2.svg",
+    "status": "placeholder"
+  },
+  {
+    "id": "ugc-review-3",
+    "type": "ugc-review",
+    "niche": "creator testimonial",
+    "platform": "youtube_shorts",
+    "aspectRatio": "9:16",
+    "creatorHandle": "@devon.builds",
+    "hook": "Every Wednesday I get a Slack ping: your videos are ready to review.",
+    "points": [
+      "It's genuinely automated, not 'automated with an assistant'",
+      "The virality score actually tracks with what performs"
+    ],
+    "cta": "That's the whole workflow now.",
+    "viralityScore": null,
+    "videoPath": null,
+    "posterPath": "/videos/ugc-review-3.svg",
+    "status": "placeholder"
+  }
+]

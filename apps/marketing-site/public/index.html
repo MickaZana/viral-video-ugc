@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Viral Video UGC — Discover, Repurpose, Ship Finished Video</title>
+  <meta name="description" content="Claude-powered pipeline that discovers viral content, rewrites the script, generates finished video, and queues it for your review — every week, from one command." />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="wordmark" href="/">Viral Video UGC</a>
+      <nav class="nav-links">
+        <a href="#how-it-works">Product</a>
+        <a href="#gallery">Demo Reel</a>
+        <a href="#pricing">Pricing</a>
+      </nav>
+      <a class="btn btn-primary nav-cta" href="#cta">Start Free</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">☰</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Not another script generator</p>
+        <h1>Go from viral trend to finished, posted-ready video — not just a script.</h1>
+        <p class="hero-sub">
+          Discovery, transcript, script rewrite, video generation, and assembly — fully automated,
+          on a weekly cadence, with a human review step before anything ships. Paste a link into a
+          script tool and you still have an afternoon of editing left. We don't stop at the script.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#cta">Start Free</a>
+          <a class="btn btn-ghost" href="#gallery">Watch the demo reel ↓</a>
+        </div>
+      </div>
+      <div class="hero-video">
+        {{HERO_BLOCK}}
+      </div>
+    </section>
+
+    <!-- TRUST BAR -->
+    <section class="trust-bar">
+      <p class="trust-label">Built on</p>
+      <div class="trust-logos">
+        <span class="trust-chip">Claude</span>
+        <span class="trust-chip">Higgsfield</span>
+        <span class="trust-chip">Kling AI</span>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="how-it-works" id="how-it-works">
+      <h2>Five stages. One command. Every week.</h2>
+      <p class="section-sub">Yorby stops after step 3. We built the other two.</p>
+      <div class="stage-grid">
+        <div class="stage-card">
+          <span class="stage-num">1</span>
+          <h3>Discover</h3>
+          <p>Official YouTube / TikTok / Meta APIs surface high-engagement content in your niche — no manual scrolling.</p>
+        </div>
+        <div class="stage-card">
+          <span class="stage-num">2</span>
+          <h3>Transcribe</h3>
+          <p>Captions or ASR turn the source video into a timestamped transcript, automatically.</p>
+        </div>
+        <div class="stage-card">
+          <span class="stage-num">3</span>
+          <h3>Rewrite</h3>
+          <p>Claude keeps the hook/point/CTA structure that made it work, rewrites it original, tunes it to your brand voice.</p>
+        </div>
+        <div class="stage-card stage-card-highlight">
+          <span class="stage-num">4</span>
+          <h3>Generate</h3>
+          <p>Higgsfield, Kling, or your vendor of choice renders the new script into real video clips — this is where Yorby hands you off to CapCut.</p>
+        </div>
+        <div class="stage-card stage-card-highlight">
+          <span class="stage-num">5</span>
+          <h3>Review</h3>
+          <p>Every finished video lands in a queue with a virality score. Nothing posts until a human approves it.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIDEO GALLERY -->
+    <section class="gallery" id="gallery">
+      <h2>See it in action</h2>
+      <p class="section-sub">Real output shape from the pipeline, across niches. Click a card to play.</p>
+      <div class="video-grid">
+        {{GALLERY_GRID}}
+      </div>
+    </section>
+
+    <!-- UGC REVIEW WALL -->
+    <section class="ugc-wall">
+      <h2>What creators are saying</h2>
+      <p class="section-sub">Yorby's "Wall of Love" is text. Ours talks back.</p>
+      <div class="video-grid">
+        {{UGC_WALL_GRID}}
+      </div>
+    </section>
+
+    <!-- COMPARISON -->
+    <section class="comparison" id="pricing">
+      <h2>How this compares</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Viral Video UGC</th>
+              <th>Yorby</th>
+              <th>Traditional agency</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Discovery automation</td><td class="yes">Automated (official APIs)</td><td class="no">Manual — you paste a link</td><td class="no">Manual research</td></tr>
+            <tr><td>Script rewrite</td><td class="yes">Hook/point/CTA, Claude</td><td class="yes">Hook/point/CTA</td><td class="partial">Depends on writer</td></tr>
+            <tr><td>Video generation</td><td class="yes">Automated (Higgsfield/Kling)</td><td class="no">Not included</td><td class="partial">Manual filming</td></tr>
+            <tr><td>Human review gate</td><td class="yes">Built in, before anything posts</td><td class="no">N/A</td><td class="partial">Informal</td></tr>
+            <tr><td>Weekly automation</td><td class="yes">Scheduled cadence</td><td class="no">On-demand only</td><td class="no">Manual scheduling</td></tr>
+            <tr><td>Typical monthly cost</td><td class="yes">Usage-based</td><td class="partial">$40–$300/mo</td><td class="no">$3,400+/mo</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta-footer" id="cta">
+      <h2>Run your first cycle this week</h2>
+      <p>One command. A niche. A review queue full of finished video by Thursday.</p>
+      <form class="email-form" id="emailForm">
+        <input type="email" name="email" placeholder="you@brand.com" required />
+        <button type="submit" class="btn btn-primary">Get early access</button>
+      </form>
+      <p class="email-note" id="emailNote"></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Viral Video UGC — discover, repurpose, generate. Reviewed by humans before it ever posts.</p>
+  </footer>
+
+  <script src="/script.js"></script>
+</body>
+</html>

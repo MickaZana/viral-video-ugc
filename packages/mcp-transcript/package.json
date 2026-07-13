@@ -1,0 +1,24 @@
+{
+  "name": "@vvugc/mcp-transcript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "bin": {
+    "vvugc-mcp-transcript": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vvugc/shared-schema": "workspace:*",
+    "@vvugc/shared-config": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
