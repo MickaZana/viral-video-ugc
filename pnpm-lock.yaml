@@ -23,6 +23,9 @@ importers:
 
   apps/marketing-site:
     dependencies:
+      '@vvugc/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       express:
         specifier: ^4.21.1
         version: 4.22.2
@@ -60,6 +63,9 @@ importers:
       '@vvugc/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config
+      '@vvugc/shared-cost':
+        specifier: workspace:*
+        version: link:../../packages/shared-cost
       '@vvugc/shared-schema':
         specifier: workspace:*
         version: link:../../packages/shared-schema
@@ -85,6 +91,9 @@ importers:
 
   apps/review-dashboard:
     dependencies:
+      '@vvugc/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
       '@vvugc/review-queue':
         specifier: workspace:*
         version: link:../../packages/review-queue
@@ -107,6 +116,8 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+
+  packages/design-tokens: {}
 
   packages/mcp-assembly:
     dependencies:
@@ -209,6 +220,15 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+
+  packages/shared-cost:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.1)
 
   packages/shared-schema:
     dependencies:

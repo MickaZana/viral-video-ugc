@@ -23,6 +23,8 @@ const EnvSchema = z.object({
   RUNWAY_API_KEY: z.string().optional(),
   /** Pika is served through fal.ai's platform, not a standalone Pika API — see adapters/pika.ts. */
   FAL_KEY: z.string().optional(),
+  /** ASR fallback for platforms without public caption tracks — see mcp-transcript/src/asr.ts. */
+  OPENAI_API_KEY: z.string().optional(),
   VVUGC_DB_PATH: z.string().default(join(REPO_ROOT, "runs", "review-queue.json")),
   VVUGC_RUNS_DIR: z.string().default(join(REPO_ROOT, "runs"))
 });

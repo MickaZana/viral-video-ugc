@@ -111,6 +111,8 @@ export const RunResultSchema = z.object({
   candidatesFound: z.number().int().nonnegative(),
   reviewItemsCreated: z.number().int().nonnegative(),
   manifestPath: z.string(),
-  completedAt: z.string().datetime()
+  completedAt: z.string().datetime(),
+  costLedgerPath: z.string().optional(),
+  estimatedCostUsd: z.number().nonnegative().optional()
 });
 export type RunResult = z.infer<typeof RunResultSchema>;

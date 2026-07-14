@@ -1,0 +1,46 @@
+# Builds and runs the vvugc CLI (discovery -> script rewrite -> video gen -> assembly -> review queue).
+# Runs `vvugc run ...` as a one-off command — see docker-compose.yml for the scheduled-cron usage,
+# or `docker run --env-file .env vvugc-orchestrator run --niche=fitness --dry-run`.
+FROM node:20-slim AS build
+WORKDIR /repo
+
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY apps/orchestrator/package.json apps/orchestrator/package.json
+COPY apps/marketing-site/package.json apps/marketing-site/package.json
+COPY apps/review-dashboard/package.json apps/review-dashboard/package.json
+COPY packages/shared-schema/package.json packages/shared-schema/package.json
+COPY packages/shared-config/package.json packages/shared-config/package.json
+COPY packages/shared-cost/package.json packages/shared-cost/package.json
+COPY packages/mcp-discovery/package.json packages/mcp-discovery/package.json
+COPY packages/mcp-transcript/package.json packages/mcp-transcript/package.json
+COPY packages/mcp-video-gen/package.json packages/mcp-video-gen/package.json
+COPY packages/mcp-assembly/package.json packages/mcp-assembly/package.json
+COPY packages/review-queue/package.json packages/review-queue/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.base.json ./
+COPY apps apps
+COPY packages packages
+COPY infra infra
+
+# Not `pnpm build` (turbo) — turbo's downloaded native binary needs an exec permission this
+# build environment may not grant depending on host; plain per-package tsc is what's verified
+# to work everywhere this repo has actually been built. See .github/workflows/ci.yml.
+RUN pnpm -r run build
+
+FROM node:20-slim AS runtime
+WORKDIR /repo
+ENV NODE_ENV=production
+
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+COPY --from=build /repo ./
+# ffmpeg-static's postinstall already downloaded a Linux ffmpeg binary into node_modules
+# during the build stage's `pnpm install` — no extra apt-get ffmpeg install needed.
+
+WORKDIR /repo/apps/orchestrator
+ENTRYPOINT ["node", "dist/cli.js"]
+CMD ["--help"]

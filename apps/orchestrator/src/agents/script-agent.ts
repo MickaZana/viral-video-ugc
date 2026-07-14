@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireEnvVar } from "@vvugc/shared-config";
+import type { CostLedger } from "@vvugc/shared-cost";
 import { RewrittenScriptSchema, type Platform, type RewrittenScript, type Transcript } from "@vvugc/shared-schema";
 
 const SYSTEM_PROMPT = `You are a viral short-form video script strategist. Given a transcript of an
@@ -24,7 +25,14 @@ Respond with ONLY a JSON object matching this shape, no prose, no markdown fence
 
 export async function rewriteScript(
   transcript: Transcript,
-  opts: { niche: string; brandVoice: string; durationSec: number; platforms: Platform[]; dryRun?: boolean }
+  opts: {
+    niche: string;
+    brandVoice: string;
+    durationSec: number;
+    platforms: Platform[];
+    dryRun?: boolean;
+    costLedger?: CostLedger;
+  }
 ): Promise<RewrittenScript> {
   if (opts.dryRun) return mockRewrittenScript(transcript, opts);
 
@@ -47,6 +55,8 @@ ${transcript.text}
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
+
+  opts.costLedger?.recordAnthropicUsage("script_rewrite", message.usage);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

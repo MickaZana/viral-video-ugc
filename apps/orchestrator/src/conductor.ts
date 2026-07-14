@@ -5,6 +5,7 @@ import pino from "pino";
 import type { CandidateVideo, RawClip, ReviewItem, RunConfig, RunResult } from "@vvugc/shared-schema";
 import { RunResultSchema } from "@vvugc/shared-schema";
 import { loadEnv } from "@vvugc/shared-config";
+import { CostLedger } from "@vvugc/shared-cost";
 import { discoverPlatform, mockCandidates } from "@vvugc/mcp-discovery";
 import { transcribeCandidate, mockTranscript } from "@vvugc/mcp-transcript";
 import { getVideoGenAdapter, type McpToolCaller } from "@vvugc/mcp-video-gen";
@@ -28,6 +29,8 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
   mkdirSync(runDir, { recursive: true });
 
   logger.info({ runId: config.runId, niche: config.niche, platforms: config.platforms }, "run started");
+
+  const costLedger = new CostLedger();
 
   // Stage 1: Discovery — per platform, non-fatal on individual platform failure
   // (e.g. TikTok/Meta adapters not yet approved) so partial coverage still runs.
@@ -60,12 +63,13 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
       brandVoice: config.brandVoice,
       durationSec: config.targetDurationSec,
       platforms: config.platforms,
-      dryRun: config.dryRun
+      dryRun: config.dryRun,
+      costLedger
     });
 
     // Caption timing/text is Claude's call, not a naive even-split — same script duration
     // applies across every target platform, so this runs once per candidate, not per platform.
-    const captions = await generateCaptions(script, { dryRun: config.dryRun });
+    const captions = await generateCaptions(script, { dryRun: config.dryRun, costLedger });
 
     for (const platform of config.platforms) {
       const segments = [script.hook, ...script.points, script.cta];
@@ -86,6 +90,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         });
         clips.push(clip);
       }
+      if (!config.dryRun) costLedger.record("video_gen", config.videoVendor, "clip", segments.length);
 
       const assembled = await assembleVideo({
         clips,
@@ -96,7 +101,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         dryRun: config.dryRun
       });
 
-      const qa = await scoreVideo(assembled, script, { dryRun: config.dryRun });
+      const qa = await scoreVideo(assembled, script, { dryRun: config.dryRun, costLedger });
 
       const reviewItem: ReviewItem = {
         id: nanoid(),
@@ -121,13 +126,18 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     JSON.stringify({ config, candidatesFound: allCandidates.length, chosen, reviewItemsCreated }, null, 2)
   );
 
+  const costLedgerPath = join(runDir, "cost-ledger.json");
+  writeFileSync(costLedgerPath, JSON.stringify(costLedger.toJSON(), null, 2));
+
   const result = RunResultSchema.parse({
     runId: config.runId,
     niche: config.niche,
     candidatesFound: allCandidates.length,
     reviewItemsCreated,
     manifestPath,
-    completedAt: new Date().toISOString()
+    completedAt: new Date().toISOString(),
+    costLedgerPath,
+    estimatedCostUsd: costLedger.totalUsd()
   });
 
   logger.info(result, "run complete");

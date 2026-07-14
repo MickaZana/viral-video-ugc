@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireEnvVar } from "@vvugc/shared-config";
+import type { CostLedger } from "@vvugc/shared-cost";
 import type { AssembledVideo, RewrittenScript } from "@vvugc/shared-schema";
 
 export interface QaResult {
@@ -28,7 +29,7 @@ Respond with ONLY a JSON object, no prose, no markdown fences:
 export async function scoreVideo(
   assembled: AssembledVideo,
   script: RewrittenScript,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; costLedger?: CostLedger } = {}
 ): Promise<QaResult> {
   if (opts.dryRun) return heuristicScore(assembled, script);
 
@@ -53,6 +54,8 @@ Trending phrases used: ${script.trendingPhrases.join(", ") || "none"}`;
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
+
+  opts.costLedger?.recordAnthropicUsage("qa_score", message.usage);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

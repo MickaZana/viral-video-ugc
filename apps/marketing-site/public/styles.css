@@ -1,63 +1,21 @@
-:root {
-  --bg: #08090c;
-  --bg-raised: #101218;
-  --bg-card: #15171f;
-  --border: #24262f;
-  --text: #f3f4f6;
-  --text-dim: #9ca3af;
-  --accent: #7c5cff;
-  --accent-2: #22d3ee;
-  --good: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --radius: 14px;
-  --max-width: 1140px;
-  font-size: 16px;
-}
+/* Palette, base typography, and .btn/.card/.pill primitives now live in the shared
+   @vvugc/design-tokens package (served at /tokens.css, linked before this file in
+   index.html) — this file only holds page-specific layout and marketing-site-only
+   components (nav, hero, gallery, pricing) from here down. */
 
-* { box-sizing: border-box; }
-
-html, body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  overflow-x: hidden;
-}
-
-a { color: inherit; text-decoration: none; }
-
-h1, h2, h3 { line-height: 1.15; margin: 0 0 0.5em; }
-h1 { font-size: clamp(2rem, 4.5vw, 3.25rem); font-weight: 800; letter-spacing: -0.02em; }
-h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); font-weight: 700; letter-spacing: -0.01em; }
-h3 { font-size: 1.1rem; font-weight: 700; }
-p { color: var(--text-dim); margin: 0 0 1em; }
-
-.eyebrow {
-  color: var(--accent-2);
-  text-transform: uppercase;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  margin-bottom: 0.75em;
-}
+body { overflow-x: hidden; }
+a { text-decoration: none; }
+.eyebrow { margin-bottom: 0.75em; }
 
 section { padding: 4.5rem 1.5rem; max-width: var(--max-width); margin: 0 auto; }
 .section-sub { margin-top: -0.5rem; margin-bottom: 2.5rem; font-size: 1.05rem; }
 
-.btn {
-  display: inline-block;
-  padding: 0.75rem 1.5rem;
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #08090c; }
-.btn-ghost { background: transparent; border-color: var(--border); color: var(--text); }
+.btn { padding: 0.75rem 1.5rem; font-size: 0.95rem; }
+
+/* Hero headline runs larger than the shared base scale — this is the one deliberately
+   oversized moment on the page, everything else (section h2/h3) uses the shared scale. */
+.hero h1 { font-size: clamp(2rem, 4.5vw, 3.25rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); }
 
 /* NAV */
 .nav {

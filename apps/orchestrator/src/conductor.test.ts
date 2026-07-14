@@ -81,4 +81,13 @@ describe("runCycle", () => {
       expect(item.script.hook.length).toBeGreaterThan(0);
     }
   });
+
+  it("writes a cost ledger alongside the manifest, with zero cost in dry-run (no vendor calls made)", async () => {
+    const result = await runCycle(baseConfig({ maxCandidates: 1 }));
+    expect(result.costLedgerPath).toBeDefined();
+    expect(existsSync(result.costLedgerPath!)).toBe(true);
+    const ledger = JSON.parse(readFileSync(result.costLedgerPath!, "utf-8"));
+    expect(ledger.totalUsd).toBe(0);
+    expect(result.estimatedCostUsd).toBe(0);
+  });
 });

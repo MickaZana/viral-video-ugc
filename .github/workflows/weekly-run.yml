@@ -1,0 +1,70 @@
+name: Weekly pipeline run
+
+# Real, deployable scheduling — this replaces "infra/cron is documentation only" for the
+# common case of a single niche/cadence: no AWS account or EventBridge setup needed, just
+# push this repo to GitHub and set the secrets below. For multiple niches on different
+# cadences, or for workloads too heavy for a GitHub-hosted runner (long ffmpeg jobs), see
+# infra/cron/README.md for the EventBridge/Lambda path instead.
+on:
+  schedule:
+    # Every Wednesday 14:00 UTC — adjust to your audience's timezone/cadence.
+    - cron: "0 14 * * 3"
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Content niche"
+        required: true
+        default: "fitness"
+      platforms:
+        description: "Comma-separated platforms"
+        required: true
+        default: "tiktok,youtube_shorts"
+      dryRun:
+        description: "Dry-run (no API keys required, no real spend)"
+        type: boolean
+        default: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run build
+
+      - name: Run pipeline cycle
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          KLING_ACCESS_KEY: ${{ secrets.KLING_ACCESS_KEY }}
+          KLING_SECRET_KEY: ${{ secrets.KLING_SECRET_KEY }}
+          RUNWAY_API_KEY: ${{ secrets.RUNWAY_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          NICHE="${{ inputs.niche || 'fitness' }}"
+          PLATFORMS="${{ inputs.platforms || 'tiktok,youtube_shorts' }}"
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dryRun }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
+          node apps/orchestrator/dist/cli.js run --niche="$NICHE" --platforms="$PLATFORMS" $DRY_RUN_FLAG
+
+      # Vendor video-gen output and the review queue aren't committed back to the repo (runs/
+      # is gitignored) — this uploads them as a workflow artifact so a human reviewer can pull
+      # the queue and approve/reject without needing to run the CLI locally.
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-run-${{ github.run_id }}
+          path: runs/
+          retention-days: 14

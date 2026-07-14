@@ -93,6 +93,9 @@ program
     console.log(
       `\n${result.reviewItemsCreated} item(s) awaiting human review. Run "pnpm --filter @vvugc/review-dashboard start" and open the dashboard to approve/reject.`
     );
+    if (result.estimatedCostUsd !== undefined) {
+      console.log(`Estimated vendor spend this run: $${result.estimatedCostUsd.toFixed(4)} (see ${result.costLedgerPath})`);
+    }
   });
 
 // Only auto-run when this file is executed directly (`tsx src/cli.ts` / the built bin) —

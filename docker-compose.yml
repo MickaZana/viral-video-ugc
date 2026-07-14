@@ -1,0 +1,33 @@
+services:
+  review-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.review-dashboard
+    ports:
+      - "4310:4310"
+    env_file:
+      - .env
+    volumes:
+      - ./runs:/repo/runs
+    restart: unless-stopped
+
+  marketing-site:
+    build:
+      context: .
+      dockerfile: Dockerfile.marketing-site
+    ports:
+      - "4320:4320"
+    restart: unless-stopped
+
+  # One-off pipeline run, not a long-running service — e.g.:
+  #   docker compose run --rm orchestrator run --niche=fitness --platforms=tiktok,youtube_shorts
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    env_file:
+      - .env
+    volumes:
+      - ./runs:/repo/runs
+    profiles:
+      - cli

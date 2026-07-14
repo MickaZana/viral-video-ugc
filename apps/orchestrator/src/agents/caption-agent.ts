@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { requireEnvVar } from "@vvugc/shared-config";
+import type { CostLedger } from "@vvugc/shared-cost";
 import { CaptionCueSchema, type CaptionCue, type RewrittenScript } from "@vvugc/shared-schema";
 import { z } from "zod";
 
@@ -16,7 +17,7 @@ Respond with ONLY a JSON array, no prose, no markdown fences:
 
 export async function generateCaptions(
   script: RewrittenScript,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; costLedger?: CostLedger } = {}
 ): Promise<CaptionCue[]> {
   if (opts.dryRun) return mockCaptions(script);
 
@@ -36,6 +37,8 @@ CTA: ${script.cta}`;
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
+
+  opts.costLedger?.recordAnthropicUsage("caption_timing", message.usage);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

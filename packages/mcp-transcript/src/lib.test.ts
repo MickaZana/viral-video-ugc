@@ -55,7 +55,7 @@ describe("fetchYouTubeCaptions", () => {
 
 describe("transcribeWithAsrFallback", () => {
   it("throws a clear, actionable error since no ASR provider is wired in", async () => {
-    await expect(transcribeWithAsrFallback(candidate)).rejects.toThrow(/No ASR fallback provider configured/);
+    await expect(transcribeWithAsrFallback(candidate)).rejects.toThrow(/No audio-extraction step configured/);
   });
 });
 
@@ -74,7 +74,7 @@ describe("transcribeCandidate", () => {
 
   it("falls back to ASR (and throws, since none is configured) when youtube_shorts has no captions", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("")));
-    await expect(transcribeCandidate(candidate)).rejects.toThrow(/No ASR fallback provider configured/);
+    await expect(transcribeCandidate(candidate)).rejects.toThrow(/No audio-extraction step configured/);
   });
 
   it("skips the YouTube-captions path entirely for non-YouTube platforms", async () => {
@@ -82,7 +82,7 @@ describe("transcribeCandidate", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(transcribeCandidate({ ...candidate, platform: "tiktok" })).rejects.toThrow(
-      /No ASR fallback provider configured/
+      /No audio-extraction step configured/
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

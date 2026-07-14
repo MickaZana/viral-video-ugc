@@ -13,6 +13,7 @@
     "@vvugc/shared-schema": "workspace:*",
     "@vvugc/shared-config": "workspace:*",
     "@vvugc/review-queue": "workspace:*",
+    "@vvugc/design-tokens": "workspace:*",
     "express": "^4.21.1"
   },
   "devDependencies": {

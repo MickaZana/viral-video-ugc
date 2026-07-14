@@ -19,6 +19,7 @@
     "@vvugc/mcp-video-gen": "workspace:*",
     "@vvugc/mcp-assembly": "workspace:*",
     "@vvugc/review-queue": "workspace:*",
+    "@vvugc/shared-cost": "workspace:*",
     "@anthropic-ai/sdk": "^0.32.1",
     "commander": "^12.1.0",
     "pino": "^9.5.0",

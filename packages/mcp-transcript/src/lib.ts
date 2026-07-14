@@ -41,14 +41,17 @@ function decodeHtmlEntities(text: string): string {
 }
 
 /**
- * Not yet wired to a real ASR provider (Whisper API, AssemblyAI, Deepgram).
- * Plug one in here behind this same signature when platform captions are
- * unavailable for a candidate.
+ * The Whisper API client itself is real (see transcribeWithWhisper in ./asr.ts,
+ * tested against a mocked fetch) — what's still missing is an audio-extraction
+ * step (yt-dlp or a platform downloader) to turn a CandidateVideo's URL into
+ * the raw audio bytes Whisper needs. Until that's wired in, this stays a
+ * clear, specific error rather than silently guessing at a download method.
  */
-export async function transcribeWithAsrFallback(_video: CandidateVideo): Promise<Transcript> {
+export async function transcribeWithAsrFallback(video: CandidateVideo): Promise<Transcript> {
   throw new Error(
-    "No ASR fallback provider configured. Wire transcribeWithAsrFallback() to Whisper/AssemblyAI/Deepgram, " +
-      "or use --dry-run for mock transcripts."
+    `No audio-extraction step configured for candidate "${video.id}" (${video.platform}). ` +
+      "transcribeWithWhisper() in ./asr.ts is ready to call once audio bytes are available " +
+      "— wire in a downloader (yt-dlp or a platform API) upstream of it, or use --dry-run."
   );
 }
 

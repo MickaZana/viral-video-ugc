@@ -1,13 +1,58 @@
 import express, { type Express } from "express";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { listReviewItems, getReviewItem, setReviewItemStatus } from "@vvugc/review-queue";
+import {
+  listReviewItems,
+  getReviewItem,
+  setReviewItemStatus,
+  setReviewItemsStatus
+} from "@vvugc/review-queue";
+import { listRuns } from "./runs.js";
+import { renderDashboardPage } from "./render.js";
+
+const require = createRequire(import.meta.url);
 
 export const app: Express = express();
 app.use(express.json());
 
+app.get("/tokens.css", (_req, res) => {
+  res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
+});
+
 app.get("/queue", (req, res) => {
-  const status = typeof req.query.status === "string" ? (req.query.status as any) : undefined;
-  res.json(listReviewItems(status));
+  const status = typeof req.query.status === "string" && req.query.status ? (req.query.status as any) : undefined;
+  const niche = typeof req.query.niche === "string" && req.query.niche ? req.query.niche : undefined;
+  const platform = typeof req.query.platform === "string" && req.query.platform ? (req.query.platform as any) : undefined;
+  res.json(listReviewItems({ status, niche, platform }));
+});
+
+app.get("/stats", (_req, res) => {
+  const items = listReviewItems();
+  const pending = items.filter((i) => i.status === "pending").length;
+  const approved = items.filter((i) => i.status === "approved").length;
+  const rejected = items.filter((i) => i.status === "rejected").length;
+  const estimatedCostUsd = listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
+  res.json({ pending, approved, rejected, estimatedCostUsd });
+});
+
+app.get("/runs", (_req, res) => {
+  res.json(listRuns());
+});
+
+// Bulk routes must be registered before the "/queue/:id/..." routes below — Express
+// matches route patterns in registration order, and ":id" would otherwise greedily
+// match the literal segment "bulk" (i.e. POST /queue/bulk/approve would 404 by hitting
+// "/queue/:id/approve" with id="bulk" first). Found by an actual request during manual
+// testing, not by the test suite alone — the route-order mistake produced a 404, not a
+// type error, so nothing caught it until something actually hit the endpoint.
+app.post("/queue/bulk/approve", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+  res.json({ updated: setReviewItemsStatus(ids, "approved") });
+});
+
+app.post("/queue/bulk/reject", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+  res.json({ updated: setReviewItemsStatus(ids, "rejected") });
 });
 
 app.get("/queue/:id", (req, res) => {
@@ -31,42 +76,7 @@ app.post("/queue/:id/reject", (req, res) => {
 });
 
 app.get("/", (_req, res) => {
-  res.type("html").send(`<!doctype html>
-<html>
-<head><title>Viral Video UGC Review Queue</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-  .item { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-  .pending { border-left: 4px solid #e0a800; }
-  .approved { border-left: 4px solid #2e7d32; }
-  .rejected { border-left: 4px solid #c62828; opacity: 0.6; }
-  button { margin-right: 0.5rem; padding: 0.4rem 0.8rem; }
-</style>
-</head>
-<body>
-<h1>Viral Video UGC Review Queue</h1>
-<div id="items">Loading...</div>
-<script>
-async function load() {
-  const items = await (await fetch('/queue')).json();
-  document.getElementById('items').innerHTML = items.map(i => \`
-    <div class="item \${i.status}">
-      <strong>\${i.niche}</strong> — \${i.platform} — score \${i.score}
-      <p>\${i.script.hook}</p>
-      <small>\${i.videoPath}</small><br/>
-      <small>flags: \${i.flags.join(', ') || 'none'}</small><br/>
-      <button onclick="act('\${i.id}','approve')" \${i.status !== 'pending' ? 'disabled' : ''}>Approve</button>
-      <button onclick="act('\${i.id}','reject')" \${i.status !== 'pending' ? 'disabled' : ''}>Reject</button>
-    </div>\`).join('');
-}
-async function act(id, action) {
-  await fetch(\`/queue/\${id}/\${action}\`, { method: 'POST' });
-  load();
-}
-load();
-</script>
-</body>
-</html>`);
+  res.type("html").send(renderDashboardPage());
 });
 
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];

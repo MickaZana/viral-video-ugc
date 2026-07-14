@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ReviewItem } from "@vvugc/shared-schema";
-import { getReviewItem, insertReviewItem, listReviewItems, setReviewItemStatus } from "./db.js";
+import { getReviewItem, insertReviewItem, listReviewItems, setReviewItemStatus, setReviewItemsStatus } from "./db.js";
 
 let testDir: string;
 
@@ -94,5 +94,46 @@ describe("review-queue db", () => {
     insertReviewItem(makeItem({ id: "a" }));
     expect(() => setReviewItemStatus("unknown-id", "approved")).not.toThrow();
     expect(getReviewItem("a")?.status).toBe("pending");
+  });
+
+  it("survives concurrent inserts without losing writes (lockfile serializes them)", async () => {
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) => Promise.resolve().then(() => insertReviewItem(makeItem({ id: `c${i}` }))))
+    );
+    expect(listReviewItems()).toHaveLength(20);
+    const ids = new Set(listReviewItems().map((i) => i.id));
+    expect(ids.size).toBe(20);
+  });
+
+  it("does not leave a stale .lock file behind after a write", () => {
+    insertReviewItem(makeItem());
+    expect(existsSync(`${process.env.VVUGC_DB_PATH!}.lock`)).toBe(false);
+  });
+
+  it("listReviewItems filters by niche and platform via a filter object", () => {
+    insertReviewItem(makeItem({ id: "a", niche: "fitness", platform: "tiktok" }));
+    insertReviewItem(makeItem({ id: "b", niche: "finance", platform: "tiktok" }));
+    insertReviewItem(makeItem({ id: "c", niche: "fitness", platform: "youtube_shorts" }));
+
+    expect(listReviewItems({ niche: "fitness" }).map((i) => i.id).sort()).toEqual(["a", "c"]);
+    expect(listReviewItems({ platform: "tiktok" }).map((i) => i.id).sort()).toEqual(["a", "b"]);
+    expect(listReviewItems({ niche: "fitness", platform: "tiktok" }).map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("listReviewItems still accepts a bare status string (legacy call shape)", () => {
+    insertReviewItem(makeItem({ id: "a", status: "pending" }));
+    insertReviewItem(makeItem({ id: "b", status: "approved" }));
+    expect(listReviewItems("approved").map((i) => i.id)).toEqual(["b"]);
+  });
+
+  it("setReviewItemsStatus updates only the matching ids and returns the ones actually updated", () => {
+    insertReviewItem(makeItem({ id: "a" }));
+    insertReviewItem(makeItem({ id: "b" }));
+    insertReviewItem(makeItem({ id: "c" }));
+    const updated = setReviewItemsStatus(["a", "c", "nonexistent"], "approved");
+    expect(updated.sort()).toEqual(["a", "c"]);
+    expect(getReviewItem("a")?.status).toBe("approved");
+    expect(getReviewItem("b")?.status).toBe("pending");
+    expect(getReviewItem("c")?.status).toBe("approved");
   });
 });
