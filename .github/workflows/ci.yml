@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Deliberately not `pnpm build` (turbo) — turbo's downloaded native binary
+      # hit a sandbox exec restriction during development; `pnpm -r run build`
+      # (plain per-package tsc) is what's actually been verified to work.
+      - run: pnpm -r run build
+
+      - run: pnpm -r run test
