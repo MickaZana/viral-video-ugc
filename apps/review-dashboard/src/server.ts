@@ -1,7 +1,8 @@
-import express from "express";
+import express, { type Express } from "express";
+import { fileURLToPath } from "node:url";
 import { listReviewItems, getReviewItem, setReviewItemStatus } from "@vvugc/review-queue";
 
-const app = express();
+export const app: Express = express();
 app.use(express.json());
 
 app.get("/queue", (req, res) => {
@@ -68,7 +69,10 @@ load();
 </html>`);
 });
 
-const port = Number(process.env.PORT ?? 4310);
-app.listen(port, () => {
-  console.log(`Viral Video UGC review dashboard listening on http://localhost:${port}`);
-});
+const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  const port = Number(process.env.PORT ?? 4310);
+  app.listen(port, () => {
+    console.log(`Viral Video UGC review dashboard listening on http://localhost:${port}`);
+  });
+}

@@ -13,7 +13,7 @@ export const ASPECT_RATIO_BY_PLATFORM: Record<Platform, AssembledVideo["aspectRa
   facebook: "1:1"
 };
 
-const DIMENSIONS: Record<AssembledVideo["aspectRatio"], { w: number; h: number }> = {
+export const DIMENSIONS: Record<AssembledVideo["aspectRatio"], { w: number; h: number }> = {
   "9:16": { w: 1080, h: 1920 },
   "1:1": { w: 1080, h: 1080 },
   "16:9": { w: 1920, h: 1080 }
@@ -33,13 +33,13 @@ function run(build: (cmd: ffmpeg.FfmpegCommand) => ffmpeg.FfmpegCommand, output:
  * Caption timing/text comes from Claude (apps/orchestrator/src/agents/caption-agent.ts), not a
  * naive even-split of the script — this just serializes the cues Claude already decided on.
  */
-function cuesToSrt(cues: CaptionCue[]): string {
+export function cuesToSrt(cues: CaptionCue[]): string {
   return cues
     .map((cue, i) => `${i + 1}\n${formatSrtTime(cue.startSec)} --> ${formatSrtTime(cue.endSec)}\n${cue.text}\n`)
     .join("\n");
 }
 
-function formatSrtTime(sec: number): string {
+export function formatSrtTime(sec: number): string {
   const totalMs = Math.round(sec * 1000);
   const h = String(Math.floor(totalMs / 3_600_000)).padStart(2, "0");
   const m = String(Math.floor((totalMs % 3_600_000) / 60_000)).padStart(2, "0");
@@ -91,31 +91,29 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
   const concatListPath = join(outDir, `${script.videoId}-concat.txt`);
   writeFileSync(concatListPath, sorted.map((c) => `file '${c.filePath.replace(/'/g, "'\\''")}'`).join("\n"));
 
-  const rawPath = join(outDir, `${script.videoId}-raw.mp4`);
-  await run(
-    (cmd) => cmd.input(concatListPath).inputOptions(["-f concat", "-safe 0"]).outputOptions(["-c copy"]),
-    rawPath
-  );
-
-  const { w, h } = DIMENSIONS[ASPECT_RATIO_BY_PLATFORM[platform]];
-  const scaledPath = join(outDir, `${script.videoId}-scaled.mp4`);
-  await run(
-    (cmd) =>
-      cmd
-        .input(rawPath)
-        .videoFilters([
-          `scale=${w}:${h}:force_original_aspect_ratio=increase`,
-          `crop=${w}:${h}`
-        ]),
-    scaledPath
-  );
-
   const srtPath = join(outDir, `${script.videoId}.srt`);
   writeFileSync(srtPath, cuesToSrt(captions));
 
-  const finalPath = join(outDir, `${script.videoId}-final.mp4`);
+  const { w, h } = DIMENSIONS[ASPECT_RATIO_BY_PLATFORM[platform]];
   const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-  await run((cmd) => cmd.input(scaledPath).videoFilters([`subtitles='${escapedSrt}'`]), finalPath);
+
+  // Concat, scale/crop, and subtitle burn-in all happen in one ffmpeg pass — the concat
+  // demuxer accepts filters directly, so there's no need for separate intermediate files
+  // (each extra pass would mean an extra full decode/encode cycle and quality loss for
+  // no benefit, since only the final output is ever kept).
+  const finalPath = join(outDir, `${script.videoId}-final.mp4`);
+  await run(
+    (cmd) =>
+      cmd
+        .input(concatListPath)
+        .inputOptions(["-f concat", "-safe 0"])
+        .videoFilters([
+          `scale=${w}:${h}:force_original_aspect_ratio=increase`,
+          `crop=${w}:${h}`,
+          `subtitles='${escapedSrt}'`
+        ]),
+    finalPath
+  );
 
   const thumbnailPath = join(outDir, `${script.videoId}-thumb.jpg`);
   await new Promise<void>((resolve, reject) => {
@@ -137,7 +135,7 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
   };
 }
 
-function deriveHashtags(script: RewrittenScript): string[] {
+export function deriveHashtags(script: RewrittenScript): string[] {
   return [...new Set(script.trendingPhrases.map((p) => `#${p.replace(/\s+/g, "").toLowerCase()}`))].slice(
     0,
     8

@@ -18,22 +18,25 @@ const EnvSchema = z.object({
   TIKTOK_CLIENT_KEY: z.string().optional(),
   TIKTOK_CLIENT_SECRET: z.string().optional(),
   META_ACCESS_TOKEN: z.string().optional(),
-  KLING_API_KEY: z.string().optional(),
+  KLING_ACCESS_KEY: z.string().optional(),
+  KLING_SECRET_KEY: z.string().optional(),
   RUNWAY_API_KEY: z.string().optional(),
-  PIKA_API_KEY: z.string().optional(),
+  /** Pika is served through fal.ai's platform, not a standalone Pika API — see adapters/pika.ts. */
+  FAL_KEY: z.string().optional(),
   VVUGC_DB_PATH: z.string().default(join(REPO_ROOT, "runs", "review-queue.json")),
   VVUGC_RUNS_DIR: z.string().default(join(REPO_ROOT, "runs"))
 });
 
 export type Env = z.infer<typeof EnvSchema>;
 
-let cached: Env | undefined;
-
+/**
+ * Re-parses process.env on every call rather than caching — this object is
+ * ~15 fields, Zod-parsing it is not a cost worth optimizing for, and caching
+ * it previously made env vars that change mid-process (e.g. per-test-case in
+ * a test suite) permanently stuck at whatever they were on first call.
+ */
 export function loadEnv(): Env {
-  if (!cached) {
-    cached = EnvSchema.parse(process.env);
-  }
-  return cached;
+  return EnvSchema.parse(process.env);
 }
 
 /**

@@ -2,7 +2,8 @@ import type { RawClip } from "@vvugc/shared-schema";
 import type { McpToolCaller, VideoGenAdapter } from "./adapters/VideoGenAdapter.js";
 import { createHiggsfieldAdapter } from "./adapters/higgsfield.js";
 import { createKlingAdapter } from "./adapters/kling.js";
-import { createRunwayAdapter, createPikaAdapter } from "./adapters/fallback.js";
+import { createRunwayAdapter } from "./adapters/runway.js";
+import { createPikaAdapter } from "./adapters/pika.js";
 import { createMockAdapter } from "./adapters/mock.js";
 
 export type { VideoGenAdapter, VideoGenRequest, McpToolCaller } from "./adapters/VideoGenAdapter.js";

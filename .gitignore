@@ -10,3 +10,4 @@ runs/*
 *.tsbuildinfo
 coverage/
 .claude/settings.local.json
+.test-out-*/

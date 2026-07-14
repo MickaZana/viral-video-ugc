@@ -1,8 +1,37 @@
 #!/usr/bin/env node
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { nanoid } from "nanoid";
-import { RunConfigSchema, PlatformSchema, type Platform } from "@vvugc/shared-schema";
+import { RunConfigSchema, PlatformSchema, type Platform, type RunConfig } from "@vvugc/shared-schema";
 import { runCycle } from "./conductor.js";
+
+interface RunOptions {
+  niche: string;
+  platforms: Platform[];
+  brandVoice: string;
+  duration: number;
+  maxCandidates: number;
+  videoVendor: string;
+  dryRun: boolean;
+  autoPost: boolean;
+}
+
+/** Extracted from the commander action handler so option-parsing logic is unit-testable
+ *  without invoking commander (which calls process.exit on a bad/missing argument). */
+export function parseRunOptions(options: RunOptions): RunConfig {
+  return RunConfigSchema.parse({
+    runId: nanoid(),
+    niche: options.niche,
+    platforms: options.platforms,
+    brandVoice: options.brandVoice,
+    targetDurationSec: options.duration,
+    maxCandidates: options.maxCandidates,
+    videoVendor: options.videoVendor,
+    dryRun: options.dryRun,
+    autoPost: options.autoPost,
+    createdAt: new Date().toISOString()
+  });
+}
 
 const program = new Command();
 
@@ -27,18 +56,7 @@ program
   .option("--dry-run", "run the full pipeline with mocked discovery/transcript/video-gen (no API keys needed)", false)
   .option("--auto-post", "skip human review and post directly (NOT recommended; disabled by default)", false)
   .action(async (options) => {
-    const config = RunConfigSchema.parse({
-      runId: nanoid(),
-      niche: options.niche,
-      platforms: options.platforms,
-      brandVoice: options.brandVoice,
-      targetDurationSec: options.duration,
-      maxCandidates: options.maxCandidates,
-      videoVendor: options.videoVendor,
-      dryRun: options.dryRun,
-      autoPost: options.autoPost,
-      createdAt: new Date().toISOString()
-    });
+    const config = parseRunOptions(options);
 
     if (config.autoPost) {
       console.warn(
@@ -54,4 +72,10 @@ program
     );
   });
 
-program.parseAsync(process.argv);
+// Only auto-run when this file is executed directly (`tsx src/cli.ts` / the built bin) —
+// importing it (e.g. from a test, to reach `parseRunOptions`) must not trigger real argv
+// parsing, which commander would otherwise do at module load and can call process.exit() on.
+const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  program.parseAsync(process.argv);
+}
