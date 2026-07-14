@@ -6,8 +6,31 @@ Snapshot as of this audit. Ratings are honest, not aspirational — "built" mean
 
 | Dimension | Estimate | Read |
 |---|---|---|
-| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~55%** | Architecture is sound and the dry-run path is fully verified end-to-end. Real-world coverage is thin: 2 of ~8 external integrations are verified live (YouTube, Higgsfield), the rest are stub/unverified. Zero tests, zero CI, no deployment, no git history. |
-| **UX** (what a user/customer actually touches) | **~20%** | The marketing site is genuinely polished. Everything else a paying customer would expect from a "Yorby-tier" product — accounts, billing, a real dashboard, run history, settings — doesn't exist yet. |
+| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~65%** (was ~55%) | Foundational hygiene (git, tests, CI) is now in place, and testing surfaced/fixed several real bugs rather than just adding coverage around them. Still gated on the same external unknowns as before: Kling/Runway/Pika need a real account to confirm against, ffmpeg needs an unrestricted machine, TikTok/Meta need API approval. |
+| **UX** (what a user/customer actually touches) | **~20%**, unchanged | This pass was explicitly scoped to hygiene + fixing what exists, not building the missing dashboard/auth/billing surfaces — see `## Verified in this pass` below for what "fixing what exists" concretely meant. |
+
+---
+
+## Verified in this pass (hygiene + fix pass, follow-up to the original audit)
+
+Per your scoping decision, this pass targeted foundational engineering hygiene and fixing bugs/inefficiencies found by actually running the app — not the dashboard/auth/billing initiative in section 4 below, which remains untouched and still applies as written.
+
+**Now in place:**
+- **Git repository** — `git init` + real commit history (previously: none at all).
+- **98 tests across all 10 packages**, all passing — schema validation, adapter request/response shapes with mocked `fetch`, the conductor's full stage sequence via `--dry-run`, CLI option parsing, the review-dashboard's HTTP API via a real ephemeral-port server.
+- **CI** (`.github/workflows/ci.yml`) — build + test on push/PR (not yet exercised against a real remote, since this repo isn't pushed anywhere yet).
+
+**Real bugs found and fixed while writing tests and exercising the app** (not just coverage added around existing behavior):
+- `shared-config` cached `process.env` on first read with no reset path — beyond breaking tests, this meant any runtime env change after first access would silently be ignored. Removed the cache.
+- **Kling adapter was fundamentally non-functional**: assumed a static bearer API key, but Kling requires a signed HS256 JWT from an Access Key/Secret Key pair, and wraps every response in a `{code, message, data}` envelope the original code never unwrapped. Rewrote against confirmed API docs.
+- **Pika adapter was targeting a dead endpoint**: Pika retired its standalone public API (~Dec 2025) and is now served exclusively through fal.ai's queue API. Replaced with a real fal.ai integration.
+- **Runway adapter had the wrong base URL, missing a required header, wrong polling path, and wrong status vocabulary** — rewrote against confirmed docs; one detail (the exact text-to-video endpoint path) remains flagged as unconfirmed in a code comment rather than silently assumed.
+- All four video-gen adapters polled on a **fixed 5s interval** regardless of job progress — added a shared exponential-backoff helper.
+- `mcp-assembly` ran **three sequential ffmpeg passes** where one would do (ffmpeg's concat demuxer accepts filters directly) — consolidated, cutting encode time and two rounds of unnecessary re-encode quality loss.
+- `cli.ts` and both Express servers ran side-effecting code (argv parsing / `app.listen()`) at **module scope**, making them impossible to safely import for testing — extracted pure logic, guarded entrypoints.
+- **CLI crashed with a raw unhandled stack trace** on an invalid `--platforms` value or out-of-range `--duration`/`--max-candidates`, instead of a clean error message like commander's own validation produces — found by manually exercising the CLI with malformed input, not by the test suite. Fixed.
+
+**Explicitly not touched this pass** (per scoping): the JSON review-queue is still a flat file (not concurrency-safe — unchanged), no auth/billing/dashboard work, TikTok/Meta discovery still blocked on external API approval, ffmpeg still unverified on a real machine (this sandbox still can't execute the binary), Kling/Runway/Pika are now *correctly shaped* against documentation but still unverified against live accounts — that requires real credentials this session doesn't have.
 
 ---
 
@@ -28,12 +51,12 @@ Snapshot as of this audit. Ratings are honest, not aspirational — "built" mean
 
 ## 2. Cross-cutting engineering gaps (the unglamorous 20%)
 
-- **Zero tests.** No `.test.ts` files exist anywhere despite `vitest` being wired into every `package.json`. Nothing prevents a silent regression.
-- **No CI.** No `.github/workflows`, no pre-merge checks, nothing enforcing that `pnpm -r run build` passes before code lands.
-- **No git repository.** This has never been `git init`'d — there's no commit history, no ability to diff/rollback, no branch protection. Everything is one working tree.
-- **No deployment.** `infra/cron` is a design doc. Nothing is running anywhere except your local machine.
+- ~~Zero tests~~ **Fixed** — 98 tests across all 10 packages.
+- ~~No CI~~ **Fixed** — `.github/workflows/ci.yml`, untested against a real remote since none is pushed yet.
+- ~~No git repository~~ **Fixed** — real commit history from this pass forward.
+- ~~No retry/backoff discipline~~ **Fixed** — shared exponential-backoff helper (`packages/mcp-video-gen/src/poll.ts`) used by all four video-gen adapters.
+- **No deployment.** `infra/cron` is still a design doc. Nothing is running anywhere except your local machine.
 - **No secrets management.** `.env` file convention only — fine for local dev, not appropriate for shared/production use.
-- **No retry/backoff discipline.** Higgsfield/Kling polling loops use fixed attempt counts (e.g. 30 × 5s) with no exponential backoff or circuit breaking — a slow API will just time out ungracefully.
 - **No rate-limit awareness.** YouTube quota, Higgsfield credits, Anthropic tokens — `docs/cost-table.md` is a manual template; nothing in code tracks or caps spend.
 - **No observability.** `pino` logs to stdout only. No log aggregation, no error tracking (Sentry-equivalent), no metrics/dashboards on run success rate.
 - **No input validation hardening audit.** Zod schemas cover the happy path; adversarial-input handling (e.g. a malicious niche string, an oversized transcript) hasn't been stress-tested.
@@ -60,15 +83,15 @@ Yorby's paid tier ($40–$300/mo) bundles: accounts, unlimited revisions, A/B te
 ## 4. Priority punch list to close the gap
 
 **To call engineering "100%" (production-grade, not just architecturally complete):**
-1. Write tests — at minimum: schema validation, each agent's prompt→parse round-trip with mocked Claude responses, the conductor's stage-sequencing logic.
-2. `git init`, commit history, then CI (build + test on every push).
-3. Verify Kling/Runway/Pika adapters against real accounts — expect to debug endpoint mismatches.
-4. Verify ffmpeg assembly on an unrestricted machine (this sandbox can't do it).
+1. ~~Write tests~~ **Done** — 98 tests, all passing, across all 10 packages.
+2. ~~`git init`, commit history, then CI~~ **Done.**
+3. Verify Kling/Runway/Pika adapters against real accounts — they're now *correctly shaped* against real API docs (this pass), but still need a live account to confirm end-to-end.
+4. Verify ffmpeg assembly on an unrestricted machine (this sandbox still can't do it — confirmed still blocked this pass).
 5. Real ASR fallback provider (Whisper API is the natural pick — same vendor family as your other OpenAI-adjacent needs, or AssemblyAI if you want a dedicated ASR vendor).
 6. TikTok Research API + Meta Graph API approval and live wiring (external — application/approval process, not just code).
 7. Deploy `infra/cron` for real: containerize, pick real vs. serverless assembly compute (ffmpeg doesn't fit Lambda well for longer videos), wire EventBridge.
 8. Replace the JSON-file review queue with a real datastore before any concurrent/multi-user use.
-9. Add retry/backoff, cost tracking, and basic observability (even just structured logs shipped somewhere queryable).
+9. Cost tracking and basic observability (even just structured logs shipped somewhere queryable) — retry/backoff is now done.
 
 **To call UX "100%" (a premium, Yorby-beating dashboard):**
 1. **Auth** — this blocks everything else (accounts, billing, multi-seat).
@@ -80,4 +103,4 @@ Yorby's paid tier ($40–$300/mo) bundles: accounts, unlimited revisions, A/B te
 
 ## What I'd do first
 
-Given the pipeline core is the hard, differentiated part and it's already ~55% real (with the two riskiest integrations — Higgsfield and ffmpeg — either verified or partially verified), I'd prioritize **(a)** tests + git + CI before writing more feature code — right now a regression would be invisible — and **(b)** the real dashboard app, since that's the single largest gap between "interesting scaffold" and "thing you could actually put in front of a user or charge money for." Auth and billing only matter once there's a dashboard worth gating.
+~~Tests + git + CI~~ is now done — that recommendation from the original audit has been executed as its own pass. What's left unchanged from the original read: **the real dashboard app** is still the single largest gap between "interesting scaffold" and "thing you could actually put in front of a user or charge money for." Auth and billing only matter once there's a dashboard worth gating. That's the next natural pass whenever you want to take it on.
