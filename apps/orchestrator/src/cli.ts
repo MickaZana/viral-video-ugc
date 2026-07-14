@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { nanoid } from "nanoid";
+import { ZodError } from "zod";
 import { RunConfigSchema, PlatformSchema, type Platform, type RunConfig } from "@vvugc/shared-schema";
 import { runCycle } from "./conductor.js";
 
@@ -46,7 +47,16 @@ program
   .option(
     "--platforms <platforms>",
     "comma-separated target platforms",
-    (val: string) => val.split(",").map((p) => PlatformSchema.parse(p.trim())) as Platform[],
+    (val: string) =>
+      val.split(",").map((p) => {
+        const parsed = PlatformSchema.safeParse(p.trim());
+        if (!parsed.success) {
+          throw new InvalidArgumentError(
+            `"${p.trim()}" is not a valid platform. Choose from: ${PlatformSchema.options.join(", ")}.`
+          );
+        }
+        return parsed.data;
+      }) as Platform[],
     ["tiktok", "youtube_shorts"] as Platform[]
   )
   .option("--brand-voice <voice>", "brand voice descriptor", "neutral, energetic, concise")
@@ -56,7 +66,20 @@ program
   .option("--dry-run", "run the full pipeline with mocked discovery/transcript/video-gen (no API keys needed)", false)
   .option("--auto-post", "skip human review and post directly (NOT recommended; disabled by default)", false)
   .action(async (options) => {
-    const config = parseRunOptions(options);
+    let config: RunConfig;
+    try {
+      config = parseRunOptions(options);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        console.error("error: invalid options —");
+        for (const issue of err.issues) {
+          console.error(`  ${issue.path.join(".") || "(value)"}: ${issue.message}`);
+        }
+      } else {
+        console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      process.exit(1);
+    }
 
     if (config.autoPost) {
       console.warn(
