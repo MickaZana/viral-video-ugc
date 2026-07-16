@@ -9,6 +9,9 @@
     { "path": "../../packages/shared-schema" },
     { "path": "../../packages/shared-config" },
     { "path": "../../packages/review-queue" },
-    { "path": "../../packages/shared-metrics" }
+    { "path": "../../packages/shared-metrics" },
+    { "path": "../../packages/shared-auth" },
+    { "path": "../orchestrator" },
+    { "path": "../../packages/mcp-publish" }
   ]
 }

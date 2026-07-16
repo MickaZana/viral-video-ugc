@@ -16,6 +16,9 @@
     "@vvugc/review-queue": "workspace:*",
     "@vvugc/design-tokens": "workspace:*",
     "@vvugc/shared-metrics": "workspace:*",
+    "@vvugc/shared-auth": "workspace:*",
+    "@vvugc/orchestrator": "workspace:*",
+    "@vvugc/mcp-publish": "workspace:*",
     "express": "^4.21.1",
     "express-rate-limit": "^7.4.1",
     "pino": "^9.5.0"
