@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 import type { AssembledVideo, CaptionCue, Platform, RawClip, RewrittenScript } from "@vvugc/shared-schema";
 
 /**
@@ -25,8 +26,23 @@ function resolveFfmpegPath(): string | undefined {
   }
 }
 
+/** ffmpeg-static doesn't bundle ffprobe — see mcp-voiceover/src/ffprobe.ts's comment
+ *  for why this is needed (silently worked in local dev via a system ffprobe on PATH,
+ *  fails on a clean CI runner without one — this is what screenshots()/ffprobe() below need). */
+function resolveFfprobePath(): string | undefined {
+  if (!ffprobeStatic?.path) return undefined;
+  try {
+    execFileSync(ffprobeStatic.path, ["-version"], { stdio: "ignore" });
+    return ffprobeStatic.path;
+  } catch {
+    return undefined;
+  }
+}
+
 const resolvedFfmpegPath = resolveFfmpegPath();
 if (resolvedFfmpegPath) ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+const resolvedFfprobePath = resolveFfprobePath();
+if (resolvedFfprobePath) ffmpeg.setFfprobePath(resolvedFfprobePath);
 
 export const ASPECT_RATIO_BY_PLATFORM: Record<Platform, AssembledVideo["aspectRatio"]> = {
   tiktok: "9:16",

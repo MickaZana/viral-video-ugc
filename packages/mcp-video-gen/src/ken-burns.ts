@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 
 /**
  * Same "prefer the downloaded static binary, fall back to PATH" logic as
@@ -18,8 +19,23 @@ function resolveFfmpegPath(): string | undefined {
   }
 }
 
+/** ffmpeg-static doesn't bundle ffprobe — see mcp-voiceover/src/ffprobe.ts's comment
+ *  for why this is needed (silently worked in local dev via a system ffprobe on PATH,
+ *  fails on a clean CI runner without one). */
+function resolveFfprobePath(): string | undefined {
+  if (!ffprobeStatic?.path) return undefined;
+  try {
+    execFileSync(ffprobeStatic.path, ["-version"], { stdio: "ignore" });
+    return ffprobeStatic.path;
+  } catch {
+    return undefined;
+  }
+}
+
 const resolvedFfmpegPath = resolveFfmpegPath();
 if (resolvedFfmpegPath) ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+const resolvedFfprobePath = resolveFfprobePath();
+if (resolvedFfprobePath) ffmpeg.setFfprobePath(resolvedFfprobePath);
 
 export interface Dimensions {
   w: number;
