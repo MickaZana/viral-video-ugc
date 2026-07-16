@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # pnpm workspace — root package.json covers every workspace package's deps
+  # (Dependabot resolves the whole workspace from a single root entry).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Keeps the actions pinned in .github/workflows/*.yml (docker/build-push-action,
+  # google/osv-scanner-action, etc.) current — an out-of-date action version is
+  # itself a supply-chain risk this repo would otherwise have no visibility into.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Both runtime Dockerfiles pin `node:20-slim` — flags upstream base-image
+  # updates (including security patches) the same way as the npm ecosystem above.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"

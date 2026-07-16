@@ -11,3 +11,8 @@ runs/*
 coverage/
 .claude/settings.local.json
 .test-out-*/
+playwright-report/
+test-results/
+blob-report/
+apps/marketing-site/.demo-video-work/
+apps/marketing-site/.scripts-typecheck-out/
