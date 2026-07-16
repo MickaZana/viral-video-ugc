@@ -10,11 +10,17 @@ import {
   listReviewItems,
   getReviewItem,
   setReviewItemStatus,
-  setReviewItemsStatus
+  setReviewItemsStatus,
+  replaceReviewItem
 } from "@vvugc/review-queue";
+import { regenerateScene, regenerateScript } from "@vvugc/orchestrator";
+import { getPublishAdapter } from "@vvugc/mcp-publish";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { listRuns } from "./runs.js";
 import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
+import { registerAccountRoutes } from "./accounts.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -83,6 +89,13 @@ const authRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "too many failed login attempts — try again later" }
 });
+
+// Account signup/login/logout are public endpoints (session-cookie-authenticated,
+// not Basic-Auth-protected) — registered before the Basic Auth gate below so
+// they stay reachable. /accounts/me and /accounts/usage guard themselves via
+// requireSession (see accounts.ts). This is a separate, additive auth surface
+// from the dashboard's own operator Basic Auth; neither one weakens the other.
+registerAccountRoutes(app);
 
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
@@ -181,6 +194,121 @@ app.post(
     if (!item) return res.status(404).json({ error: "not found" });
     await setReviewItemStatus(req.params.id, "rejected");
     res.json({ ...item, status: "rejected" });
+  })
+);
+
+// Regenerating a scene or a whole script is a real (paid, for live video-gen vendors)
+// vendor call, not a cheap operation — this deliberately does not run inside the bulk
+// approve/reject rate limiter's "skip successful" carve-out; every regeneration attempt
+// counts, successful or not.
+const regenerateRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "too many regeneration requests — try again later" }
+});
+
+/** Work directory for a regeneration's new clip(s)/assembly output — kept under the
+ *  same run's directory as everything else that run produced, not a fresh temp dir,
+ *  so a regenerated video sits alongside the run it came from for debugging. */
+function regenerateWorkDir(runId: string): string {
+  return join(loadEnv().VVUGC_RUNS_DIR, runId, "regenerate", randomUUID());
+}
+
+app.post(
+  "/queue/:id/regenerate-scene",
+  regenerateRateLimiter,
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+
+    const sceneIndex = Number(req.body?.sceneIndex);
+    if (!Number.isInteger(sceneIndex)) {
+      return res.status(400).json({ error: "sceneIndex (integer) is required" });
+    }
+    const videoVendor = req.body?.videoVendor ?? item.clips?.[0]?.vendor;
+    if (!videoVendor) {
+      return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
+    }
+
+    try {
+      const regenerated = await regenerateScene(item, sceneIndex, {
+        videoVendor,
+        dryRun: Boolean(req.body?.dryRun),
+        outDir: regenerateWorkDir(item.runId)
+      });
+      await replaceReviewItem(regenerated);
+      res.json(regenerated);
+    } catch (err) {
+      res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  })
+);
+
+app.post(
+  "/queue/:id/regenerate-script",
+  regenerateRateLimiter,
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+
+    const { hook, points, cta } = req.body ?? {};
+    if (typeof hook !== "string" || !Array.isArray(points) || typeof cta !== "string") {
+      return res.status(400).json({ error: "hook (string), points (string[]), and cta (string) are required" });
+    }
+    const videoVendor = req.body?.videoVendor ?? item.clips?.[0]?.vendor;
+    if (!videoVendor) {
+      return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
+    }
+
+    try {
+      const regenerated = await regenerateScript(
+        item,
+        { hook, points, cta },
+        { videoVendor, dryRun: Boolean(req.body?.dryRun), outDir: regenerateWorkDir(item.runId) }
+      );
+      await replaceReviewItem(regenerated);
+      res.json(regenerated);
+    } catch (err) {
+      res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  })
+);
+
+// Publishing is only ever reachable from here — nowhere in conductor.ts calls
+// mcp-publish. Gated on status === "approved" so this can't be used to post
+// something a human hasn't signed off on, and can't double-post an item that's
+// already been published.
+app.post(
+  "/queue/:id/publish",
+  regenerateRateLimiter, // real vendor calls, same "every attempt counts" reasoning as regeneration
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+    if (item.status !== "approved") {
+      return res.status(409).json({ error: `item must be approved before publishing (current status: ${item.status})` });
+    }
+    if (item.publishedPostId) {
+      return res.status(409).json({ error: `item was already published (postId: ${item.publishedPostId})` });
+    }
+
+    try {
+      const adapter = getPublishAdapter(item.platform);
+      const caption = [item.script.hook, ...item.script.points, item.script.cta].join(" ");
+      const result = await adapter.publish({ videoPath: item.videoPath, caption });
+
+      const published = {
+        ...item,
+        publishedPostId: result.postId,
+        publishedUrl: result.url,
+        publishedAt: new Date().toISOString()
+      };
+      await replaceReviewItem(published);
+      res.json(published);
+    } catch (err) {
+      res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   })
 );
 

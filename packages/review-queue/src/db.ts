@@ -53,3 +53,7 @@ export async function setReviewItemStatus(id: string, status: "approved" | "reje
 export async function setReviewItemsStatus(ids: string[], status: "approved" | "rejected"): Promise<string[]> {
   return await (await getStore()).setReviewItemsStatus(ids, status);
 }
+
+export async function replaceReviewItem(item: ReviewItem): Promise<void> {
+  await (await getStore()).replaceReviewItem(item);
+}

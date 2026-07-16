@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ReviewItem } from "@vvugc/shared-schema";
-import { getReviewItem, insertReviewItem, listReviewItems, setReviewItemStatus, setReviewItemsStatus } from "./db.js";
+import {
+  getReviewItem,
+  insertReviewItem,
+  listReviewItems,
+  replaceReviewItem,
+  setReviewItemStatus,
+  setReviewItemsStatus
+} from "./db.js";
 
 let testDir: string;
 
@@ -137,5 +144,22 @@ describe("review-queue db (JSON-file backend)", () => {
     expect((await getReviewItem("a"))?.status).toBe("approved");
     expect((await getReviewItem("b"))?.status).toBe("pending");
     expect((await getReviewItem("c"))?.status).toBe("approved");
+  });
+
+  it("replaceReviewItem overwrites the stored item in place, leaving other items untouched", async () => {
+    await insertReviewItem(makeItem({ id: "a", videoPath: "/tmp/old.mp4", score: 50 }));
+    await insertReviewItem(makeItem({ id: "b", videoPath: "/tmp/other.mp4" }));
+
+    const regenerated = makeItem({ id: "a", videoPath: "/tmp/new.mp4", score: 90, status: "pending" });
+    await replaceReviewItem(regenerated);
+
+    expect(await getReviewItem("a")).toEqual(regenerated);
+    expect((await getReviewItem("b"))?.videoPath).toBe("/tmp/other.mp4");
+  });
+
+  it("replaceReviewItem is a no-op for an id that doesn't exist", async () => {
+    await insertReviewItem(makeItem({ id: "a" }));
+    await replaceReviewItem(makeItem({ id: "does-not-exist", videoPath: "/tmp/x.mp4" }));
+    expect((await listReviewItems()).map((i) => i.id)).toEqual(["a"]);
   });
 });

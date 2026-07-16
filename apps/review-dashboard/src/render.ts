@@ -35,6 +35,10 @@ export function renderDashboardPage(): string {
   .item-flags { font-size: 0.78rem; color: var(--warn); margin-top: 0.3rem; }
   .item-actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
   .item.rejected { opacity: 0.55; }
+  .regen-panel { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.5rem; }
+  .regen-panel textarea, .regen-panel input[type="text"] { width: 100%; box-sizing: border-box; }
+  .regen-scenes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .regen-scenes button { font-size: 0.78rem; padding: 0.3rem 0.6rem; }
 
   section.runs { margin-top: 3rem; }
   table.runs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -146,7 +150,7 @@ export function renderDashboardPage(): string {
 </section>
 
 <script>
-const state = { items: [], selected: new Set() };
+const state = { items: [], selected: new Set(), regenOpen: new Set() };
 
 function pillClass(status) { return 'pill pill-' + status; }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -175,6 +179,15 @@ const FLAG_LABELS = {
 };
 function humanizeFlag(flag) {
   return FLAG_LABELS[flag] ?? flag.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+// originalityScore (see @vvugc/shared-originality) is a separate, algorithmic
+// "trend-informed but original" compliance check, distinct from the Claude-scored
+// virality \`score\` above — a reviewer needs both, not one folded into the other.
+function originalityLabel(originalityScore) {
+  if (originalityScore >= 70) return 'Original';
+  if (originalityScore >= 50) return 'Some overlap';
+  return 'Close match — review';
 }
 
 function setStat(id, text) {
@@ -247,6 +260,24 @@ function updateBulkButtons() {
   document.getElementById('bulk-reject').disabled = !has;
 }
 
+// Hidden by default (state.regenOpen tracks which item ids have this expanded) —
+// most reviewers approve/reject without ever touching this, so it stays out of the
+// way until "Edit / Regenerate" is clicked.
+function renderRegenPanel(i) {
+  const open = state.regenOpen.has(i.id);
+  const segmentLabels = ['Hook', ...i.script.points.map((_, idx) => \`Point \${idx + 1}\`), 'CTA'];
+  return \`
+    <div class="regen-panel" data-regen-panel="\${i.id}" \${open ? '' : 'hidden'}>
+      <label>Hook<input type="text" data-regen-field="hook" data-id="\${i.id}" value="\${esc(i.script.hook)}" /></label>
+      <label>Points (one per line)<textarea rows="3" data-regen-field="points" data-id="\${i.id}">\${esc(i.script.points.join('\\n'))}</textarea></label>
+      <label>CTA<input type="text" data-regen-field="cta" data-id="\${i.id}" value="\${esc(i.script.cta)}" /></label>
+      <button class="btn btn-primary" data-action="regenerate-script" data-id="\${i.id}">Regenerate whole script</button>
+      <div class="regen-scenes">
+        \${segmentLabels.map((label, idx) => \`<button class="btn" data-action="regenerate-scene" data-id="\${i.id}" data-scene-index="\${idx}">Regenerate: \${esc(label)}</button>\`).join('')}
+      </div>
+    </div>\`;
+}
+
 function renderItems() {
   const list = document.getElementById('queue-list');
   const empty = document.getElementById('empty-state');
@@ -261,6 +292,7 @@ function renderItems() {
           <strong>\${esc(i.niche)}</strong>
           <span style="color: var(--text-dim);">· \${esc(i.platform)}</span>
           <span class="item-score" title="Virality score out of 100">\${i.score}/100 · \${scoreLabel(i.score)}</span>
+          \${typeof i.originalityScore === 'number' ? \`<span class="item-score" title="Originality score out of 100 — structural/wording similarity vs. the source">🔍 \${i.originalityScore}/100 · \${originalityLabel(i.originalityScore)}</span>\` : ''}
         </div>
         <p class="item-hook">\${esc(i.script.hook)}</p>
         <div class="item-path">\${esc(i.videoPath)}</div>
@@ -268,7 +300,9 @@ function renderItems() {
         <div class="item-actions">
           <button class="btn btn-primary" data-action="approve" data-id="\${i.id}" aria-label="Approve \${esc(i.niche)} · \${esc(i.platform)} item" \${i.status !== 'pending' ? 'disabled' : ''}>Approve</button>
           <button class="btn btn-danger" data-action="reject" data-id="\${i.id}" aria-label="Reject \${esc(i.niche)} · \${esc(i.platform)} item" \${i.status !== 'pending' ? 'disabled' : ''}>Reject</button>
+          \${i.clips && i.clips.length ? \`<button class="btn" data-action="toggle-regen" data-id="\${i.id}" aria-expanded="false">Edit / Regenerate</button>\` : ''}
         </div>
+        \${i.clips && i.clips.length ? renderRegenPanel(i) : ''}
       </div>
     </div>\`).join('');
 
@@ -279,9 +313,81 @@ function renderItems() {
       updateBulkButtons();
     });
   });
-  list.querySelectorAll('button[data-action]').forEach((btn) => {
+  list.querySelectorAll('button[data-action="approve"], button[data-action="reject"]').forEach((btn) => {
     btn.addEventListener('click', () => act(btn.getAttribute('data-id'), btn.getAttribute('data-action'), btn));
   });
+  list.querySelectorAll('button[data-action="toggle-regen"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      if (state.regenOpen.has(id)) state.regenOpen.delete(id); else state.regenOpen.add(id);
+      const panel = list.querySelector(\`[data-regen-panel="\${id}"]\`);
+      if (panel) panel.hidden = !state.regenOpen.has(id);
+      btn.setAttribute('aria-expanded', String(state.regenOpen.has(id)));
+    });
+  });
+  list.querySelectorAll('button[data-action="regenerate-script"]').forEach((btn) => {
+    btn.addEventListener('click', () => regenerateScript(btn.getAttribute('data-id'), btn));
+  });
+  list.querySelectorAll('button[data-action="regenerate-scene"]').forEach((btn) => {
+    btn.addEventListener('click', () => regenerateScene(btn.getAttribute('data-id'), Number(btn.getAttribute('data-scene-index')), btn));
+  });
+}
+
+function readRegenFields(id) {
+  const hookEl = document.querySelector(\`input[data-regen-field="hook"][data-id="\${id}"]\`);
+  const pointsEl = document.querySelector(\`textarea[data-regen-field="points"][data-id="\${id}"]\`);
+  const ctaEl = document.querySelector(\`input[data-regen-field="cta"][data-id="\${id}"]\`);
+  return {
+    hook: hookEl.value,
+    points: pointsEl.value.split('\\n').map((s) => s.trim()).filter(Boolean),
+    cta: ctaEl.value
+  };
+}
+
+async function regenerateScript(id, btn) {
+  clearError();
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  try {
+    const res = await fetch(\`/queue/\${id}/regenerate-script\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(readRegenFields(id))
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Request failed (' + res.status + ')');
+    }
+    state.regenOpen.add(id); // keep the panel open across the reload so the reviewer sees the result
+    await load();
+  } catch (err) {
+    showError('Could not regenerate the script — ' + err.message);
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
+}
+
+async function regenerateScene(id, sceneIndex, btn) {
+  clearError();
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  try {
+    const res = await fetch(\`/queue/\${id}/regenerate-scene\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sceneIndex })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Request failed (' + res.status + ')');
+    }
+    state.regenOpen.add(id);
+    await load();
+  } catch (err) {
+    showError('Could not regenerate that scene — ' + err.message);
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
 }
 
 async function load() {

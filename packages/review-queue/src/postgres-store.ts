@@ -93,6 +93,19 @@ export function createPostgresStore(pool: PgPool): ReviewQueueStore {
         [status, ids]
       );
       return rows.map((r) => r.id as string);
+    },
+
+    async replaceReviewItem(item) {
+      await ensureSchema();
+      // niche/platform/created_at don't change on a regeneration, but status is intentionally
+      // reset to "pending" by the caller (apps/orchestrator/src/regenerate.ts) — a regenerated
+      // clip/script needs re-review, an approve/reject decision made against the old render
+      // shouldn't silently carry over.
+      await pool.query(`UPDATE review_items SET status = $2, data = $3 WHERE id = $1`, [
+        item.id,
+        item.status,
+        JSON.stringify(item)
+      ]);
     }
   };
 }

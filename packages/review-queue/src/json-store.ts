@@ -104,6 +104,10 @@ export function createJsonStore(dbPath: string): ReviewQueueStore {
         return items;
       });
       return updated;
+    },
+
+    replaceReviewItem(item) {
+      withLock(dbPath, (items) => items.map((existing) => (existing.id === item.id ? item : existing)));
     }
   };
 }

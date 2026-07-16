@@ -136,6 +136,17 @@ describe.skipIf(!TEST_DATABASE_URL)("review-queue postgres-store", () => {
     });
   });
 
+  it("replaceReviewItem overwrites both the status column and the JSONB payload, leaving other rows untouched", async () => {
+    await store.insertReviewItem(makeItem({ id: "a", videoPath: "/tmp/old.mp4", score: 50, status: "pending" }));
+    await store.insertReviewItem(makeItem({ id: "b", videoPath: "/tmp/other.mp4" }));
+
+    const regenerated = makeItem({ id: "a", videoPath: "/tmp/new.mp4", score: 90, status: "pending" });
+    await store.replaceReviewItem(regenerated);
+
+    expect(await store.getReviewItem("a")).toEqual(regenerated);
+    expect((await store.getReviewItem("b"))?.videoPath).toBe("/tmp/other.mp4");
+  });
+
   it("survives concurrent inserts without losing writes (real transactions, no app-level lock needed)", async () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) => store.insertReviewItem(makeItem({ id: `c${i}` }))));
     const items = await store.listReviewItems();
