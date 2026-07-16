@@ -1,116 +1,55 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { loadEnv } from "@vvugc/shared-config";
 import type { ReviewItem } from "@vvugc/shared-schema";
+import { createJsonStore } from "./json-store.js";
+import type { ReviewItemFilter, ReviewQueueStore } from "./store.js";
+
+export type { ReviewItemFilter } from "./store.js";
 
 /**
- * Plain JSON-file store instead of SQLite: this is a small local scaffold
- * (weekly-cadence CLI + a review dashboard), and it avoids requiring native
- * build tools (better-sqlite3) just to run it. Swap this for a real
- * datastore (Postgres/DynamoDB) when deploying to serverless with
- * concurrent invocations across multiple processes/machines.
- *
- * Within a single machine, concurrent writers (e.g. two rapid dashboard
- * clicks, or a dashboard approve racing a CLI run's insert) are made safe
- * by a simple exclusive lockfile: `open(path, "wx")` atomically fails if
- * the lock already exists, so only one read-modify-write cycle proceeds at
- * a time. This is a real fix for the read-all/write-all race, not a full
- * substitute for a database's transactional guarantees across machines.
+ * Picks the storage backend once per (dbPath, databaseUrl) pair and reuses it —
+ * a fresh `Pool`/lockfile per call would be wasteful, and DATABASE_URL/VVUGC_DB_PATH
+ * don't change mid-process outside tests (which each set their own env + import
+ * this module fresh, matching the existing test pattern in db.test.ts).
  */
-function acquireLock(dbPath: string, timeoutMs = 5000): void {
-  const lockPath = `${dbPath}.lock`;
-  const start = Date.now();
-  for (;;) {
-    try {
-      closeSync(openSync(lockPath, "wx"));
-      return;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      if (Date.now() - start > timeoutMs) {
-        throw new Error(`Timed out waiting for review-queue lock at ${lockPath}`);
-      }
-      // Busy-wait synchronously (this store's callers are simple sync request
-      // handlers, not async, so there's no event loop work to yield to).
-      const until = Date.now() + 20;
-      while (Date.now() < until) {
-        /* spin */
-      }
-    }
+let cached: { key: string; store: ReviewQueueStore } | undefined;
+
+async function getStore(): Promise<ReviewQueueStore> {
+  const { DATABASE_URL, VVUGC_DB_PATH } = loadEnv();
+  const key = DATABASE_URL ?? `json:${VVUGC_DB_PATH}`;
+  if (cached?.key === key) return cached.store;
+
+  if (DATABASE_URL) {
+    // Dynamic import, not a top-level one: `pg` opens real network I/O and is
+    // unused entirely by the default JSON-store path — importing it eagerly
+    // would mean every JSON-store-only deployment pays for loading it.
+    const [{ Pool }, { createPostgresStore }] = await Promise.all([import("pg"), import("./postgres-store.js")]);
+    cached = { key, store: createPostgresStore(new Pool({ connectionString: DATABASE_URL })) };
+  } else {
+    cached = { key, store: createJsonStore(VVUGC_DB_PATH) };
   }
+  return cached.store;
 }
 
-function releaseLock(dbPath: string): void {
-  rmSync(`${dbPath}.lock`, { force: true });
-}
-
-function readAllUnlocked(dbPath: string): ReviewItem[] {
-  if (!existsSync(dbPath)) return [];
-  return JSON.parse(readFileSync(dbPath, "utf-8"));
-}
-
-function writeAllUnlocked(dbPath: string, items: ReviewItem[]): void {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(items, null, 2));
-}
-
-/** Runs `fn` against the current items with the lock held, writing back whatever `fn` returns. */
-function withLock(fn: (items: ReviewItem[]) => ReviewItem[]): void {
-  const { VVUGC_DB_PATH } = loadEnv();
-  mkdirSync(dirname(VVUGC_DB_PATH), { recursive: true });
-  acquireLock(VVUGC_DB_PATH);
-  try {
-    writeAllUnlocked(VVUGC_DB_PATH, fn(readAllUnlocked(VVUGC_DB_PATH)));
-  } finally {
-    releaseLock(VVUGC_DB_PATH);
-  }
-}
-
-export function insertReviewItem(item: ReviewItem): void {
-  withLock((items) => [...items, item]);
-}
-
-export interface ReviewItemFilter {
-  status?: ReviewItem["status"];
-  niche?: string;
-  platform?: ReviewItem["platform"];
+export async function insertReviewItem(item: ReviewItem): Promise<void> {
+  await (await getStore()).insertReviewItem(item);
 }
 
 /** Accepts either a bare status (legacy call shape, still supported) or a filter object. */
-export function listReviewItems(filter?: ReviewItem["status"] | ReviewItemFilter): ReviewItem[] {
-  const { VVUGC_DB_PATH } = loadEnv();
-  const items = readAllUnlocked(VVUGC_DB_PATH).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const { status, niche, platform } = typeof filter === "string" ? { status: filter } : (filter ?? {});
-  return items.filter(
-    (i) => (!status || i.status === status) && (!niche || i.niche === niche) && (!platform || i.platform === platform)
-  );
+export async function listReviewItems(filter?: ReviewItem["status"] | ReviewItemFilter): Promise<ReviewItem[]> {
+  const normalized: ReviewItemFilter | undefined = typeof filter === "string" ? { status: filter } : filter;
+  return await (await getStore()).listReviewItems(normalized);
 }
 
-export function getReviewItem(id: string): ReviewItem | undefined {
-  const { VVUGC_DB_PATH } = loadEnv();
-  return readAllUnlocked(VVUGC_DB_PATH).find((i) => i.id === id);
+export async function getReviewItem(id: string): Promise<ReviewItem | undefined> {
+  return await (await getStore()).getReviewItem(id);
 }
 
-export function setReviewItemStatus(id: string, status: "approved" | "rejected"): void {
-  withLock((items) => {
-    const item = items.find((i) => i.id === id);
-    if (item) item.status = status;
-    return items;
-  });
+export async function setReviewItemStatus(id: string, status: "approved" | "rejected"): Promise<void> {
+  await (await getStore()).setReviewItemStatus(id, status);
 }
 
 /** Bulk variant, used by the dashboard's "select multiple, approve/reject" action —
- *  a single lock acquisition for the whole batch rather than one per item. */
-export function setReviewItemsStatus(ids: string[], status: "approved" | "rejected"): string[] {
-  const updated: string[] = [];
-  withLock((items) => {
-    const idSet = new Set(ids);
-    for (const item of items) {
-      if (idSet.has(item.id)) {
-        item.status = status;
-        updated.push(item.id);
-      }
-    }
-    return items;
-  });
-  return updated;
+ *  a single lock acquisition (JSON store) or single UPDATE (Postgres store) for the whole batch. */
+export async function setReviewItemsStatus(ids: string[], status: "approved" | "rejected"): Promise<string[]> {
+  return await (await getStore()).setReviewItemsStatus(ids, status);
 }
