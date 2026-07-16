@@ -19,6 +19,7 @@ COPY packages/review-queue/package.json packages/review-queue/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/shared-http/package.json packages/shared-http/package.json
 COPY packages/shared-metrics/package.json packages/shared-metrics/package.json
+COPY packages/mcp-voiceover/package.json packages/mcp-voiceover/package.json
 
 RUN pnpm install --frozen-lockfile
 
