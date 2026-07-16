@@ -145,7 +145,7 @@ jobs:
             echo "MOVING_TAG=latest" >> "$GITHUB_ENV"
           fi
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v3
         with:
