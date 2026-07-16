@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { requireEnvVar } from "@vvugc/shared-config";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
@@ -52,7 +53,7 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
       const secretKey = requireEnvVar("KLING_SECRET_KEY");
       const authHeader = () => ({ Authorization: `Bearer ${signKlingJwt(accessKey, secretKey)}` });
 
-      const submitRes = await fetch(`${KLING_API_BASE}/videos/text2video`, {
+      const submitRes = await fetchWithRetry(`${KLING_API_BASE}/videos/text2video`, {
         method: "POST",
         headers: { ...authHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -70,8 +71,9 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
       // authHeader() re-signs a fresh JWT on every call, so backoff duration isn't constrained
       // by the token's 30-minute expiry the way a single cached token would be.
       const videoUrl = await pollWithBackoff(async () => {
-        const statusRes = await fetch(`${KLING_API_BASE}/videos/text2video/${taskId}`, {
-          headers: authHeader()
+        const statusRes = await fetchWithRetry(`${KLING_API_BASE}/videos/text2video/${taskId}`, {
+          headers: authHeader(),
+          timeoutMs: 15_000
         });
         const statusBody = (await statusRes.json()) as KlingEnvelope<{
           task_status: string;
@@ -87,7 +89,7 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
 
       const filePath = `${outDir}/kling-${req.scriptSegmentIndex}-${taskId}.mp4`;
       mkdirSync(dirname(filePath), { recursive: true });
-      const bytes = await (await fetch(videoUrl)).arrayBuffer();
+      const bytes = await (await fetchWithRetry(videoUrl, { timeoutMs: 120_000 })).arrayBuffer();
       writeFileSync(filePath, Buffer.from(bytes));
 
       return {

@@ -56,7 +56,12 @@ jobs:
           PLATFORMS="${{ inputs.platforms || 'tiktok,youtube_shorts' }}"
           DRY_RUN_FLAG=""
           if [ "${{ inputs.dryRun }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
-          node apps/orchestrator/dist/cli.js run --niche="$NICHE" --platforms="$PLATFORMS" $DRY_RUN_FLAG
+          # A run that completes without throwing but produces zero review items is a
+          # silent failure otherwise indistinguishable from a normal empty run — this
+          # makes the job (and so this scheduled workflow) fail loudly instead, so
+          # GitHub's own "notify on scheduled workflow failure" catches it. See
+          # infra/cron/README.md's Observability note and cli.ts's determineExitCode.
+          node apps/orchestrator/dist/cli.js run --niche="$NICHE" --platforms="$PLATFORMS" $DRY_RUN_FLAG --fail-on-zero-results
 
       # Vendor video-gen output and the review queue aren't committed back to the repo (runs/
       # is gitignored) — this uploads them as a workflow artifact so a human reviewer can pull

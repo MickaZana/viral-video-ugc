@@ -27,6 +27,20 @@
 
 The current manifest ships with all 8 entries at `status: "placeholder"` and hand-authored SVG poster frames in `public/videos/` (dark gradient, niche/handle label, "Generating soon" badge) so the page is fully functional and honest today.
 
+## Generating real clips (Phase A — Gemini, no interactive session needed)
+
+`apps/marketing-site/scripts/generate-demo-videos.ts` populates the placeholder entries without needing an interactive Claude session or Higgsfield MCP auth (see Phase B below for why that path needs one). It reuses the real pipeline packages directly — `@vvugc/mcp-video-gen` (`--video-vendor gemini`: one Gemini-generated still image per script line, Ken-Burns-panned into a clip), `@vvugc/mcp-voiceover` (ElevenLabs/Grok narration, synced to the same caption cues), and `@vvugc/mcp-assembly` (concat, aspect-ratio crop, caption burn-in) — against each entry's already-authored `hook`/`points`/`cta`, so there's no discovery/transcript/script-rewrite step to run.
+
+```bash
+# Requires GEMINI_API_KEY. Voiceover is best-effort: set ELEVENLABS_API_KEY or
+# XAI_API_KEY to narrate, or leave both unset for a real, captioned, silent video.
+pnpm --filter @vvugc/marketing-site generate-demo-videos              # all placeholders
+pnpm --filter @vvugc/marketing-site generate-demo-videos -- --ids=demo-fitness,demo-beauty
+pnpm --filter @vvugc/marketing-site generate-demo-videos -- --dry-run # exercises the full path, no API keys needed
+```
+
+On success it copies the assembled `.mp4`/thumbnail into `public/videos/<id>.{mp4,jpg}` and flips that entry to `status: "ready"` in `video-manifest.json` directly — no manual manifest editing needed. A per-entry failure (e.g. an unfunded voiceover account, or a Gemini rate limit) is logged and that entry is left as `"placeholder"`; it doesn't block the rest of the batch. `viralityScore` is left `null` (the badge just doesn't render) since this path doesn't run the real QA-scoring stage.
+
 ## Generating real clips (Phase B — needs Higgsfield authorized)
 
 Higgsfield's MCP tools aren't reachable from this repo's plain Node code directly — they're only available inside a Claude session with the Higgsfield connector authorized. The server is now registered for this project at [`.mcp.json`](../.mcp.json) (`https://mcp.higgsfield.ai/mcp`), but registering it isn't the same as authorizing it: open an **interactive** Claude Code session in this repo and run `/mcp` to complete the OAuth flow (this can't happen in a non-interactive session). Once authorized:

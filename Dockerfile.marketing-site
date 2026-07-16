@@ -16,6 +16,9 @@ COPY packages/mcp-transcript/package.json packages/mcp-transcript/package.json
 COPY packages/mcp-video-gen/package.json packages/mcp-video-gen/package.json
 COPY packages/mcp-assembly/package.json packages/mcp-assembly/package.json
 COPY packages/review-queue/package.json packages/review-queue/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
+COPY packages/shared-http/package.json packages/shared-http/package.json
+COPY packages/shared-metrics/package.json packages/shared-metrics/package.json
 
 RUN pnpm install --frozen-lockfile
 
@@ -28,11 +31,40 @@ RUN pnpm -r run build
 FROM node:20-slim AS runtime
 WORKDIR /repo
 ENV NODE_ENV=production
+# shared-config's REPO_ROOT falls back to process.cwd() when INIT_CWD is unset — pnpm sets
+# INIT_CWD when it launches a script, but this container's CMD runs `node dist/server.js`
+# directly, so without this, VVUGC_RUNS_DIR would default relative to this app's own
+# WORKDIR (/repo/apps/marketing-site) instead of the repo root the `./runs` bind mount in
+# docker-compose.yml targets (/repo/runs) — silently writing waitlist.jsonl into the
+# container's ephemeral layer instead of the shared, persisted volume.
+ENV INIT_CWD=/repo
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY --from=build /repo ./
+# The build stage's `pnpm install` pulls in devDependencies too (needed for `tsc -b`,
+# vitest, etc.) — without this, those end up shipped in the runtime image, including
+# whatever CVEs happen to be open in build/test tooling that never actually runs here
+# (found via `pnpm-lock.yaml` scanning: a Critical-severity vitest CVE was sitting in
+# every runtime image before this line existed). `pnpm prune --prod` looks like the
+# obvious fix but triggers an interactive "reinstall from scratch?" prompt in this pnpm
+# version that silently no-ops with no TTY/stdin in a Docker RUN layer — verified by
+# hand, not assumed. Wiping node_modules and reinstalling --prod is slower but actually
+# deterministic; dist/ output from the build stage is untouched (it's outside node_modules).
+RUN find . -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} + \
+    && pnpm install --prod --frozen-lockfile
+
+# Runs as the non-root "node" user the base image already ships (uid/gid 1000),
+# not root — limits blast radius if a dependency vulnerability leads to code
+# execution inside the container. If you bind-mount ./runs from the host (see
+# docker-compose.yml), make sure that directory is writable by uid 1000 (e.g.
+# `chmod -R a+rwX runs` once on the host, or override `user:` in compose to
+# match your own uid/gid instead).
+RUN chown -R node:node /repo
+USER node
 
 WORKDIR /repo/apps/marketing-site
 EXPOSE 4320
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:4320/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 CMD ["node", "dist/server.js"]

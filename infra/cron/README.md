@@ -9,6 +9,15 @@ runner, using repo secrets for vendor API keys, and uploads the run's `runs/` di
 the moment you push this repo to GitHub and set the secrets it references — no AWS account
 needed. It's also runnable on demand via `workflow_dispatch` with niche/platform/dry-run inputs.
 
+**Alerting**: the scheduled run passes `--fail-on-zero-results` (`apps/orchestrator/src/cli.ts`)
+— a run that completes without throwing but produces zero review items is a silent failure
+otherwise indistinguishable from a normal empty run, so this makes the CLI (and so the job)
+exit non-zero in that case. A `runCycle` throw already exits non-zero on its own (caught in
+`cli.ts`'s action handler, printed cleanly instead of a raw stack trace). Either failure mode
+then trips GitHub's own built-in notification for a failed scheduled workflow run (repo
+watchers get emailed; wire a Slack/Discord webhook step here too if you want it routed
+somewhere more visible) — no new alerting infrastructure needed for this path.
+
 Limits of this path: GitHub-hosted runners cap a job at 6 hours and have ephemeral disk —
 fine for this pipeline's current per-run workload, but if you outgrow that (many niches,
 long-form video, self-hosted GPU video-gen), move to the EventBridge/Lambda path below.
@@ -29,4 +38,4 @@ Deploying for real (future work, needs your cloud account + explicit go-ahead):
 3. **Fan-out**: if running multiple niches, either one rule per niche with a fixed JSON input, or a single rule invoking a dispatcher Lambda that reads a `niches` config table and fans out one `runCycle` invocation per niche via SQS/Step Functions Map state.
 4. **Secrets**: move `.env` values into AWS Secrets Manager / SSM Parameter Store; inject via Lambda environment variables at deploy time, never commit them.
 5. **Higgsfield MCP access**: the Higgsfield adapter needs a live MCP connection (`callMcpTool`), which today only exists inside a Claude Agent SDK / Claude environment session. For a Lambda-triggered run, either (a) have the Lambda invoke a Claude Agent SDK session configured with the Higgsfield MCP server attached, or (b) wait for/build a direct Higgsfield REST client if one becomes available, and swap it in behind the same `VideoGenAdapter` interface — Kling/Runway/Pika already work as direct Lambda-callable REST adapters today.
-6. **Observability**: ship `pino` logs to CloudWatch; add a DLQ on the EventBridge target for failed runs; alert on `runCycle` throwing or on `reviewItemsCreated === 0` — the cost ledger (`packages/shared-cost`) already gives per-run spend visibility to feed into that alerting.
+6. **Observability**: ship `pino` logs to CloudWatch; add a DLQ on the EventBridge target for failed runs. Alerting on `runCycle` throwing or `reviewItemsCreated === 0` is already solved for the GitHub Actions path below via `--fail-on-zero-results` — port the same idea here (fail the Lambda invocation / feed CloudWatch alarms off it) rather than reinventing it. The cost ledger (`packages/shared-cost`) already gives per-run spend visibility to feed into that alerting too.

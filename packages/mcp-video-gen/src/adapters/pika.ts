@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { requireEnvVar } from "@vvugc/shared-config";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
@@ -31,7 +32,7 @@ export function createPikaAdapter(outDir: string): VideoGenAdapter {
       const apiKey = requireEnvVar("FAL_KEY");
       const headers = { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" };
 
-      const submitRes = await fetch(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}`, {
+      const submitRes = await fetchWithRetry(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -46,22 +47,23 @@ export function createPikaAdapter(outDir: string): VideoGenAdapter {
       const { request_id: requestId } = (await submitRes.json()) as { request_id: string };
 
       const completed = await pollWithBackoff(async () => {
-        const statusRes = await fetch(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}/requests/${requestId}/status`, {
-          headers
+        const statusRes = await fetchWithRetry(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}/requests/${requestId}/status`, {
+          headers,
+          timeoutMs: 15_000
         });
         const status = (await statusRes.json()) as FalStatus;
         return status.status === "COMPLETED" ? true : undefined;
       });
       if (!completed) throw new Error(`fal.ai Pika request ${requestId} did not complete in time`);
 
-      const resultRes = await fetch(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}/requests/${requestId}`, { headers });
+      const resultRes = await fetchWithRetry(`${FAL_QUEUE_BASE}/${PIKA_MODEL_ID}/requests/${requestId}`, { headers });
       const result = (await resultRes.json()) as FalVideoResult;
       const videoUrl = result.video?.url;
       if (!videoUrl) throw new Error(`fal.ai Pika request ${requestId} completed without a video URL`);
 
       const filePath = `${outDir}/pika-${req.scriptSegmentIndex}-${requestId}.mp4`;
       mkdirSync(dirname(filePath), { recursive: true });
-      const bytes = await (await fetch(videoUrl)).arrayBuffer();
+      const bytes = await (await fetchWithRetry(videoUrl, { timeoutMs: 120_000 })).arrayBuffer();
       writeFileSync(filePath, Buffer.from(bytes));
 
       return {

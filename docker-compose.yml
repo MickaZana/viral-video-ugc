@@ -1,3 +1,8 @@
+# Each service's Dockerfile drops root and runs as uid 1000 (the base image's built-in
+# "node" user). The ./runs bind mount below keeps the host directory's own ownership,
+# so if it's not already writable by uid 1000 on your host, run once:
+#   chmod -R a+rwX runs
+# or override each service with `user: "${UID}:${GID}"` to match your own account instead.
 services:
   review-dashboard:
     build:
@@ -6,7 +11,8 @@ services:
     ports:
       - "4310:4310"
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./runs:/repo/runs
     restart: unless-stopped
@@ -17,6 +23,11 @@ services:
       dockerfile: Dockerfile.marketing-site
     ports:
       - "4320:4320"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./runs:/repo/runs
     restart: unless-stopped
 
   # One-off pipeline run, not a long-running service — e.g.:
@@ -26,7 +37,8 @@ services:
       context: .
       dockerfile: Dockerfile.orchestrator
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - ./runs:/repo/runs
     profiles:

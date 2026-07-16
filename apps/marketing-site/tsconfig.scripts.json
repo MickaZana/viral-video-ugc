@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "scripts",
+    "outDir": ".scripts-typecheck-out",
+    "noEmit": true
+  },
+  "include": ["scripts"],
+  "references": [
+    { "path": "../../packages/shared-schema" },
+    { "path": "../../packages/shared-config" },
+    { "path": "../../packages/mcp-video-gen" },
+    { "path": "../../packages/mcp-assembly" },
+    { "path": "../../packages/mcp-voiceover" }
+  ]
+}

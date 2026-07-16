@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { requireEnvVar } from "@vvugc/shared-config";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
@@ -38,7 +39,7 @@ export function createRunwayAdapter(outDir: string): VideoGenAdapter {
         "Content-Type": "application/json"
       };
 
-      const submitRes = await fetch(`${RUNWAY_API_BASE}/v1/text_to_video`, {
+      const submitRes = await fetchWithRetry(`${RUNWAY_API_BASE}/v1/text_to_video`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -55,7 +56,7 @@ export function createRunwayAdapter(outDir: string): VideoGenAdapter {
       // Runway asks consumers not to poll faster than once per 5s — pollWithBackoff's 2s
       // initial delay ramps past that within the first couple of attempts.
       const videoUrl = await pollWithBackoff(async () => {
-        const statusRes = await fetch(`${RUNWAY_API_BASE}/v1/tasks/${taskId}`, { headers });
+        const statusRes = await fetchWithRetry(`${RUNWAY_API_BASE}/v1/tasks/${taskId}`, { headers, timeoutMs: 15_000 });
         const task = (await statusRes.json()) as RunwayTask;
         if (task.status === "error" || task.status === "failed") {
           throw new Error(`Runway task ${taskId} failed: ${task.failure ?? "unknown error"}`);
@@ -66,7 +67,7 @@ export function createRunwayAdapter(outDir: string): VideoGenAdapter {
 
       const filePath = `${outDir}/runway-${req.scriptSegmentIndex}-${taskId}.mp4`;
       mkdirSync(dirname(filePath), { recursive: true });
-      const bytes = await (await fetch(videoUrl)).arrayBuffer();
+      const bytes = await (await fetchWithRetry(videoUrl, { timeoutMs: 120_000 })).arrayBuffer();
       writeFileSync(filePath, Buffer.from(bytes));
 
       return {

@@ -49,14 +49,18 @@ Source transcript:
 ${transcript.text}
 """`;
 
+  // Fable 5: this is the hook/point/CTA creative-writing bottleneck — the single stage where
+  // output quality has the most leverage over whether a finished video is worth generating at
+  // all — so it gets the premium model. See CLAUDE.md's "Model selection" section.
+  const model = "claude-fable-5";
   const message = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
 
-  opts.costLedger?.recordAnthropicUsage("script_rewrite", message.usage);
+  opts.costLedger?.recordAnthropicUsage("script_rewrite", message.usage, model);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

@@ -48,14 +48,18 @@ ${script.points.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 CTA: ${script.cta}
 Trending phrases used: ${script.trendingPhrases.join(", ") || "none"}`;
 
+  // Sonnet 5: this is the pipeline's gatekeeping judgment call — it decides what reaches a
+  // human's review queue at all — so it keeps the balanced default model rather than the
+  // cheaper or pricier ends of the mix. See CLAUDE.md's "Model selection" section.
+  const model = "claude-sonnet-5";
   const message = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model,
     max_tokens: 512,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
 
-  opts.costLedger?.recordAnthropicUsage("qa_score", message.usage);
+  opts.costLedger?.recordAnthropicUsage("qa_score", message.usage, model);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

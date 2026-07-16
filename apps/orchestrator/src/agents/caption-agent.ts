@@ -31,14 +31,18 @@ Points:
 ${script.points.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 CTA: ${script.cta}`;
 
+  // Haiku 4.5: this stage only splits an already-written script into timed cards by reading
+  // length — mechanical, bounded, high-volume (once per candidate every run), not a creative
+  // judgment call, so it doesn't need the premium models. See CLAUDE.md's "Model selection".
+  const model = "claude-haiku-4-5";
   const message = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }]
   });
 
-  opts.costLedger?.recordAnthropicUsage("caption_timing", message.usage);
+  opts.costLedger?.recordAnthropicUsage("caption_timing", message.usage, model);
 
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {

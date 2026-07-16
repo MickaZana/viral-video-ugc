@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AssembledVideoSchema,
   CandidateVideoSchema,
   CaptionCueSchema,
   RawClipSchema,
@@ -49,6 +50,36 @@ describe("RunConfigSchema", () => {
 
   it("rejects an unknown videoVendor", () => {
     expect(() => RunConfigSchema.parse({ ...base, videoVendor: "sora" })).toThrow();
+  });
+
+  it("leaves voiceVendor undefined by default — voiceover stays opt-in, not silently on", () => {
+    const parsed = RunConfigSchema.parse(base);
+    expect(parsed.voiceVendor).toBeUndefined();
+  });
+
+  it("accepts elevenlabs/grok as voiceVendor and rejects anything else", () => {
+    expect(RunConfigSchema.parse({ ...base, voiceVendor: "elevenlabs" }).voiceVendor).toBe("elevenlabs");
+    expect(RunConfigSchema.parse({ ...base, voiceVendor: "grok" }).voiceVendor).toBe("grok");
+    expect(() => RunConfigSchema.parse({ ...base, voiceVendor: "amazon-polly" })).toThrow();
+  });
+});
+
+describe("AssembledVideoSchema", () => {
+  const base = {
+    videoId: "v1",
+    platform: "tiktok",
+    filePath: "/tmp/out.mp4",
+    durationSec: 25,
+    aspectRatio: "9:16",
+    captionsBurned: true
+  };
+
+  it("defaults voiceoverAdded to false so older manifests without the field stay valid", () => {
+    expect(AssembledVideoSchema.parse(base).voiceoverAdded).toBe(false);
+  });
+
+  it("accepts an explicit voiceoverAdded: true", () => {
+    expect(AssembledVideoSchema.parse({ ...base, voiceoverAdded: true }).voiceoverAdded).toBe(true);
   });
 });
 

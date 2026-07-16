@@ -10,7 +10,10 @@ export const RunConfigSchema = z.object({
   brandVoice: z.string().default("neutral, energetic, concise"),
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
-  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika"]).default("higgsfield"),
+  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]).default("higgsfield"),
+  /** Narration synced to burned-in captions (see packages/mcp-voiceover) — opt-in,
+   *  omitted means the current silent/vendor-native-audio behavior is unchanged. */
+  voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
   dryRun: z.boolean().default(false),
   autoPost: z.boolean().default(false),
   createdAt: z.string().datetime()
@@ -73,7 +76,7 @@ export type CaptionCue = z.infer<typeof CaptionCueSchema>;
 export const RawClipSchema = z.object({
   id: z.string(),
   scriptSegmentIndex: z.number().int().nonnegative(),
-  vendor: z.enum(["higgsfield", "kling", "runway", "pika"]),
+  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]),
   filePath: z.string(),
   durationSec: z.number().positive()
 });
@@ -87,9 +90,16 @@ export const AssembledVideoSchema = z.object({
   aspectRatio: z.enum(["9:16", "1:1", "16:9"]),
   captionsBurned: z.boolean(),
   hashtags: z.array(z.string()).default([]),
-  thumbnailPath: z.string().optional()
+  thumbnailPath: z.string().optional(),
+  /** True when narration audio (synced to the burned-in captions — see
+   *  packages/mcp-voiceover) replaced the vendor clips' own audio track.
+   *  Defaults false so older manifests/callers that never set it stay valid. */
+  voiceoverAdded: z.boolean().default(false)
 });
 export type AssembledVideo = z.infer<typeof AssembledVideoSchema>;
+
+export const ReviewItemStatusSchema = z.enum(["pending", "approved", "rejected"]);
+export type ReviewItemStatus = z.infer<typeof ReviewItemStatusSchema>;
 
 export const ReviewItemSchema = z.object({
   id: z.string(),
@@ -100,7 +110,7 @@ export const ReviewItemSchema = z.object({
   script: RewrittenScriptSchema,
   score: z.number().min(0).max(100),
   flags: z.array(z.string()).default([]),
-  status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+  status: ReviewItemStatusSchema.default("pending"),
   createdAt: z.string().datetime()
 });
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
@@ -113,6 +123,10 @@ export const RunResultSchema = z.object({
   manifestPath: z.string(),
   completedAt: z.string().datetime(),
   costLedgerPath: z.string().optional(),
-  estimatedCostUsd: z.number().nonnegative().optional()
+  estimatedCostUsd: z.number().nonnegative().optional(),
+  /** Candidates skipped entirely (transcript/script rewrite failed) — see conductor.ts's per-candidate try/catch. */
+  candidatesFailed: z.number().int().nonnegative().optional(),
+  /** Individual platform attempts skipped (video-gen/assembly/QA failed for that candidate+platform only). */
+  platformsFailed: z.number().int().nonnegative().optional()
 });
 export type RunResult = z.infer<typeof RunResultSchema>;

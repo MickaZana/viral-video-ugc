@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
 import type { McpToolCaller, VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
@@ -39,7 +40,7 @@ export function createHiggsfieldAdapter(callMcpTool: McpToolCaller, outDir: stri
 
       const filePath = `${outDir}/higgsfield-${req.scriptSegmentIndex}-${job.jobId}.mp4`;
       mkdirSync(dirname(filePath), { recursive: true });
-      const bytes = await (await fetch(result.videoUrl)).arrayBuffer();
+      const bytes = await (await fetchWithRetry(result.videoUrl, { timeoutMs: 120_000 })).arrayBuffer();
       writeFileSync(filePath, Buffer.from(bytes));
 
       return {
