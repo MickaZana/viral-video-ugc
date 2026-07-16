@@ -48,6 +48,21 @@ const EnvSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   /** Defaults to "gemini-2.5-flash-image" ("Nano Banana") if unset — see adapters/gemini.ts. */
   GEMINI_IMAGE_MODEL: z.string().optional(),
+  /** Publishing (packages/mcp-publish) — never called automatically by the pipeline, only
+   *  from an explicit post-approval action (review-dashboard's POST /queue/:id/publish).
+   *  A TikTok user access token with the video.publish scope, from a completed 3-legged
+   *  OAuth flow — not the TIKTOK_CLIENT_KEY/SECRET pair discovery uses. */
+  TIKTOK_ACCESS_TOKEN: z.string().optional(),
+  /** A Facebook Page access token (not a user token) with pages_manage_posts. */
+  META_PAGE_ACCESS_TOKEN: z.string().optional(),
+  /** The Meta App ID that owns the upload session — required by the Graph API's
+   *  resumable Upload API (POST /<APP_ID>/uploads), separate from META_ACCESS_TOKEN
+   *  (discovery's hashtag-search token) and META_PAGE_ACCESS_TOKEN above. */
+  META_APP_ID: z.string().optional(),
+  /** The destination Facebook Page's id — where publishToFacebookPage actually posts. */
+  META_PAGE_ID: z.string().optional(),
+  /** A YouTube OAuth access token with the youtube.upload scope. */
+  YOUTUBE_ACCESS_TOKEN: z.string().optional(),
   VVUGC_DB_PATH: z.string().default(join(REPO_ROOT, "runs", "review-queue.json")),
   VVUGC_RUNS_DIR: z.string().default(join(REPO_ROOT, "runs")),
   /**

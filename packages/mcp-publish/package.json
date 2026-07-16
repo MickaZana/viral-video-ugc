@@ -1,0 +1,20 @@
+{
+  "name": "@vvugc/mcp-publish",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vvugc/shared-schema": "workspace:*",
+    "@vvugc/shared-config": "workspace:*",
+    "@vvugc/shared-http": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
