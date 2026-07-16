@@ -1,7 +1,7 @@
 # Builds and runs the vvugc CLI (discovery -> script rewrite -> video gen -> assembly -> review queue).
 # Runs `vvugc run ...` as a one-off command — see docker-compose.yml for the scheduled-cron usage,
 # or `docker run --env-file .env vvugc-orchestrator run --niche=fitness --dry-run`.
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /repo
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
@@ -34,7 +34,7 @@ COPY infra infra
 # to work everywhere this repo has actually been built. See .github/workflows/ci.yml.
 RUN pnpm -r run build
 
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /repo
 ENV NODE_ENV=production
 # shared-config's REPO_ROOT falls back to process.cwd() when INIT_CWD is unset — pnpm sets
