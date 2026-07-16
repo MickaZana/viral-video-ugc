@@ -52,7 +52,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/vvugc_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
@@ -127,7 +127,7 @@ jobs:
           - image: orchestrator
             dockerfile: Dockerfile.orchestrator
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ghcr.io requires a lowercase image path; github.repository preserves
       # whatever case the repo owner/name actually has.
