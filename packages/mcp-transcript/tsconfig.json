@@ -5,5 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../shared-schema" }, { "path": "../shared-config" }]
+  "references": [{ "path": "../shared-schema" }, { "path": "../shared-config" }, { "path": "../shared-http" }]
 }

@@ -12,6 +12,7 @@
     { "path": "../../packages/mcp-transcript" },
     { "path": "../../packages/mcp-video-gen" },
     { "path": "../../packages/mcp-assembly" },
+    { "path": "../../packages/mcp-voiceover" },
     { "path": "../../packages/review-queue" }
   ]
 }

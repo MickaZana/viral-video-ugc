@@ -1,10 +1,32 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import type { AssembledVideo, CaptionCue, Platform, RawClip, RewrittenScript } from "@vvugc/shared-schema";
 
-if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath as unknown as string);
+/**
+ * ffmpeg-static's downloaded binary isn't always runnable — in this project's dev
+ * sandbox it fails with "Exec format error" despite being a valid PE32+ binary,
+ * apparently an environment execution-policy restriction rather than a corrupt
+ * download. Rather than hard-depend on that binary, prefer it when it actually
+ * runs and fall back to whatever `ffmpeg` fluent-ffmpeg finds on PATH otherwise
+ * (fluent-ffmpeg's default behavior when setFfmpegPath is never called). This is
+ * what let the assembly pipeline actually be verified end-to-end in that sandbox,
+ * against a real system ffmpeg install, instead of staying permanently unverified.
+ */
+function resolveFfmpegPath(): string | undefined {
+  if (!ffmpegPath) return undefined;
+  try {
+    execFileSync(ffmpegPath as unknown as string, ["-version"], { stdio: "ignore" });
+    return ffmpegPath as unknown as string;
+  } catch {
+    return undefined;
+  }
+}
+
+const resolvedFfmpegPath = resolveFfmpegPath();
+if (resolvedFfmpegPath) ffmpeg.setFfmpegPath(resolvedFfmpegPath);
 
 export const ASPECT_RATIO_BY_PLATFORM: Record<Platform, AssembledVideo["aspectRatio"]> = {
   tiktok: "9:16",
@@ -57,6 +79,15 @@ export interface AssembleOptions {
   hashtags?: string[];
   /** Skips real ffmpeg processing — mock clips from --dry-run aren't real video files. */
   dryRun?: boolean;
+  /**
+   * Path to a narration track already time-conformed to these exact `captions`
+   * cues (see packages/mcp-voiceover's generateVoiceoverTrack) — entirely
+   * optional and additive. When given, it replaces the vendor clips' own audio
+   * track in the final output (video from the clips, audio from this file);
+   * when omitted, behavior is byte-for-byte what it was before this option
+   * existed — clips' native audio (if any) passes through untouched.
+   */
+  voiceoverPath?: string;
 }
 
 /**
@@ -82,7 +113,8 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
       durationSec: script.durationSec,
       aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform],
       captionsBurned: true,
-      hashtags: opts.hashtags ?? deriveHashtags(script)
+      hashtags: opts.hashtags ?? deriveHashtags(script),
+      voiceoverAdded: Boolean(opts.voiceoverPath)
     };
   }
 
@@ -101,17 +133,38 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
   // demuxer accepts filters directly, so there's no need for separate intermediate files
   // (each extra pass would mean an extra full decode/encode cycle and quality loss for
   // no benefit, since only the final output is ever kept).
+  //
+  // x264 defaults to one thread per detected CPU, which allocates a large working buffer
+  // per thread — verified live in a memory-constrained sandbox that this can exceed the
+  // available address space and crash the encoder (`x264 [error]: malloc ... failed`) even
+  // though the ffmpeg invocation itself (concat list, path handling, subtitle filter) is
+  // correct. VVUGC_FFMPEG_THREADS lets a constrained host (small container, CI runner) cap
+  // it; left unset, ffmpeg keeps its normal auto-detected thread count.
+  const threadLimit = process.env.VVUGC_FFMPEG_THREADS;
   const finalPath = join(outDir, `${script.videoId}-final.mp4`);
+  const hasVoiceover = Boolean(opts.voiceoverPath);
   await run(
-    (cmd) =>
-      cmd
-        .input(concatListPath)
-        .inputOptions(["-f concat", "-safe 0"])
-        .videoFilters([
-          `scale=${w}:${h}:force_original_aspect_ratio=increase`,
-          `crop=${w}:${h}`,
-          `subtitles='${escapedSrt}'`
-        ]),
+    (cmd) => {
+      cmd.input(concatListPath).inputOptions(["-f concat", "-safe 0"]);
+      if (opts.voiceoverPath) cmd.input(opts.voiceoverPath);
+
+      cmd.videoFilters([
+        `scale=${w}:${h}:force_original_aspect_ratio=increase`,
+        `crop=${w}:${h}`,
+        `subtitles='${escapedSrt}'`
+      ]);
+
+      const outputOptions = threadLimit ? ["-threads", threadLimit, "-x264-params", `threads=${threadLimit}`] : [];
+      if (hasVoiceover) {
+        // Video from the clip concat (input 0), audio from the voiceover track
+        // (input 1) — replaces whatever native audio the vendor clips carried.
+        // -shortest guards against a floating-point mismatch between the two
+        // (they're both anchored to the same cue timing, so any gap should be
+        // sub-frame, but this avoids a frozen/silent tail either way.
+        outputOptions.push("-map", "0:v:0", "-map", "1:a:0", "-shortest");
+      }
+      return cmd.outputOptions(outputOptions);
+    },
     finalPath
   );
 
@@ -131,7 +184,8 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
     aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform],
     captionsBurned: true,
     hashtags: opts.hashtags ?? deriveHashtags(script),
-    thumbnailPath
+    thumbnailPath,
+    voiceoverAdded: hasVoiceover
   };
 }
 

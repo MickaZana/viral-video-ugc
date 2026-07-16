@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ASPECT_RATIO_BY_PLATFORM,
@@ -7,6 +11,15 @@ import {
   deriveHashtags,
   formatSrtTime
 } from "./lib.js";
+
+function ffmpegAvailable(): boolean {
+  try {
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe("formatSrtTime", () => {
   it("formats whole seconds", () => {
@@ -124,4 +137,160 @@ describe("assembleVideo --dry-run", () => {
       assembleVideo({ clips, script, captions: [], platform: "tiktok", outDir, dryRun: true })
     ).rejects.toThrow();
   });
+});
+
+/**
+ * A real, non-mocked ffmpeg run — not a --dry-run stub. Skips itself (via ffmpegAvailable())
+ * on machines without a working ffmpeg on PATH rather than failing, since CI/dev environments
+ * vary. Where it *can* run, this is the actual verification that the concat-list quoting,
+ * scale/crop/subtitle-burn filter chain, and path escaping all produce a real, correctly-shaped
+ * video file — confirmed live against real system ffmpeg after ffmpeg-static's bundled binary
+ * turned out to be unexecutable in this project's dev sandbox (see resolveFfmpegPath in lib.ts).
+ * VVUGC_FFMPEG_THREADS=1 avoids a real failure mode found this way: x264's default
+ * one-thread-per-CPU allocation can exceed a memory-constrained host's address space and crash
+ * the encoder outright — unrelated to correctness, but real enough to guard against here.
+ */
+describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
+  it("produces a real playable mp4 with the correct dimensions and duration, plus a thumbnail", async () => {
+    const workDir = mkdtempSync(join(tmpdir(), "vvugc-assembly-live-test-"));
+    const clipsDir = join(workDir, "clips");
+    const outDir = join(workDir, "assembled");
+
+    try {
+      execFileSync("node", ["-e", "1"]); // sanity: node itself works before we shell out more
+      mkdirSync(clipsDir, { recursive: true });
+      for (const [name, color] of [["clip0.mp4", "blue"], ["clip1.mp4", "red"]] as const) {
+        execFileSync("ffmpeg", [
+          "-y",
+          "-f", "lavfi", "-i", `color=c=${color}:s=320x180:d=1`,
+          "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+          "-c:v", "libx264", "-c:a", "aac", "-shortest",
+          join(clipsDir, name)
+        ], { cwd: workDir, stdio: "ignore" });
+      }
+
+      const script = {
+        videoId: "live-verify",
+        hook: "hook",
+        points: ["point"],
+        cta: "cta",
+        durationSec: 2,
+        brandVoice: "energetic",
+        trendingPhrases: ["realtest"]
+      };
+      const clips = [
+        { id: "clip-0", scriptSegmentIndex: 0, filePath: join(clipsDir, "clip0.mp4"), durationSec: 1, vendor: "kling" as const },
+        { id: "clip-1", scriptSegmentIndex: 1, filePath: join(clipsDir, "clip1.mp4"), durationSec: 1, vendor: "kling" as const }
+      ];
+      const captions = [
+        { startSec: 0, endSec: 1, text: "hook" },
+        { startSec: 1, endSec: 2, text: "point" }
+      ];
+
+      const prevThreads = process.env.VVUGC_FFMPEG_THREADS;
+      process.env.VVUGC_FFMPEG_THREADS = "1";
+      let result;
+      try {
+        result = await assembleVideo({ clips, script, captions, platform: "tiktok", outDir, dryRun: false });
+      } finally {
+        if (prevThreads === undefined) delete process.env.VVUGC_FFMPEG_THREADS;
+        else process.env.VVUGC_FFMPEG_THREADS = prevThreads;
+      }
+
+      expect(existsSync(result.filePath)).toBe(true);
+      expect(existsSync(result.thumbnailPath!)).toBe(true);
+
+      const probe = execFileSync("ffprobe", [
+        "-v", "error",
+        "-show_entries", "stream=codec_name,width,height",
+        "-show_entries", "format=duration",
+        "-of", "json",
+        result.filePath
+      ]).toString();
+      const parsed = JSON.parse(probe);
+      const videoStream = parsed.streams.find((s: { codec_name: string }) => s.codec_name === "h264");
+      expect(videoStream.width).toBe(DIMENSIONS["9:16"].w);
+      expect(videoStream.height).toBe(DIMENSIONS["9:16"].h);
+      expect(Math.round(Number(parsed.format.duration))).toBe(2);
+      expect(result.voiceoverAdded).toBe(false);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it(
+    "when voiceoverPath is given, the final output's audio comes from it, not the clips — proven by using video-only clips with no audio track at all",
+    async () => {
+      const workDir = mkdtempSync(join(tmpdir(), "vvugc-assembly-voiceover-test-"));
+      const clipsDir = join(workDir, "clips");
+      const outDir = join(workDir, "assembled");
+
+      try {
+        mkdirSync(clipsDir, { recursive: true });
+        // Deliberately video-only (no -f lavfi audio input, no -c:a) — if the
+        // final output ends up with an audio stream anyway, it can only have
+        // come from voiceoverPath, since these clips have nothing to concat.
+        for (const [name, color] of [["clip0.mp4", "green"], ["clip1.mp4", "yellow"]] as const) {
+          execFileSync(
+            "ffmpeg",
+            ["-y", "-f", "lavfi", "-i", `color=c=${color}:s=320x180:d=1`, "-c:v", "libx264", join(clipsDir, name)],
+            { cwd: workDir, stdio: "ignore" }
+          );
+        }
+
+        const voiceoverPath = join(workDir, "voiceover.wav");
+        execFileSync(
+          "ffmpeg",
+          ["-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=2", voiceoverPath],
+          { cwd: workDir, stdio: "ignore" }
+        );
+
+        const script = {
+          videoId: "voiceover-verify",
+          hook: "hook",
+          points: ["point"],
+          cta: "cta",
+          durationSec: 2,
+          brandVoice: "energetic",
+          trendingPhrases: []
+        };
+        const clips = [
+          { id: "clip-0", scriptSegmentIndex: 0, filePath: join(clipsDir, "clip0.mp4"), durationSec: 1, vendor: "kling" as const },
+          { id: "clip-1", scriptSegmentIndex: 1, filePath: join(clipsDir, "clip1.mp4"), durationSec: 1, vendor: "kling" as const }
+        ];
+        const captions = [
+          { startSec: 0, endSec: 1, text: "hook" },
+          { startSec: 1, endSec: 2, text: "point" }
+        ];
+
+        const prevThreads = process.env.VVUGC_FFMPEG_THREADS;
+        process.env.VVUGC_FFMPEG_THREADS = "1";
+        let result;
+        try {
+          result = await assembleVideo({ clips, script, captions, platform: "tiktok", outDir, dryRun: false, voiceoverPath });
+        } finally {
+          if (prevThreads === undefined) delete process.env.VVUGC_FFMPEG_THREADS;
+          else process.env.VVUGC_FFMPEG_THREADS = prevThreads;
+        }
+
+        expect(result.voiceoverAdded).toBe(true);
+        expect(existsSync(result.filePath)).toBe(true);
+
+        const probe = execFileSync("ffprobe", [
+          "-v", "error",
+          "-show_entries", "stream=codec_type,codec_name",
+          "-of", "json",
+          result.filePath
+        ]).toString();
+        const parsed = JSON.parse(probe);
+        const audioStream = parsed.streams.find((s: { codec_type: string }) => s.codec_type === "audio");
+        expect(audioStream).toBeDefined();
+        const videoStream = parsed.streams.find((s: { codec_type: string }) => s.codec_type === "video");
+        expect(videoStream).toBeDefined();
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
+    },
+    30_000
+  );
 });

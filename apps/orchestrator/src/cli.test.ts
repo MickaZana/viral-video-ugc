@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { parseRunOptions } from "./cli.js";
+import type { RunResult } from "@vvugc/shared-schema";
+import { determineExitCode, parseRunOptions } from "./cli.js";
+
+function makeResult(overrides: Partial<RunResult> = {}): RunResult {
+  return {
+    runId: "run-1",
+    niche: "fitness",
+    candidatesFound: 3,
+    reviewItemsCreated: 2,
+    manifestPath: "/tmp/manifest.json",
+    completedAt: new Date().toISOString(),
+    ...overrides
+  };
+}
 
 function baseOptions(overrides: Partial<Parameters<typeof parseRunOptions>[0]> = {}) {
   return {
@@ -53,5 +66,20 @@ describe("parseRunOptions", () => {
     const config = parseRunOptions(baseOptions({ dryRun: true, autoPost: true }));
     expect(config.dryRun).toBe(true);
     expect(config.autoPost).toBe(true);
+  });
+});
+
+describe("determineExitCode", () => {
+  it("returns 0 for a normal run with items created, regardless of the flag", () => {
+    expect(determineExitCode(makeResult({ reviewItemsCreated: 5 }), true)).toBe(0);
+    expect(determineExitCode(makeResult({ reviewItemsCreated: 5 }), false)).toBe(0);
+  });
+
+  it("returns 0 for a zero-item run when the flag is not set (default interactive-local behavior)", () => {
+    expect(determineExitCode(makeResult({ reviewItemsCreated: 0 }), false)).toBe(0);
+  });
+
+  it("returns 1 for a zero-item run when --fail-on-zero-results is set — this is the silent-failure case scheduled runs need surfaced", () => {
+    expect(determineExitCode(makeResult({ reviewItemsCreated: 0 }), true)).toBe(1);
   });
 });

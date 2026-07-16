@@ -1,4 +1,5 @@
 import { requireEnvVar } from "@vvugc/shared-config";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { Transcript } from "@vvugc/shared-schema";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
@@ -32,10 +33,11 @@ export async function transcribeWithWhisper(source: AudioSource): Promise<Transc
   form.append("model", "whisper-1");
   form.append("response_format", "verbose_json");
 
-  const res = await fetch(WHISPER_URL, {
+  const res = await fetchWithRetry(WHISPER_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
-    body: form
+    body: form,
+    timeoutMs: 60_000
   });
 
   if (!res.ok) {

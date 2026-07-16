@@ -1,3 +1,4 @@
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { CandidateVideo, Transcript } from "@vvugc/shared-schema";
 
 /**
@@ -9,7 +10,7 @@ import type { CandidateVideo, Transcript } from "@vvugc/shared-schema";
  */
 export async function fetchYouTubeCaptions(videoId: string): Promise<Transcript | undefined> {
   const url = `https://video.google.com/timedtext?lang=en&v=${videoId}`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url, { timeoutMs: 15_000 });
   if (!res.ok) return undefined;
   const xml = await res.text();
   if (!xml.includes("<text")) return undefined;

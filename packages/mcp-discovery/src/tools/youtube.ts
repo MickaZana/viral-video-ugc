@@ -1,4 +1,5 @@
 import { requireEnvVar } from "@vvugc/shared-config";
+import { fetchWithRetry } from "@vvugc/shared-http";
 import type { CandidateVideo } from "@vvugc/shared-schema";
 
 interface YouTubeSearchItem {
@@ -32,7 +33,7 @@ export async function discoverYouTube(niche: string, limit: number): Promise<Can
   searchUrl.searchParams.set("maxResults", String(Math.min(limit, 50)));
   searchUrl.searchParams.set("key", apiKey);
 
-  const searchRes = await fetch(searchUrl);
+  const searchRes = await fetchWithRetry(searchUrl, { timeoutMs: 15_000 });
   if (!searchRes.ok) {
     throw new Error(`YouTube search.list failed: ${searchRes.status} ${await searchRes.text()}`);
   }
@@ -45,7 +46,7 @@ export async function discoverYouTube(niche: string, limit: number): Promise<Can
   statsUrl.searchParams.set("id", ids.join(","));
   statsUrl.searchParams.set("key", apiKey);
 
-  const statsRes = await fetch(statsUrl);
+  const statsRes = await fetchWithRetry(statsUrl, { timeoutMs: 15_000 });
   if (!statsRes.ok) {
     throw new Error(`YouTube videos.list failed: ${statsRes.status} ${await statsRes.text()}`);
   }
