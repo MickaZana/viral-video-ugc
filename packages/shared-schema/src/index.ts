@@ -16,6 +16,10 @@ export const RunConfigSchema = z.object({
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
   dryRun: z.boolean().default(false),
   autoPost: z.boolean().default(false),
+  /** Owning account (see @vvugc/shared-auth) — optional so CLI/--dry-run usage
+   *  without an account stays exactly as it was; only self-service/API-driven
+   *  runs need to tag ownership for usage metering (see shared-auth's usage.ts). */
+  accountId: z.string().optional(),
   createdAt: z.string().datetime()
 });
 export type RunConfig = z.infer<typeof RunConfigSchema>;
@@ -110,6 +114,27 @@ export const ReviewItemSchema = z.object({
   script: RewrittenScriptSchema,
   score: z.number().min(0).max(100),
   flags: z.array(z.string()).default([]),
+  /** Algorithmic "trend-informed but original" check (@vvugc/shared-originality) — separate
+   *  from `score`, which is Claude's virality judgment. Optional so older review-queue JSON
+   *  entries written before this field existed stay valid. */
+  originalityScore: z.number().min(0).max(100).optional(),
+  /** Per-segment clips, the caption cues, and (if used) the narration track path — captured
+   *  so a reviewer can regenerate one scene or the whole script later (apps/orchestrator/src/
+   *  regenerate.ts) without re-running discovery/transcript. All optional: items created before
+   *  regeneration existed simply can't be regenerated in place. */
+  clips: z.array(RawClipSchema).optional(),
+  captions: z.array(CaptionCueSchema).optional(),
+  voiceoverPath: z.string().optional(),
+  /** The source transcript's full text — needed to recompute originalityScore after a
+   *  regeneration, without re-transcribing. */
+  sourceTranscriptText: z.string().optional(),
+  /** Set once a human-approved item is actually posted (apps/review-dashboard's
+   *  POST /queue/:id/publish, @vvugc/mcp-publish) — absent means never published.
+   *  Nothing in the pipeline sets these automatically; see docs/architecture.md's
+   *  human-review-gate note. */
+  publishedPostId: z.string().optional(),
+  publishedUrl: z.string().optional(),
+  publishedAt: z.string().datetime().optional(),
   status: ReviewItemStatusSchema.default("pending"),
   createdAt: z.string().datetime()
 });
@@ -117,6 +142,9 @@ export type ReviewItem = z.infer<typeof ReviewItemSchema>;
 
 export const RunResultSchema = z.object({
   runId: z.string(),
+  /** Mirrors RunConfig.accountId — carried onto the manifest so usage.ts (@vvugc/shared-auth)
+   *  can attribute this run's cost-ledger spend to an account without re-reading RunConfig. */
+  accountId: z.string().optional(),
   niche: z.string(),
   candidatesFound: z.number().int().nonnegative(),
   reviewItemsCreated: z.number().int().nonnegative(),

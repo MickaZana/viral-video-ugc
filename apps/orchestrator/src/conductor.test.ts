@@ -75,6 +75,11 @@ describe("runCycle", () => {
     const queue = JSON.parse(readFileSync(testDbPath, "utf-8"));
     expect(queue).toHaveLength(result.reviewItemsCreated);
     expect(queue.every((item: { status: string }) => item.status === "pending")).toBe(true);
+    // Every review item carries an algorithmic originality score (@vvugc/shared-originality),
+    // computed once per candidate and attached to every one of that candidate's platform items.
+    expect(queue.every((item: { originalityScore?: number }) => typeof item.originalityScore === "number")).toBe(
+      true
+    );
   });
 
   it("dry-run: scales linearly with maxCandidates", async () => {

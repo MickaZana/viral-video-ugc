@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { CandidateVideo, Transcript } from "@vvugc/shared-schema";
+import { extractAudio } from "./audio-extract.js";
+import { transcribeWithWhisper } from "./asr.js";
 
 /**
  * Fetches the auto-generated caption track YouTube exposes publicly via the
@@ -42,26 +45,26 @@ function decodeHtmlEntities(text: string): string {
 }
 
 /**
- * The Whisper API client itself is real (see transcribeWithWhisper in ./asr.ts,
- * tested against a mocked fetch) — what's still missing is an audio-extraction
- * step (yt-dlp or a platform downloader) to turn a CandidateVideo's URL into
- * the raw audio bytes Whisper needs. Until that's wired in, this stays a
- * clear, specific error rather than silently guessing at a download method.
+ * Extracts audio via yt-dlp (./audio-extract.ts) then transcribes it with
+ * Whisper (./asr.ts) — the two pieces that used to be a `throw` placeholder
+ * and an unreachable real client, respectively, are now connected end to end.
+ * `outDir` is where the extracted audio file is written (caller's run
+ * directory — see conductor.ts's `runDir`), not cleaned up here since other
+ * per-run artifacts (clips, voiceover) live under the same directory and are
+ * cleaned up as a unit by whatever retention policy the caller has.
  */
-export async function transcribeWithAsrFallback(video: CandidateVideo): Promise<Transcript> {
-  throw new Error(
-    `No audio-extraction step configured for candidate "${video.id}" (${video.platform}). ` +
-      "transcribeWithWhisper() in ./asr.ts is ready to call once audio bytes are available " +
-      "— wire in a downloader (yt-dlp or a platform API) upstream of it, or use --dry-run."
-  );
+export async function transcribeWithAsrFallback(video: CandidateVideo, outDir: string): Promise<Transcript> {
+  const { filePath } = await extractAudio(video, outDir);
+  const audio = readFileSync(filePath);
+  return transcribeWithWhisper({ videoId: video.id, audio, filename: `${video.id}.mp3` });
 }
 
-export async function transcribeCandidate(video: CandidateVideo): Promise<Transcript> {
+export async function transcribeCandidate(video: CandidateVideo, outDir: string): Promise<Transcript> {
   if (video.platform === "youtube_shorts") {
     const captions = await fetchYouTubeCaptions(video.id);
     if (captions) return captions;
   }
-  return transcribeWithAsrFallback(video);
+  return transcribeWithAsrFallback(video, outDir);
 }
 
 export function mockTranscript(video: CandidateVideo): Transcript {

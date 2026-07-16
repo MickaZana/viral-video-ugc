@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CandidateVideoSchema } from "@vvugc/shared-schema";
@@ -11,7 +13,10 @@ server.tool(
   "Transcribe a candidate video's audio/captions into text with timestamped segments.",
   { video: CandidateVideoSchema },
   async ({ video }) => {
-    const transcript = await transcribeCandidate(video);
+    // Standalone MCP invocation has no run directory to scope extracted audio
+    // under (unlike conductor.ts, which passes its own runDir/audio) — a
+    // per-video OS temp dir is the closest equivalent.
+    const transcript = await transcribeCandidate(video, join(tmpdir(), "vvugc-mcp-transcript", video.id));
     return { content: [{ type: "text", text: JSON.stringify(transcript, null, 2) }] };
   }
 );

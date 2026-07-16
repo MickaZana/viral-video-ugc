@@ -12,6 +12,7 @@ import { getVideoGenAdapter, type McpToolCaller } from "@vvugc/mcp-video-gen";
 import { assembleVideo, ASPECT_RATIO_BY_PLATFORM } from "@vvugc/mcp-assembly";
 import { generateVoiceoverTrack, getVoiceoverAdapter } from "@vvugc/mcp-voiceover";
 import { insertReviewItem } from "@vvugc/review-queue";
+import { scoreOriginality } from "@vvugc/shared-originality";
 import { rewriteScript } from "./agents/script-agent.js";
 import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
@@ -85,7 +86,9 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     const tag = `[${index + 1}/${chosen.length}]`;
     try {
       onProgress(`${tag} Transcribing "${candidate.title ?? candidate.id}"...`);
-      const transcript = config.dryRun ? mockTranscript(candidate) : await transcribeCandidate(candidate);
+      const transcript = config.dryRun
+        ? mockTranscript(candidate)
+        : await transcribeCandidate(candidate, join(runDir, "audio"));
 
       onProgress(`${tag} Rewriting script...`);
       const script = await rewriteScript(transcript, {
@@ -96,6 +99,18 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         dryRun: config.dryRun,
         costLedger
       });
+
+      // Purely algorithmic (no LLM call, no cost) — runs once per candidate, comparing the
+      // rewritten script against its own source transcript. Separate from qa-agent's Claude-
+      // scored virality judgment: this is the "trend-informed but original" compliance check
+      // (see @vvugc/shared-originality), not a quality call.
+      const scriptText = [script.hook, ...script.points, script.cta].join(" ");
+      const originality = scoreOriginality(transcript.text, scriptText);
+      if (originality.flags.includes("requires_originality_review")) {
+        onProgress(
+          `${tag} ⚠ Originality score ${originality.originalityScore}/100 — flagged for reviewer attention`
+        );
+      }
 
       // Caption timing/text is Claude's call, not a naive even-split — same script duration
       // applies across every target platform, so this runs once per candidate, not per platform.
@@ -180,7 +195,12 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             platform,
             script,
             score: qa.score,
-            flags: qa.flags,
+            flags: [...qa.flags, ...originality.flags],
+            originalityScore: originality.originalityScore,
+            clips,
+            captions,
+            voiceoverPath,
+            sourceTranscriptText: transcript.text,
             status: "pending",
             createdAt: new Date().toISOString()
           };
@@ -230,6 +250,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
   const result = RunResultSchema.parse({
     runId: config.runId,
+    accountId: config.accountId,
     niche: config.niche,
     candidatesFound: allCandidates.length,
     reviewItemsCreated,
