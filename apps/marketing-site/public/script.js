@@ -29,14 +29,40 @@ document.querySelectorAll(".video-card[data-status='ready']").forEach((card) => 
   });
 });
 
-// Email capture stub — no backend wired yet, just confirms the intent locally
+// Email capture — posts to this app's own /api/waitlist, which persists the
+// submission locally (runs/waitlist.jsonl) and forwards it to WAITLIST_WEBHOOK_URL
+// if one is configured (see .env.example).
 const emailForm = document.getElementById("emailForm");
 const emailNote = document.getElementById("emailNote");
 if (emailForm) {
-  emailForm.addEventListener("submit", (e) => {
+  emailForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = new FormData(emailForm).get("email");
-    emailNote.textContent = `Thanks — we'll reach out to ${email} when your first cycle is ready.`;
-    emailForm.reset();
+    const submitBtn = emailForm.querySelector("button[type='submit']");
+    const originalLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.classList.add("btn-loading");
+    submitBtn.textContent = "Submitting…";
+    emailNote.textContent = "";
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+      const body = await res.json();
+      if (!res.ok || !body.ok) {
+        emailNote.textContent = body.error || "Something went wrong — try again.";
+        return;
+      }
+      emailNote.textContent = `Thanks — we'll reach out to ${email} when your first cycle is ready.`;
+      emailForm.reset();
+    } catch {
+      emailNote.textContent = "Something went wrong — try again.";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove("btn-loading");
+      submitBtn.textContent = originalLabel;
+    }
   });
 }

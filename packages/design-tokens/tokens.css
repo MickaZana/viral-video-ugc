@@ -61,6 +61,19 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+/* Screen-reader-only content — visually hidden but announced by assistive tech. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -80,6 +93,29 @@ select:focus-visible {
 .btn-ghost:hover:not(:disabled) { border-color: var(--text-dim); }
 .btn-danger { background: transparent; border-color: var(--bad); color: var(--bad); }
 .btn-danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.1); }
+
+/* Spinner utility — a button (or any inline element) in .btn-loading gets a small
+   spinning ring before its (still-visible) label, e.g. "Approving…". Pair with
+   `disabled` on buttons to prevent double-submits while a request is in flight. */
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+.btn-loading { position: relative; padding-left: 2.2rem; }
+.btn-loading::before {
+  content: "";
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: -0.45rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: btn-spin 0.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-loading::before { animation: none; }
+}
 
 .card {
   background: var(--bg-card);

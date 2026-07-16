@@ -56,9 +56,18 @@ export function renderHeroBlock(entry: VideoEntry | undefined): string {
   return `<div class="phone-frame">${media}</div>`;
 }
 
-/** Pure: takes the manifest and HTML template as data rather than reading files itself,
- *  so it's testable without touching the filesystem. */
-export function renderPage(manifest: VideoEntry[], template: string): string {
+/**
+ * Pure: takes the manifest and HTML template as data rather than reading files
+ * itself, so it's testable without touching the filesystem.
+ *
+ * `baseUrl` (no trailing slash, e.g. "https://example.com") fills in {{BASE_URL}}
+ * tokens — used for og:url/og:image/twitter:image, which the spec requires as
+ * absolute URLs, not the path-only ones a relative `src`/`href` can get away
+ * with. Defaults to "" (producing bare "/videos/..." paths) for callers that
+ * don't have a real origin yet — see server.ts for how the real server picks
+ * PUBLIC_BASE_URL or the incoming request's own origin.
+ */
+export function renderPage(manifest: VideoEntry[], template: string, baseUrl = ""): string {
   const hero = manifest.find((e) => e.id === "hero-reel");
   const gallery = manifest.filter((e) => e.type === "product-demo" && e.id !== "hero-reel");
   const ugcWall = manifest.filter((e) => e.type === "ugc-review");
@@ -66,5 +75,6 @@ export function renderPage(manifest: VideoEntry[], template: string): string {
   return template
     .replace("{{HERO_BLOCK}}", renderHeroBlock(hero))
     .replace("{{GALLERY_GRID}}", gallery.map(renderVideoCard).join("\n"))
-    .replace("{{UGC_WALL_GRID}}", ugcWall.map(renderVideoCard).join("\n"));
+    .replace("{{UGC_WALL_GRID}}", ugcWall.map(renderVideoCard).join("\n"))
+    .replaceAll("{{BASE_URL}}", baseUrl);
 }

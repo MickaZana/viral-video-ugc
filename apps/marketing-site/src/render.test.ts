@@ -116,4 +116,22 @@ describe("renderPage", () => {
     expect(gallerySection).toContain('data-id="demo-a"');
     expect(gallerySection).not.toContain('data-id="hero-reel"');
   });
+
+  describe("{{BASE_URL}} substitution", () => {
+    const ogTemplate = `<meta property="og:url" content="{{BASE_URL}}/" /><meta property="og:image" content="{{BASE_URL}}/videos/hero-reel.svg" /><meta name="twitter:image" content="{{BASE_URL}}/videos/hero-reel.svg" />${template}`;
+
+    it("replaces every {{BASE_URL}} occurrence with the given absolute origin", () => {
+      const html = renderPage([], ogTemplate, "https://example.com");
+      expect(html).not.toContain("{{BASE_URL}}");
+      expect(html).toContain('content="https://example.com/"');
+      expect(html).toContain('content="https://example.com/videos/hero-reel.svg"');
+    });
+
+    it("defaults to an empty string, leaving path-relative URLs, when no baseUrl is given", () => {
+      const html = renderPage([], ogTemplate);
+      expect(html).not.toContain("{{BASE_URL}}");
+      expect(html).toContain('content="/"');
+      expect(html).toContain('content="/videos/hero-reel.svg"');
+    });
+  });
 });
