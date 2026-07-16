@@ -47,6 +47,52 @@ describe("listRuns", () => {
     });
   });
 
+  it("surfaces candidatesFailed/platformsFailed from the manifest when present", () => {
+    writeRun("run-1", {
+      config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" },
+      candidatesFound: 5,
+      reviewItemsCreated: 3,
+      candidatesFailed: 1,
+      platformsFailed: 1
+    });
+    expect(listRuns()[0]).toMatchObject({ candidatesFailed: 1, platformsFailed: 1 });
+  });
+
+  it("surfaces the failures array (candidateId/platform/reason) from the manifest when present", () => {
+    writeRun("run-1", {
+      config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" },
+      candidatesFound: 2,
+      reviewItemsCreated: 0,
+      candidatesFailed: 1,
+      platformsFailed: 1,
+      failures: [
+        { candidateId: "cand-a", reason: "simulated script-agent failure" },
+        { candidateId: "cand-b", platform: "tiktok", reason: "simulated qa-agent failure" }
+      ]
+    });
+    expect(listRuns()[0].failures).toEqual([
+      { candidateId: "cand-a", reason: "simulated script-agent failure" },
+      { candidateId: "cand-b", platform: "tiktok", reason: "simulated qa-agent failure" }
+    ]);
+  });
+
+  it("leaves failures undefined for manifests written before that field existed (older runs)", () => {
+    writeRun("run-1", {
+      config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" },
+      candidatesFound: 1,
+      reviewItemsCreated: 0,
+      candidatesFailed: 1
+    });
+    expect(listRuns()[0].failures).toBeUndefined();
+  });
+
+  it("leaves candidatesFailed/platformsFailed undefined for manifests written before that field existed", () => {
+    writeRun("run-1", { config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" }, candidatesFound: 1, reviewItemsCreated: 1 });
+    const run = listRuns()[0];
+    expect(run.candidatesFailed).toBeUndefined();
+    expect(run.platformsFailed).toBeUndefined();
+  });
+
   it("tolerates a missing cost-ledger.json (dry-run or a pre-cost-tracking run)", () => {
     writeRun("run-1", { config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" }, candidatesFound: 1, reviewItemsCreated: 1 });
     expect(listRuns()[0].estimatedCostUsd).toBeUndefined();

@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/shared-schema" },
     { "path": "../../packages/shared-config" },
-    { "path": "../../packages/review-queue" }
+    { "path": "../../packages/review-queue" },
+    { "path": "../../packages/shared-metrics" }
   ]
 }

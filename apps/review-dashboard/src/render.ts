@@ -43,10 +43,47 @@ export function renderDashboardPage(): string {
   .runs-table-wrap { overflow-x: auto; }
 
   .empty-state { color: var(--text-dim); padding: 2rem 0; text-align: center; }
+  .action-error { color: var(--bad); background: rgba(248, 113, 113, 0.1); border: 1px solid var(--bad); border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
   [hidden] { display: none !important; }
+
+  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100; padding: 0.6rem 1rem; background: var(--accent); color: var(--bg); border-radius: 0 0 var(--radius) 0; }
+  .skip-link:focus { left: 0; }
+
+  @keyframes skeleton-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-raised) 37%, var(--bg-card) 63%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+    color: transparent !important;
+  }
+  .skeleton-item { height: 4.5rem; }
+  .skeleton-stat-num { display: inline-block; width: 2ch; }
+  .skeleton-row td { padding: 0.6rem 0.75rem; }
+  .skeleton-row .skeleton { height: 1rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+  }
+
+  @media (max-width: 720px) {
+    body { padding: 1rem 1rem 3rem; }
+    header.page-head { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .stats { width: 100%; }
+    .stat { flex: 1 1 40%; }
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .toolbar label { justify-content: space-between; }
+    .bulk-actions { margin-left: 0; }
+    .bulk-actions .btn { flex: 1; }
+    .item { flex-wrap: wrap; }
+    .item-actions { width: 100%; }
+    .item-actions .btn { flex: 1; }
+    table.runs-table { font-size: 0.78rem; }
+  }
 </style>
 </head>
 <body>
+
+<a class="skip-link" href="#queue-list">Skip to queue</a>
 
 <header class="page-head">
   <div>
@@ -54,10 +91,10 @@ export function renderDashboardPage(): string {
     <p style="margin: 0;">Approve or reject generated videos before they go out.</p>
   </div>
   <div class="stats" id="stats" role="status" aria-live="polite">
-    <div class="card stat"><div class="stat-num" id="stat-pending">–</div><div class="stat-label">Pending</div></div>
-    <div class="card stat"><div class="stat-num" id="stat-approved">–</div><div class="stat-label">Approved</div></div>
-    <div class="card stat"><div class="stat-num" id="stat-rejected">–</div><div class="stat-label">Rejected</div></div>
-    <div class="card stat"><div class="stat-num" id="stat-cost">–</div><div class="stat-label">Est. spend</div></div>
+    <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-pending">–</div><div class="stat-label">Pending</div></div>
+    <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-approved">–</div><div class="stat-label">Approved</div></div>
+    <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-rejected">–</div><div class="stat-label">Rejected</div></div>
+    <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-cost">–</div><div class="stat-label">Est. spend</div></div>
   </div>
 </header>
 
@@ -86,7 +123,12 @@ export function renderDashboardPage(): string {
   </div>
 </div>
 
-<div class="queue-list" id="queue-list" aria-live="polite"></div>
+<p class="action-error" id="action-error" role="alert" hidden></p>
+<div class="queue-list" id="queue-list" aria-live="polite" aria-busy="true">
+  <div class="card item skeleton skeleton-item" aria-hidden="true"></div>
+  <div class="card item skeleton skeleton-item" aria-hidden="true"></div>
+  <div class="card item skeleton skeleton-item" aria-hidden="true"></div>
+</div>
 <p class="empty-state" id="empty-state" hidden>No items match the current filters.</p>
 
 <section class="runs">
@@ -94,9 +136,11 @@ export function renderDashboardPage(): string {
   <div class="runs-table-wrap">
     <table class="runs-table" id="runs-table">
       <thead>
-        <tr><th>Run</th><th>Niche</th><th>Platforms</th><th>Candidates</th><th>Items</th><th>Est. cost</th><th>Started</th></tr>
+        <tr><th scope="col">Run</th><th scope="col">Niche</th><th scope="col">Platforms</th><th scope="col">Candidates</th><th scope="col">Items</th><th scope="col">Failed</th><th scope="col">Est. cost</th><th scope="col">Started</th></tr>
       </thead>
-      <tbody id="runs-tbody"></tbody>
+      <tbody id="runs-tbody">
+        <tr class="skeleton-row" aria-hidden="true"><td colspan="8"><div class="skeleton" style="height: 1.2rem;"></div></td></tr>
+      </tbody>
     </table>
   </div>
 </section>
@@ -107,27 +151,80 @@ const state = { items: [], selected: new Set() };
 function pillClass(status) { return 'pill pill-' + status; }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// QA scores are 0-100 (see apps/orchestrator/src/agents/qa-agent.ts) but a bare
+// number gives a reviewer nothing to judge it against without doing mental math
+// on every item — a qualitative label next to it answers "is this good?" at a glance.
+function scoreLabel(score) {
+  if (score >= 80) return 'Strong';
+  if (score >= 60) return 'Good';
+  if (score >= 40) return 'Needs work';
+  return 'Weak';
+}
+
+// The live QA agent's system prompt lets Claude invent its own short flag slugs
+// (e.g. "weak_cta") rather than picking from a fixed enum, so this can't be a
+// closed lookup table — the --dry-run heuristic path's fixed flags get a specific,
+// more natural phrasing; anything else (including whatever Claude comes up with)
+// still gets de-slugified into readable text instead of a raw snake_case token.
+const FLAG_LABELS = {
+  hook_too_long: 'Hook is too long',
+  low_trending_phrase_density: 'Not enough trending phrases',
+  duration_mismatch: "Duration doesn't match the target",
+  no_captions: 'No captions burned in',
+  few_hashtags: 'Too few hashtags'
+};
+function humanizeFlag(flag) {
+  return FLAG_LABELS[flag] ?? flag.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+function setStat(id, text) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.classList.remove('skeleton', 'skeleton-stat-num');
+}
+
 async function loadStats() {
-  const stats = await (await fetch('/stats')).json();
-  document.getElementById('stat-pending').textContent = stats.pending;
-  document.getElementById('stat-approved').textContent = stats.approved;
-  document.getElementById('stat-rejected').textContent = stats.rejected;
-  document.getElementById('stat-cost').textContent = '$' + stats.estimatedCostUsd.toFixed(2);
+  const res = await fetch('/stats');
+  if (!res.ok) throw new Error('Failed to load stats (' + res.status + ')');
+  const stats = await res.json();
+  setStat('stat-pending', stats.pending);
+  setStat('stat-approved', stats.approved);
+  setStat('stat-rejected', stats.rejected);
+  setStat('stat-cost', '$' + stats.estimatedCostUsd.toFixed(2));
 }
 
 async function loadRuns() {
-  const runs = await (await fetch('/runs')).json();
+  const res = await fetch('/runs');
+  if (!res.ok) throw new Error('Failed to load run history (' + res.status + ')');
+  const runs = await res.json();
   document.getElementById('runs-tbody').innerHTML = runs.length
-    ? runs.map((r) => \`<tr>
+    ? runs.map((r) => {
+        const failed = (r.candidatesFailed ?? 0) + (r.platformsFailed ?? 0);
+        const failedLabel = failed === 0 ? '—' : \`\${r.candidatesFailed ?? 0} candidate\${(r.candidatesFailed ?? 0) === 1 ? '' : 's'}, \${r.platformsFailed ?? 0} platform\${(r.platformsFailed ?? 0) === 1 ? '' : 's'}\`;
+        // Reasons used to only exist in server-side logs a dashboard-only user could
+        // never reach — a native <details> keeps the table scannable by default while
+        // still making "why" one click away instead of requiring the terminal/logs.
+        const failedCell = failed === 0
+          ? '—'
+          : \`<details><summary style="cursor: pointer;">\${failedLabel}</summary>\${
+              (r.failures ?? []).length
+                ? '<ul style="margin: 0.4rem 0 0; padding-left: 1.1rem;">' +
+                  r.failures.map((f) => \`<li>\${esc(f.candidateId)}\${f.platform ? ' · ' + esc(f.platform) : ''}: \${esc(f.reason)}</li>\`).join('') +
+                  '</ul>'
+                : '<p style="margin: 0.4rem 0 0; color: var(--text-dim);">No failure details recorded for this run (older run, or check server logs).</p>'
+            }</details>\`;
+        return \`<tr>
         <td>\${esc(r.runId)}</td>
         <td>\${esc(r.niche)}</td>
         <td>\${esc(r.platforms.join(', '))}</td>
         <td>\${r.candidatesFound}</td>
         <td>\${r.reviewItemsCreated}</td>
+        <td\${failed > 0 ? ' style="color: var(--warn);"' : ''}>\${failedCell}</td>
         <td>\${r.estimatedCostUsd !== undefined ? '$' + r.estimatedCostUsd.toFixed(4) : '—'}</td>
         <td>\${r.createdAt ? new Date(r.createdAt).toLocaleString() : '—'}</td>
-      </tr>\`).join('')
-    : '<tr><td colspan="7" class="empty-state">No runs yet.</td></tr>';
+      </tr>\`;
+      }).join('')
+    : '<tr><td colspan="8" class="empty-state">No runs yet.</td></tr>';
 }
 
 function populateFilterOptions() {
@@ -153,6 +250,7 @@ function updateBulkButtons() {
 function renderItems() {
   const list = document.getElementById('queue-list');
   const empty = document.getElementById('empty-state');
+  list.removeAttribute('aria-busy');
   empty.hidden = state.items.length > 0;
   list.innerHTML = state.items.map((i) => \`
     <div class="card item \${i.status === 'rejected' ? 'rejected' : ''}">
@@ -162,14 +260,14 @@ function renderItems() {
           <span class="\${pillClass(i.status)}">\${esc(i.status)}</span>
           <strong>\${esc(i.niche)}</strong>
           <span style="color: var(--text-dim);">· \${esc(i.platform)}</span>
-          <span class="item-score">\${i.score}</span>
+          <span class="item-score" title="Virality score out of 100">\${i.score}/100 · \${scoreLabel(i.score)}</span>
         </div>
         <p class="item-hook">\${esc(i.script.hook)}</p>
         <div class="item-path">\${esc(i.videoPath)}</div>
-        \${i.flags.length ? \`<div class="item-flags">flags: \${esc(i.flags.join(', '))}</div>\` : ''}
+        \${i.flags.length ? \`<div class="item-flags">⚠ \${esc(i.flags.map(humanizeFlag).join(', '))}</div>\` : ''}
         <div class="item-actions">
-          <button class="btn btn-primary" data-action="approve" data-id="\${i.id}" \${i.status !== 'pending' ? 'disabled' : ''}>Approve</button>
-          <button class="btn btn-danger" data-action="reject" data-id="\${i.id}" \${i.status !== 'pending' ? 'disabled' : ''}>Reject</button>
+          <button class="btn btn-primary" data-action="approve" data-id="\${i.id}" aria-label="Approve \${esc(i.niche)} · \${esc(i.platform)} item" \${i.status !== 'pending' ? 'disabled' : ''}>Approve</button>
+          <button class="btn btn-danger" data-action="reject" data-id="\${i.id}" aria-label="Reject \${esc(i.niche)} · \${esc(i.platform)} item" \${i.status !== 'pending' ? 'disabled' : ''}>Reject</button>
         </div>
       </div>
     </div>\`).join('');
@@ -182,7 +280,7 @@ function renderItems() {
     });
   });
   list.querySelectorAll('button[data-action]').forEach((btn) => {
-    btn.addEventListener('click', () => act(btn.getAttribute('data-id'), btn.getAttribute('data-action')));
+    btn.addEventListener('click', () => act(btn.getAttribute('data-id'), btn.getAttribute('data-action'), btn));
   });
 }
 
@@ -195,7 +293,9 @@ async function load() {
   if (niche) params.set('niche', niche);
   if (platform) params.set('platform', platform);
 
-  state.items = await (await fetch('/queue?' + params.toString())).json();
+  const res = await fetch('/queue?' + params.toString());
+  if (!res.ok) throw new Error('Failed to load queue (' + res.status + ')');
+  state.items = await res.json();
   state.selected.clear();
   document.getElementById('select-all').checked = false;
   populateFilterOptions();
@@ -204,25 +304,84 @@ async function load() {
   await Promise.all([loadStats(), loadRuns()]);
 }
 
-async function act(id, action) {
-  await fetch(\`/queue/\${id}/\${action}\`, { method: 'POST' });
-  load();
+function showError(message) {
+  const el = document.getElementById('action-error');
+  el.textContent = message;
+  el.hidden = false;
+}
+function clearError() {
+  const el = document.getElementById('action-error');
+  el.hidden = true;
+}
+
+async function act(id, action, btn) {
+  if (action === 'reject' && !confirm('Reject this item? This cannot be undone from here.')) return;
+  clearError();
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('btn-loading');
+  }
+  try {
+    const res = await fetch(\`/queue/\${id}/\${action}\`, { method: 'POST' });
+    if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+    await load(); // re-renders the list, which replaces this button — no need to clear the loading class here
+  } catch (err) {
+    showError('Could not ' + action + ' this item — ' + err.message + '. Try again.');
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('btn-loading');
+    }
+  }
 }
 
 async function bulkAct(action) {
   const ids = [...state.selected];
   if (ids.length === 0) return;
-  await fetch(\`/queue/bulk/\${action}\`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids })
-  });
-  load();
+  if (action === 'reject' && !confirm(\`Reject \${ids.length} selected item\${ids.length === 1 ? '' : 's'}? This cannot be undone from here.\`)) return;
+  clearError();
+  const btn = document.getElementById('bulk-' + action);
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  try {
+    const res = await fetch(\`/queue/bulk/\${action}\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+    await load();
+    btn.classList.remove('btn-loading'); // load() re-enables via updateBulkButtons(), but doesn't know about the loading class
+  } catch (err) {
+    showError('Could not ' + action + ' the selected items — ' + err.message + '. Try again.');
+    btn.classList.remove('btn-loading');
+    updateBulkButtons();
+  }
 }
 
-document.getElementById('filter-status').addEventListener('change', load);
-document.getElementById('filter-niche').addEventListener('change', load);
-document.getElementById('filter-platform').addEventListener('change', load);
+function clearSkeletons() {
+  // Only run on a failed first load — a successful load() already replaces
+  // this markup via renderItems()/loadStats()/loadRuns(). Left shimmering
+  // forever alongside an error banner would look like it's still loading.
+  const list = document.getElementById('queue-list');
+  list.removeAttribute('aria-busy');
+  list.querySelectorAll('.skeleton-item').forEach((el) => el.remove());
+  ['stat-pending', 'stat-approved', 'stat-rejected', 'stat-cost'].forEach((id) => setStat(id, '–'));
+  document.querySelectorAll('#runs-tbody .skeleton-row').forEach((el) => el.remove());
+}
+
+async function safeLoad() {
+  try {
+    clearError();
+    await load();
+  } catch (err) {
+    showError('Could not load the queue — ' + err.message + '. Try refreshing the page.');
+    clearSkeletons();
+  }
+}
+
+document.getElementById('filter-status').addEventListener('change', safeLoad);
+document.getElementById('filter-niche').addEventListener('change', safeLoad);
+document.getElementById('filter-platform').addEventListener('change', safeLoad);
 document.getElementById('select-all').addEventListener('change', (e) => {
   if (e.target.checked) state.items.forEach((i) => state.selected.add(i.id));
   else state.selected.clear();
@@ -232,7 +391,7 @@ document.getElementById('select-all').addEventListener('change', (e) => {
 document.getElementById('bulk-approve').addEventListener('click', () => bulkAct('approve'));
 document.getElementById('bulk-reject').addEventListener('click', () => bulkAct('reject'));
 
-load();
+safeLoad();
 </script>
 </body>
 </html>`;

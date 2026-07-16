@@ -2,6 +2,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnv } from "@vvugc/shared-config";
 
+export interface RunFailure {
+  candidateId: string;
+  platform?: string;
+  reason: string;
+}
+
 export interface RunSummary {
   runId: string;
   niche: string;
@@ -10,6 +16,11 @@ export interface RunSummary {
   reviewItemsCreated: number;
   createdAt?: string;
   estimatedCostUsd?: number;
+  candidatesFailed?: number;
+  platformsFailed?: number;
+  /** Why each failed candidate/platform failed — previously only in structured
+   *  logs/CLI output, never reachable from the dashboard. See conductor.ts. */
+  failures?: RunFailure[];
 }
 
 /**
@@ -41,7 +52,10 @@ export function listRuns(): RunSummary[] {
       candidatesFound: manifest.candidatesFound ?? 0,
       reviewItemsCreated: manifest.reviewItemsCreated ?? 0,
       createdAt: manifest.config?.createdAt,
-      estimatedCostUsd
+      estimatedCostUsd,
+      candidatesFailed: manifest.candidatesFailed,
+      platformsFailed: manifest.platformsFailed,
+      failures: manifest.failures
     });
   }
 
