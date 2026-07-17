@@ -9,7 +9,7 @@ WORKDIR /repo
 # the youtube-dl fork it's based on; the actual yt-dlp binary it downloads needs
 # no Python at runtime). Without this, `pnpm install --frozen-lockfile` below
 # fails outright — see Dockerfile.orchestrator's identical comment.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
@@ -44,7 +44,7 @@ ENV NODE_ENV=production
 
 # Same reason as the build stage above — the runtime stage below does its own
 # fresh `pnpm install --prod`, which re-triggers yt-dlp-exec's preinstall check.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 
 # shared-config's REPO_ROOT falls back to process.cwd() when INIT_CWD is unset — pnpm sets
 # INIT_CWD when it launches a script, but this container's CMD runs `node dist/server.js`

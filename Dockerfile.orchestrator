@@ -11,7 +11,7 @@ WORKDIR /repo
 # self-contained and needs no Python at runtime). node:20-slim has neither
 # python nor pip, so `pnpm install --frozen-lockfile` below would otherwise
 # fail outright the moment this dependency was added.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
@@ -51,7 +51,7 @@ ENV NODE_ENV=production
 # Same reason as the build stage above — the runtime stage below does its own
 # fresh `pnpm install --prod` (see that RUN's comment for why), which re-triggers
 # yt-dlp-exec's preinstall python check in this stage too.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 # shared-config's REPO_ROOT falls back to process.cwd() when INIT_CWD is unset — pnpm sets
 # INIT_CWD when it launches a script, but this container's ENTRYPOINT runs `node dist/cli.js`
 # directly, so without this, VVUGC_RUNS_DIR/VVUGC_DB_PATH would default relative to this
