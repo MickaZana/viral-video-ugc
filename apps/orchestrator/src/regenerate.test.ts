@@ -13,6 +13,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     cta: "Original cta",
     durationSec: 24,
     brandVoice: "energetic",
+    locale: "en",
     trendingPhrases: []
   };
   return {

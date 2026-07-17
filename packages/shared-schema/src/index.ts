@@ -8,6 +8,11 @@ export const RunConfigSchema = z.object({
   niche: z.string().min(1),
   platforms: z.array(PlatformSchema).min(1),
   brandVoice: z.string().default("neutral, energetic, concise"),
+  /** BCP-47-ish language tag (e.g. "en", "es", "pt-BR") the script should be written in —
+   *  threaded straight into script-agent.ts's prompt. Captions/originality-scoring need no
+   *  separate locale handling: captions time whatever text the script already has, and
+   *  shared-originality's tokenizer is Unicode-aware (not English-only). */
+  locale: z.string().default("en"),
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
   videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]).default("higgsfield"),
@@ -65,6 +70,9 @@ export const RewrittenScriptSchema = z.object({
   cta: z.string().min(1),
   durationSec: z.number().int().min(15).max(60),
   brandVoice: z.string(),
+  /** See RunConfigSchema.locale — carried onto the script so a reviewer/regeneration
+   *  call can see what language a script was written in without re-reading RunConfig. */
+  locale: z.string().default("en"),
   trendingPhrases: z.array(z.string()).default([]),
   platformNotes: z.record(PlatformSchema, z.string()).optional()
 });

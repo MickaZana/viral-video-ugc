@@ -10,6 +10,7 @@ interface RunOptions {
   niche: string;
   platforms: Platform[];
   brandVoice: string;
+  locale: string;
   duration: number;
   maxCandidates: number;
   videoVendor: string;
@@ -40,6 +41,7 @@ export function parseRunOptions(options: RunOptions): RunConfig {
     niche: options.niche,
     platforms: options.platforms,
     brandVoice: options.brandVoice,
+    locale: options.locale,
     targetDurationSec: options.duration,
     maxCandidates: options.maxCandidates,
     videoVendor: options.videoVendor,
@@ -80,6 +82,7 @@ program
     ["youtube_shorts"] as Platform[]
   )
   .option("--brand-voice <voice>", "brand voice descriptor", "neutral, energetic, concise")
+  .option("--locale <locale>", "BCP-47-ish language tag for the rewritten script, e.g. en, es, pt-BR", "en")
   .option("--duration <seconds>", "target output duration in seconds", (v) => Number(v), 25)
   .option("--max-candidates <n>", "max source videos to process", (v) => Number(v), 5)
   .option(

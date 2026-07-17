@@ -30,11 +30,17 @@ export async function rewriteScript(
     brandVoice: string;
     durationSec: number;
     platforms: Platform[];
+    /** BCP-47-ish tag (e.g. "en", "es", "pt-BR") — defaults to English. The source
+     *  transcript can be in any language; this only controls the OUTPUT script's
+     *  language, so a non-English source can still be rewritten into English (or
+     *  vice versa) rather than assumed to match. */
+    locale?: string;
     dryRun?: boolean;
     costLedger?: CostLedger;
   }
 ): Promise<RewrittenScript> {
-  if (opts.dryRun) return mockRewrittenScript(transcript, opts);
+  const locale = opts.locale ?? "en";
+  if (opts.dryRun) return mockRewrittenScript(transcript, { ...opts, locale });
 
   const apiKey = requireEnvVar("ANTHROPIC_API_KEY");
   const client = new Anthropic({ apiKey });
@@ -43,6 +49,8 @@ export async function rewriteScript(
 Brand voice: ${opts.brandVoice}
 Target duration: ${opts.durationSec} seconds
 Target platforms: ${opts.platforms.join(", ")}
+Write the script in this language (BCP-47 tag): ${locale}. Trending phrases should be
+native to that language/platform culture, not translated English slang.
 
 Source transcript:
 """
@@ -75,6 +83,7 @@ ${transcript.text}
     cta: parsed.cta,
     durationSec: opts.durationSec,
     brandVoice: opts.brandVoice,
+    locale,
     trendingPhrases: parsed.trendingPhrases ?? [],
     platformNotes: parsed.platformNotes
   });
@@ -82,7 +91,7 @@ ${transcript.text}
 
 function mockRewrittenScript(
   transcript: Transcript,
-  opts: { niche: string; brandVoice: string; durationSec: number }
+  opts: { niche: string; brandVoice: string; durationSec: number; locale: string }
 ): RewrittenScript {
   return RewrittenScriptSchema.parse({
     videoId: transcript.videoId,
@@ -94,6 +103,7 @@ function mockRewrittenScript(
     cta: "[mock] Follow for part 2.",
     durationSec: opts.durationSec,
     brandVoice: opts.brandVoice,
+    locale: opts.locale,
     trendingPhrases: ["no cap", "wait for it"]
   });
 }

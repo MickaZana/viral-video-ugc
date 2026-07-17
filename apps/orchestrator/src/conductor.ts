@@ -96,6 +96,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         brandVoice: config.brandVoice,
         durationSec: config.targetDurationSec,
         platforms: config.platforms,
+        locale: config.locale,
         dryRun: config.dryRun,
         costLedger
       });

@@ -1,8 +1,15 @@
-/** Lowercase, strip punctuation, collapse whitespace, split into word tokens. */
+/**
+ * Lowercase, strip punctuation, collapse whitespace, split into word tokens.
+ * Unicode-aware (\p{L}/\p{N}, not a-z0-9) — scripts now support multi-language
+ * output (see RunConfigSchema.locale), so an ASCII-only tokenizer would have
+ * silently stripped every character of a Spanish "é", Arabic, Japanese, Korean,
+ * etc. script down to nothing, breaking originality scoring for any non-English
+ * candidate rather than just scoring it less precisely.
+ */
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s']/g, " ")
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
 }

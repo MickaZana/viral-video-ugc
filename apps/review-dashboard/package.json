@@ -21,7 +21,8 @@
     "@vvugc/mcp-publish": "workspace:*",
     "express": "^4.21.1",
     "express-rate-limit": "^7.4.1",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

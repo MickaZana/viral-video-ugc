@@ -4,29 +4,37 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { aggregateUsage } from "./usage.js";
 
+/** Writes the real on-disk shape conductor.ts produces — see usage.ts's RunManifestJson
+ *  comment for why this isn't a flat RunResult. Mirrors how a real run actually looks on
+ *  disk, not a guessed-at shape — this fixture caught a real accountId-location bug once. */
 function writeRun(
   runsDir: string,
   runId: string,
-  opts: { accountId?: string; estimatedCostUsd?: number; reviewItemsCreated?: number; ledger?: { totalUsd: number; totalsByVendor: Record<string, number> } }
+  opts: {
+    accountId?: string;
+    createdAt?: string;
+    reviewItemsCreated?: number;
+    ledger?: { totalUsd: number; totalsByVendor: Record<string, number> };
+  }
 ): void {
   const runDir = join(runsDir, runId);
   mkdirSync(runDir, { recursive: true });
-  const costLedgerPath = opts.ledger ? join(runDir, "cost-ledger.json") : undefined;
-  if (opts.ledger && costLedgerPath) {
-    writeFileSync(costLedgerPath, JSON.stringify(opts.ledger));
+  if (opts.ledger) {
+    writeFileSync(join(runDir, "cost-ledger.json"), JSON.stringify(opts.ledger));
   }
   writeFileSync(
     join(runDir, "manifest.json"),
     JSON.stringify({
-      runId,
-      accountId: opts.accountId,
-      niche: "fitness",
+      config: {
+        accountId: opts.accountId,
+        niche: "fitness",
+        createdAt: opts.createdAt ?? "2026-01-01T00:00:00.000Z"
+      },
       candidatesFound: 1,
       reviewItemsCreated: opts.reviewItemsCreated ?? 1,
-      manifestPath: join(runDir, "manifest.json"),
-      completedAt: "2026-01-01T00:00:00.000Z",
-      costLedgerPath,
-      estimatedCostUsd: opts.estimatedCostUsd ?? 0
+      candidatesFailed: 0,
+      platformsFailed: 0,
+      failures: []
     })
   );
 }
@@ -93,7 +101,7 @@ describe("aggregateUsage", () => {
     mkdirSync(join(runsDir, "run-broken"), { recursive: true });
     writeFileSync(join(runsDir, "run-broken", "manifest.json"), "{not valid json");
 
-    writeRun(runsDir, "run-no-ledger", { accountId: "account-1", estimatedCostUsd: 0.1 });
+    writeRun(runsDir, "run-no-ledger", { accountId: "account-1" });
     writeRun(runsDir, "run-good", {
       accountId: "account-1",
       ledger: { totalUsd: 2, totalsByVendor: { grok: 2 } }
@@ -102,5 +110,15 @@ describe("aggregateUsage", () => {
     const usage = aggregateUsage("account-1", runsDir);
     expect(usage.totalRuns).toBe(2); // run-broken skipped, both valid runs counted
     expect(usage.totalUsd).toBeCloseTo(2, 6); // run-no-ledger has no ledger file, contributes 0 to totalUsd
+  });
+
+  it("ignores non-directory entries in runsDir (accounts.json, sessions.json, lockfiles, etc.)", () => {
+    runsDir = mkdtempSync(join(tmpdir(), "usage-"));
+    writeFileSync(join(runsDir, "accounts.json"), "[]");
+    writeFileSync(join(runsDir, "sessions.json"), "[]");
+    writeRun(runsDir, "run-a", { accountId: "account-1", ledger: { totalUsd: 1, totalsByVendor: {} } });
+
+    const usage = aggregateUsage("account-1", runsDir);
+    expect(usage.totalRuns).toBe(1);
   });
 });

@@ -91,6 +91,7 @@ async function generateOne(entry: VideoEntry, opts: { dryRun: boolean }): Promis
     cta: entry.cta,
     durationSec: TOTAL_DURATION_SEC,
     brandVoice: "neutral, energetic, concise",
+    locale: "en",
     trendingPhrases: []
   };
 

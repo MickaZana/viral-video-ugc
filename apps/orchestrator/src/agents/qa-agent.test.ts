@@ -17,6 +17,7 @@ function makeScript(overrides: Partial<RewrittenScript> = {}): RewrittenScript {
     cta: "Follow for part 2",
     durationSec: 25,
     brandVoice: "energetic",
+    locale: "en",
     trendingPhrases: ["no cap", "wait for it"],
     ...overrides
   };

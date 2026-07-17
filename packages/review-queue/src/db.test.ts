@@ -28,6 +28,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
       cta: "cta",
       durationSec: 25,
       brandVoice: "energetic",
+      locale: "en",
       trendingPhrases: []
     },
     score: 80,

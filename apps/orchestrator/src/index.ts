@@ -9,3 +9,4 @@
  * wasn't worth it for what's currently two functions.
  */
 export { regenerateScene, regenerateScript, type RegenerateOptions } from "./regenerate.js";
+export { runCycle, type RunCycleOptions } from "./conductor.js";

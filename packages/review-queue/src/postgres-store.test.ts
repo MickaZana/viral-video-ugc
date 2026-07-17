@@ -24,6 +24,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
       cta: "cta",
       durationSec: 25,
       brandVoice: "energetic",
+      locale: "en",
       trendingPhrases: []
     },
     score: 80,
@@ -122,7 +123,7 @@ describe.skipIf(!TEST_DATABASE_URL)("review-queue postgres-store", () => {
 
   it("round-trips the full nested script payload through JSONB, not just the top-level fields", async () => {
     await store.insertReviewItem(
-      makeItem({ id: "a", script: { videoId: "v9", hook: "hook text", points: ["one", "two"], cta: "cta text", durationSec: 40, brandVoice: "chill", trendingPhrases: ["x"] } })
+      makeItem({ id: "a", script: { videoId: "v9", hook: "hook text", points: ["one", "two"], cta: "cta text", durationSec: 40, brandVoice: "chill", locale: "en", trendingPhrases: ["x"] } })
     );
     const item = await store.getReviewItem("a");
     expect(item?.script).toEqual({
@@ -132,6 +133,7 @@ describe.skipIf(!TEST_DATABASE_URL)("review-queue postgres-store", () => {
       cta: "cta text",
       durationSec: 40,
       brandVoice: "chill",
+      locale: "en",
       trendingPhrases: ["x"]
     });
   });

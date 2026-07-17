@@ -77,7 +77,8 @@ describe("deriveHashtags", () => {
     points: ["p1"],
     cta: "cta",
     durationSec: 25,
-    brandVoice: "energetic"
+    brandVoice: "energetic",
+    locale: "en"
   };
 
   it("lowercases, strips spaces, and hash-prefixes trending phrases", () => {
@@ -109,6 +110,7 @@ describe("assembleVideo --dry-run", () => {
     cta: "cta",
     durationSec: 25,
     brandVoice: "energetic",
+    locale: "en",
     trendingPhrases: ["wait for it"]
   };
   const clips = [{ id: "c1", scriptSegmentIndex: 0, vendor: "kling" as const, filePath: "/tmp/c1.mp4", durationSec: 5 }];
@@ -176,6 +178,7 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
         cta: "cta",
         durationSec: 2,
         brandVoice: "energetic",
+        locale: "en",
         trendingPhrases: ["realtest"]
       };
       const clips = [
@@ -252,6 +255,7 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
           cta: "cta",
           durationSec: 2,
           brandVoice: "energetic",
+          locale: "en",
           trendingPhrases: []
         };
         const clips = [

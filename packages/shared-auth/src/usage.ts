@@ -1,6 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RunResult } from "@vvugc/shared-schema";
 
 export interface AccountUsage {
   accountId: string;
@@ -8,7 +7,7 @@ export interface AccountUsage {
   totalRuns: number;
   totalReviewItemsCreated: number;
   totalsByVendor: Record<string, number>;
-  runs: Array<{ runId: string; niche: string; completedAt: string; estimatedCostUsd: number }>;
+  runs: Array<{ runId: string; niche: string; createdAt: string; estimatedCostUsd: number }>;
 }
 
 interface CostLedgerJson {
@@ -16,14 +15,22 @@ interface CostLedgerJson {
   totalsByVendor: Record<string, number>;
 }
 
+/** The real on-disk shape conductor.ts writes to runs/<runId>/manifest.json — note this
+ *  is NOT the flat RunResult shape runCycle() returns to its caller; accountId/niche/
+ *  createdAt live under `config`, and cost data is a sibling cost-ledger.json file, read
+ *  by directory name rather than a path stored inside the manifest. Mirrors
+ *  apps/review-dashboard/src/runs.ts's listRuns(), which reads the same files the same way. */
+interface RunManifestJson {
+  config?: { accountId?: string; niche?: string; createdAt?: string };
+  reviewItemsCreated?: number;
+}
+
 /**
- * Reads every run's manifest.json (a serialized RunResult — see conductor.ts)
- * under `runsDir`, filters to the ones tagged with `accountId` (set via
- * RunConfig.accountId when the run was started — see conductor.ts), and sums
- * their cost-ledger.json spend. This scans the filesystem rather than
- * maintaining a separate running total, matching review-dashboard's runs.ts
- * (which does the same for run history) — `runs/` is already the source of
- * truth for what happened, not something to duplicate into another store.
+ * Reads every run's manifest.json under `runsDir`, filters to the ones tagged with
+ * `accountId` (set via RunConfig.accountId when the run was started — see
+ * conductor.ts), and sums each matching run's sibling cost-ledger.json spend. Scans
+ * the filesystem rather than maintaining a separate running total — `runs/` is
+ * already the source of truth for what happened.
  */
 export function aggregateUsage(accountId: string, runsDir: string): AccountUsage {
   const usage: AccountUsage = {
@@ -37,41 +44,46 @@ export function aggregateUsage(accountId: string, runsDir: string): AccountUsage
 
   if (!existsSync(runsDir)) return usage;
 
-  for (const runId of readdirSync(runsDir)) {
+  for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue; // runsDir also holds accounts.json/sessions.json/etc, not just run subdirectories
+    const runId = entry.name;
     const manifestPath = join(runsDir, runId, "manifest.json");
     if (!existsSync(manifestPath)) continue;
 
-    let result: RunResult;
+    let manifest: RunManifestJson;
     try {
-      result = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     } catch {
       continue; // malformed/partial manifest (e.g. a run that crashed mid-write) — skip, don't fail the whole aggregation
     }
-    if (result.accountId !== accountId) continue;
+    if (manifest.config?.accountId !== accountId) continue;
 
-    usage.totalRuns += 1;
-    usage.totalReviewItemsCreated += result.reviewItemsCreated;
-    usage.runs.push({
-      runId: result.runId,
-      niche: result.niche,
-      completedAt: result.completedAt,
-      estimatedCostUsd: result.estimatedCostUsd ?? 0
-    });
-
-    if (result.costLedgerPath && existsSync(result.costLedgerPath)) {
+    let estimatedCostUsd = 0;
+    const costLedgerPath = join(runsDir, runId, "cost-ledger.json");
+    if (existsSync(costLedgerPath)) {
       try {
-        const ledger: CostLedgerJson = JSON.parse(readFileSync(result.costLedgerPath, "utf-8"));
+        const ledger: CostLedgerJson = JSON.parse(readFileSync(costLedgerPath, "utf-8"));
+        estimatedCostUsd = ledger.totalUsd;
         usage.totalUsd += ledger.totalUsd;
         for (const [vendor, amount] of Object.entries(ledger.totalsByVendor)) {
           usage.totalsByVendor[vendor] = (usage.totalsByVendor[vendor] ?? 0) + amount;
         }
       } catch {
-        // cost-ledger.json missing/malformed — the run's own estimatedCostUsd (added above) still counts.
+        // cost-ledger.json missing/malformed — this run just contributes 0 to totalUsd.
       }
     }
+
+    usage.totalRuns += 1;
+    usage.totalReviewItemsCreated += manifest.reviewItemsCreated ?? 0;
+    usage.runs.push({
+      runId,
+      niche: manifest.config?.niche ?? "unknown",
+      createdAt: manifest.config?.createdAt ?? "",
+      estimatedCostUsd
+    });
   }
 
-  usage.runs.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  usage.runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   usage.totalUsd = Number(usage.totalUsd.toFixed(6));
   return usage;
 }

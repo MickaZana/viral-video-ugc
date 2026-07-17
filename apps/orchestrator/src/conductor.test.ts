@@ -30,6 +30,7 @@ function baseConfig(overrides: Partial<RunConfig> = {}): RunConfig {
     niche: "fitness",
     platforms: ["tiktok"],
     brandVoice: "neutral, energetic, concise",
+    locale: "en",
     targetDurationSec: 25,
     maxCandidates: 2,
     videoVendor: "higgsfield",

@@ -19,6 +19,7 @@ function baseOptions(overrides: Partial<Parameters<typeof parseRunOptions>[0]> =
     niche: "fitness",
     platforms: ["tiktok", "youtube_shorts"] as Array<"tiktok" | "youtube_shorts" | "instagram_reels" | "facebook">,
     brandVoice: "neutral, energetic, concise",
+    locale: "en",
     duration: 25,
     maxCandidates: 5,
     videoVendor: "higgsfield",

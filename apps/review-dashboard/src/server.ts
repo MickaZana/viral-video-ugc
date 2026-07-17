@@ -21,6 +21,7 @@ import { listRuns } from "./runs.js";
 import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
+import { renderAccountPage } from "./account-page.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -96,6 +97,13 @@ const authRateLimiter = rateLimit({
 // requireSession (see accounts.ts). This is a separate, additive auth surface
 // from the dashboard's own operator Basic Auth; neither one weakens the other.
 registerAccountRoutes(app);
+
+// The self-service account page — public (session-cookie auth handled client-side),
+// deliberately reachable without the operator Basic Auth below, same reasoning as
+// the /accounts/* API routes it talks to.
+app.get("/account", (_req, res) => {
+  res.type("html").send(renderAccountPage());
+});
 
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
