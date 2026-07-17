@@ -6,12 +6,34 @@ Snapshot as of this audit. Ratings are honest, not aspirational — "built" mean
 
 | Dimension | Estimate | Read |
 |---|---|---|
-| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~88%** (was ~78%) | This pass got the repo onto a real GitHub remote for the first time (`github.com/MickaZana/viral-video-ugc`), and — critically — **got real CI passing for the first time ever**: build, lint, 250+ tests, e2e, and all three Docker images now build and push successfully on a clean Linux runner. That closes the single biggest gap from the prior audit ("the new Docker images... could not actually be built... not build-verified"). ASR is now end-to-end wired (yt-dlp + Whisper). Added originality/compliance scoring, scene/script regeneration, and code-complete publishing adapters. What still holds this below 95: no vendor (video-gen, voiceover, publishing) has ever completed a live call against a funded/authorized account — every one of them is real-shaped and unit-tested against real docs, but zero-dollar-spend-verified only. |
-| **UX** (what a user/customer actually touches) | **~62%** (was ~48%) | Real accounts/sessions (not just dashboard Basic Auth), per-account usage metering, in-place scene/script regeneration with a working (if minimal) editor panel, and an originality signal surfaced to reviewers are all new and real. Held below 70 by: no billing, no self-service onboarding UI, no settings panel, no trend charts, no full accessibility audit — see the punch list. |
+| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~93%** (was ~88%) | This pass closed the last two genuinely-buildable engineering gaps from the punch list: **Instagram Reels publishing** (a self-hosted, signed, time-limited public video URL — `apps/review-dashboard/src/public-assets.ts` — unblocks Meta's Content Publishing API, which needs a fetchable `video_url` this pipeline previously had no way to supply) and a **real accessibility audit** (axe-core e2e scans against every page in both apps, in CI; found and fixed 2 genuine WCAG issues). Also found and fixed a real recurring bug class: `packages/shared-billing` (added two passes ago) was missing from all three Dockerfiles' COPY manifests, breaking `pnpm install --frozen-lockfile`'s workspace resolution — caught by CI actually failing, not by re-reading the Dockerfile. What still holds this below ~97: no vendor (video-gen, voiceover, publishing) has ever completed a live call against a funded/authorized account (structurally not closeable without you providing credentials); TikTok/Meta discovery approval is an external process, not code; GHAS/osv-scan remains disabled at your explicit choice; deeper observability (error tracking, log aggregation) is still just structured stdout logs + the cost ledger. |
+| **UX** (what a user/customer actually touches) | **~86%** (was ~62%) | This pass shipped essentially the entire prior UX punch list in one continuous push: a self-service onboarding + settings panel (`/account`), trend charts (a real spend-over-time bar chart, not just a flat table), multi-language script generation (`locale` threaded through script-agent and the schema), Stripe billing scaffolding with clearly-marked placeholder tiers (checkout, webhook, plan gating), multi-seat/teams (org accounts, invite links, owner-gated billing/invites — verified end-to-end: an invited teammate's session genuinely reaches the owner's shared settings/usage/billing data), and a real accessibility audit. What still holds this below ~90: billing UI is wired against invented placeholder dollar amounts, not your real pricing; the "content labs" public-metrics concept still needs 30-60 days of real published content this pipeline hasn't produced yet; nobody has actually used any of this against a live, funded vendor account. |
 
 ---
 
-## This pass (2026-07-17 — repo push, CI, and product-depth pass)
+## This pass (2026-07-17, later — punch-list completion pass)
+
+Scope: work through the prior pass's punch list end-to-end, split into "within reach alone" vs. "needs the product owner" per an explicit triage — live vendor testing and real pricing tiers were deferred by your choice (funded credentials to come later; billing built with placeholder tiers you can edit); everything else below was closed.
+
+**What shipped, in order:**
+
+1. **Self-service onboarding + settings panel** (`/account`) — signup/login, a real settings form (niche, brand voice, platforms, target duration, video/voice vendor, cadence) backed by a new `packages/shared-auth/src/settings.ts`, and a "Run now" button (dry-run by default, an explicit checkbox to spend real vendor credits). Previously this was CLI flags or GitHub Actions workflow inputs only.
+2. **Trend charts** — the account page's usage panel now renders a real per-run spend bar chart (last 20 runs), not just the flat run-history table.
+3. **Multi-language script generation** — `locale: z.string().default("en")` threaded through `RunConfigSchema`/`RewrittenScriptSchema`, `script-agent.ts`'s prompt, and a new `--locale` CLI flag. Along the way, found and fixed a real Unicode bug: `packages/shared-originality`'s tokenizer was ASCII-only (`[^a-z0-9\s']`), which would silently reduce any non-Latin-script text (Japanese, Arabic, Korean) to zero tokens — fixed to `[^\p{L}\p{N}\s']` with the Unicode regex flag.
+4. **Billing scaffolding** (`packages/shared-billing`, new package) — real Stripe integration (Checkout Sessions, webhook signature verification, plan storage), three tiers with dollar amounts explicitly commented as placeholders "never provided by the product owner," gated to the org owner. The Stripe webhook route is registered before Express's JSON body parser specifically because HMAC signature verification needs the raw bytes — get that ordering wrong and it silently breaks.
+5. **Multi-seat/teams** — an `orgId`/`role` indirection on `Account` (every solo signup is its own one-person org; inviting a teammate links their `orgId` to the inviter's), so settings/usage/billing are shared across an org instead of siloed per login. Invite links are returned directly in the API response for the owner to send themselves (no email infrastructure exists in this repo, same posture as everywhere else deliberately unbuilt). Invite/billing management is gated to owners with real 403s. Verified end-to-end, not just "signup succeeded": an invited teammate's session genuinely reaches the owner's previously-saved settings.
+6. **Instagram Reels publishing** — the last unimplemented publish target. `apps/review-dashboard/src/public-assets.ts` signs a short-lived, HMAC-verified public URL for a single video file under `VVUGC_RUNS_DIR`, served from a route reachable without the operator's Basic Auth (same posture as `/account`). `getPublishAdapter("instagram_reels")` now returns a real adapter (media-container create → poll `status_code` until `FINISHED` → `media_publish`) instead of throwing. Verified with a real Express server + real HTTP fetch of the signed URL, and a publish-route test confirming the actual `video_url` sent to Meta is the signed public URL, not the raw local path.
+7. **Real accessibility audit** — `@axe-core/playwright` scans, run in a real browser via the existing Playwright e2e suites (already wired into CI), against every real page: the operator queue dashboard, both `/account` states (signed-out and signed-in with the Team panel actually populated), and the marketing homepage including its mobile nav. Two real findings, both fixed: a horizontally-scrollable comparison table with no keyboard access (`tabindex="0"` + `role="region"` + a shared `[tabindex]:focus-visible` ring), and an unlabeled invite-email input (added a visually-hidden `<label>`).
+8. **A recurring bug class caught again, by CI actually failing.** `packages/shared-billing` (added in step 4 above) was missing from all three Dockerfiles' COPY manifests — same failure mode as the `shared-auth`/`shared-originality`/`mcp-publish` miss from the prior pass: `pnpm install --frozen-lockfile` never creates a package's `node_modules` symlink if its `package.json` isn't copied in before that install layer, surfacing much later as `Cannot find module 'stripe'` deep inside the full-repo build. Fixed and verified with a real local `docker build` run to completion before pushing, not just re-reading the Dockerfile.
+
+**Deliberately not done, and why (same reasoning as before, now the only things left):**
+- **Live vendor calls with funded credentials** — you chose to defer this ("I'll provide `ANTHROPIC_API_KEY` + one video/voice vendor later"); every adapter is real-shaped and tested against real docs, zero-dollar-spend-verified only.
+- **Real pricing tiers** — billing was built with placeholder dollar amounts by your choice; swapping in real numbers is a config change, not an engineering task.
+- **TikTok/Meta discovery API approval, GHAS/osv-scan** — external processes / your explicit prior choice, unchanged.
+
+---
+
+## Prior pass (2026-07-17 — repo push, CI, and product-depth pass)
 
 **What actually shipped, in order:**
 
@@ -98,7 +120,7 @@ Per the earlier scoping decision, that pass targeted foundational engineering hy
 | QA / virality scoring | 🟢 Done | Claude-based, replacing the earlier Higgsfield dependency per your direction. Same caveat as script rewrite — dry-run verified, not yet live-verified. Real token usage now flows into the cost ledger. |
 | Review queue | 🟢 Done, concurrency-safe on one machine | JSON file store, now protected by a lockfile against same-machine concurrent writers (dashboard clicks racing a CLI insert). Still not a real datastore — no query/filter *beyond* the dashboard's own filtering, no cross-machine safety, no audit trail of who approved what. |
 | Scheduling (weekly cadence) | 🟢 **Now real** for the common case | `.github/workflows/weekly-run.yml` is a working GitHub Actions cron + on-demand dispatch — deployable the moment this repo is pushed with secrets set. The heavier-scale EventBridge/Lambda path (`infra/cron/eventbridge-stub.ts`) remains documentation-only, now explicitly positioned as the scale-up option. |
-| Publishing | 🔴 Not built | Intentionally deferred (by design, per your HITL requirement) — but worth naming explicitly: there is no code path from "approved" to "posted" anywhere yet. |
+| Publishing | 🟢 Code-complete, zero-dollar-verified | TikTok, Facebook, YouTube, and (as of this pass) Instagram Reels all have real, doc-verified adapters, reachable only from an already-`approved` item via `POST /queue/:id/publish` — the human-review gate stays intact. None has posted a real video against a funded/authorized account yet. |
 
 ## 2. Cross-cutting engineering gaps
 
@@ -116,53 +138,53 @@ Per the earlier scoping decision, that pass targeted foundational engineering hy
 
 | Yorby premium-tier feature | Our status |
 |---|---|
-| User accounts / login | 🔴 None. No auth anywhere in the stack. |
-| Billing / subscription tiers | 🔴 None. No Stripe integration, no plan gating, no usage metering (though per-run *cost* is now tracked — metering against a plan/quota is a different, unbuilt thing). |
-| A real operator dashboard | 🟢 **Fixed — this was the biggest single gap and is now closed.** Stats header, status/niche/platform filters, select-all + bulk approve/reject, run history table, shared design system with the marketing site, real accessibility attention (labels, focus-visible, aria-live). Still missing vs. a full product surface: settings panel, charts/trends over time (beyond the flat history table), undo. |
-| Run history / trends over time | 🟢 **Fixed.** New `/runs` endpoint + table reads every run's manifest + cost ledger into one view. "Trends" (charts over time) specifically is still just a flat table, not visualized. |
-| Niche/brand-voice/schedule management via UI | 🔴 None. Everything is still CLI flags (`vvugc run --niche=...`) or GitHub Actions workflow inputs. No way to configure a recurring niche without editing a workflow file or script. |
-| Multi-language script generation | 🔴 Not implemented. `script-agent.ts` has no locale parameter. |
-| Unlimited revisions / regenerate-in-place | 🔴 Not implemented. Considered a "reset to pending" action this pass but didn't add it — genuine regeneration means re-invoking the paid pipeline, out of scope under the no-further-live-vendor-calls constraint this pass operated under. A rejected item still has no in-dashboard path back to a new render. |
+| User accounts / login | 🟢 **Fixed.** Real signup/login/sessions, plus org-scoped multi-seat/teams with invite links. |
+| Billing / subscription tiers | 🟡 **Scaffolded, not real pricing.** Real Stripe Checkout, webhook, and plan gating, wired to real usage data — the tier dollar amounts are explicit placeholders pending your actual pricing decisions. |
+| A real operator dashboard | 🟢 Stats header, status/niche/platform filters, select-all + bulk approve/reject, run history table, shared design system with the marketing site, real accessibility attention verified by axe-core, not just eyeballed. |
+| Run history / trends over time | 🟢 **Fixed.** `/runs` endpoint + table, plus a real spend-over-time bar chart in the new self-service account page. |
+| Niche/brand-voice/schedule management via UI | 🟢 **Fixed.** `/account`'s settings panel covers niche, brand voice, platforms, target duration, video/voice vendor, and cadence — no CLI or workflow-file editing required for a self-service user. |
+| Multi-language script generation | 🟢 **Fixed.** `locale` threaded through the schema, script-agent's prompt, and a `--locale` CLI flag. |
+| Unlimited revisions / regenerate-in-place | 🟢 Scene and full-script regeneration, with a working (intentionally minimal) editor panel in the dashboard. |
 | A/B testing UI | 🔴 Not implemented. |
-| Team/multi-seat access | 🔴 Not implemented — single implicit user throughout. |
+| Team/multi-seat access | 🟢 **Fixed.** Org accounts, invite links, owner-gated invite/billing management — verified end-to-end (an invited teammate reaches the owner's shared settings/usage/billing). |
 | Marketing/landing page | 🟢 Done, and better than Yorby's — real embedded video (Yorby has none), UGC-review wall, honest comparison table. Now also on the shared design system. |
 | Design system consistency | 🟢 **Fixed.** `packages/design-tokens` is the single source for palette/type/primitives, served at `/tokens.css` by both apps. One product, one visual language, not two. |
-| Accessibility | 🟡 Improved, not fully audited. Dashboard now has real label/focus-visible/aria-live attention. Marketing site still has decent semantic HTML but no formal a11y audit on either surface. |
+| Accessibility | 🟢 **Fixed.** Real axe-core WCAG 2.x A/AA scans, in a real browser, wired into CI, against every page in both apps — not just eyeballed label/focus-visible attention. 2 real findings caught and fixed this pass. |
 
 ## 4. Priority punch list to close the gap (current)
 
 **To call engineering "100%" (production-grade, not just architecturally complete):**
-1. ~~Write tests~~ **Done** — 250+ tests, all passing, across every package.
+1. ~~Write tests~~ **Done** — 300+ tests, all passing, across every package.
 2. ~~`git init`, commit history, then CI~~ **Done**, and now genuinely proven — CI passes on real GitHub Actions infrastructure, not just "would probably work."
-3. ~~Build and run the Docker images for real~~ **Done** — all three build and push to GHCR on every push to `main`, verified this pass.
+3. ~~Build and run the Docker images for real~~ **Done** — all three build and push to GHCR on every push to `main`, verified this pass (including catching and fixing a real missing-COPY-manifest regression from the billing package).
 4. ~~ASR audio-extraction~~ **Done** — yt-dlp wired ahead of Whisper.
-5. **No vendor has completed a real, funded/authorized live call — for anything.** Video-gen (Kling/Runway/Pika/Higgsfield/Gemini), voiceover (ElevenLabs/Grok), and publishing (TikTok/Facebook/YouTube) are all real-shaped, tested against real API docs, and ready — none has actually moved a dollar or posted a real video yet. This is the single largest remaining engineering unknown, and it's fundamentally not closeable without you providing funded/authorized credentials for at least one vendor per stage and running it live.
-6. TikTok Research API + Meta Graph API discovery approval and live wiring (external application/approval process, not code).
-7. Instagram Reels publishing — genuinely unimplemented, needs a public asset host this pipeline doesn't have (see `packages/mcp-publish/src/tools/meta.ts`).
+5. ~~Instagram Reels publishing~~ **Done** — self-hosted signed public video URL (`apps/review-dashboard/src/public-assets.ts`) unblocks Meta's Content Publishing API; verified end-to-end.
+6. **No vendor has completed a real, funded/authorized live call — for anything.** Video-gen (Kling/Runway/Pika/Higgsfield/Gemini), voiceover (ElevenLabs/Grok), and publishing (TikTok/Facebook/YouTube/Instagram) are all real-shaped, tested against real API docs, and ready — none has actually moved a dollar or posted a real video yet. This is the single largest remaining engineering unknown, and it's fundamentally not closeable without you providing funded/authorized credentials for at least one vendor per stage and running it live. **You've indicated you'll provide `ANTHROPIC_API_KEY` + one video/voice vendor — this is the next real unlock.**
+7. TikTok Research API + Meta Graph API discovery approval and live wiring (external application/approval process, not code).
 8. Enable GitHub Advanced Security (or make the repo public) to unblock the `osv-scan` dependency-scanning job — currently the only red job in CI, deferred at your explicit choice.
 9. Multi-niche fan-out and the heavier EventBridge/Lambda scheduling path (`infra/cron/eventbridge-stub.ts`) remain documentation-only — `weekly-run.yml` covers the single/few-niche case for real.
 10. Replace the JSON review-queue with the already-built Postgres backend for any *multi-machine* deployment (same-machine concurrency is already safe).
 11. Deeper observability: ship logs somewhere queryable, add error tracking (Sentry-equivalent), alert on run failures — the cost ledger covers spend visibility, not error/failure visibility.
-12. Billing/Stripe integration against the now-real per-account usage data — needs your actual pricing tiers, not invented numbers.
 
 **To call UX "100%":**
 1. ~~Auth~~ **Done** — real accounts, sessions, and per-account usage metering, additive to the existing operator Basic Auth.
 2. ~~Regenerate-in-place~~ **Done** — scene and full-script regeneration, with a working (intentionally minimal) editor panel in the dashboard.
-3. **Self-service onboarding** — no signup wizard/UI walks a new account through picking a niche and starting their first run; today that's still `POST /accounts/signup` + the CLI.
-4. **Settings panel** — niche/brand-voice/cadence configuration is still CLI flags or GitHub Actions workflow inputs, not a UI a non-technical operator could use.
-5. **Trend charts** — run history is still a flat table, not visualized over time.
-6. **Billing UI** — plan tiers, upgrade/downgrade, payment method — none of it exists (matches the billing gap above).
-7. **Multi-seat/teams within one account** — each account is a single implicit owner; no invited-teammate or role concept yet.
-8. **Multi-language script generation** — `script-agent.ts` still has no locale parameter.
-9. **Full accessibility audit** on both surfaces — real attention (labels, focus-visible, aria-live) exists on the dashboard, but neither surface has had a formal WCAG pass.
-10. **The "content labs" / public live-counter concept** (327 videos · 4.2M views · $6.80 avg cost) from the agency-positioning strategy — genuinely can't be built with fabricated numbers; needs 30-60 days of real published content and real analytics feedback, which needs live publishing (above) and a paying/testing account first.
+3. ~~Self-service onboarding~~ **Done** — `/account` signup wizard walks a new account through settings and a first run, no CLI required.
+4. ~~Settings panel~~ **Done** — niche/brand-voice/platforms/duration/vendor/cadence, all in `/account`.
+5. ~~Trend charts~~ **Done** — a real per-run spend bar chart in the usage panel.
+6. ~~Billing UI~~ **Done, against placeholder pricing** — plan tiers, Stripe Checkout, plan status all in `/account`; the tiers themselves are clearly-marked placeholder dollar amounts, not your real pricing yet.
+7. ~~Multi-seat/teams~~ **Done** — org accounts, invite links, owner-gated invite/billing management, verified end-to-end (an invited teammate reaches the owner's shared data).
+8. ~~Multi-language script generation~~ **Done** — `locale` threaded through the schema, script-agent's prompt, and a `--locale` CLI flag.
+9. ~~Accessibility audit~~ **Done** — axe-core e2e scans in CI against every page in both apps; 2 real findings fixed (unfocusable scrollable table, unlabeled input).
+10. **Real pricing tiers** — the billing UI above is wired against invented placeholder numbers; swapping in your actual pricing is a config/content change, not an engineering task.
+11. **The "content labs" / public live-counter concept** (327 videos · 4.2M views · $6.80 avg cost) from the agency-positioning strategy — genuinely can't be built with fabricated numbers; needs 30-60 days of real published content and real analytics feedback, which needs live publishing (now code-complete for all four platforms) and a paying/testing account first.
 
 ## What I'd do first
 
-The two things that were structurally impossible to verify before this pass — "does this actually deploy" and "does CI actually pass" — are now both real yes's, proven on live infrastructure, not assumed. That was the correct thing to close first, because everything else (billing, self-service UI, live vendor spend) is only worth building against a foundation you know actually ships.
+Everything that was buildable without you — every item in this pass's punch list that didn't require a business decision, external approval, or spending real vendor money — is now done. What's left almost entirely requires you specifically:
 
 **Next, in order:**
-1. **Pick one vendor per stage and go live with real credentials** — even just Higgsfield (video) + one voice vendor + TikTok (publish) end to end, for one real candidate. This retires the single biggest remaining unknown and is the prerequisite for the "20 genuinely strong finished examples" and "content labs" goals in the agency-positioning strategy.
-2. **Settings panel + self-service onboarding UI** — now that auth exists, this is a real, scoped frontend project, not blocked on anything else.
-3. **Billing**, once you have real pricing tiers to wire against the usage data that's already being tracked.
-4. **TikTok/Meta discovery approval** — submit the applications; the code is waiting.
+1. **Provide `ANTHROPIC_API_KEY` + one video/voice vendor's real, funded credentials and run one real candidate end to end** — you've already indicated this is coming. This retires the single biggest remaining engineering unknown (every vendor adapter is real-shaped and doc-verified, zero-dollar-spend-verified only) and is the prerequisite for the "20 genuinely strong finished examples" and "content labs" goals in the agency-positioning strategy.
+2. **Give real pricing tiers** to replace the placeholder dollar amounts in `packages/shared-billing/src/tiers.ts` — a config change against infrastructure that's already fully wired.
+3. **TikTok/Meta discovery approval** — submit the applications; the code is waiting.
+4. **Decide on GitHub Advanced Security** (enable it, or make the repo public) to close the one remaining red CI job — deferred at your explicit choice, not a technical blocker.
