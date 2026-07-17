@@ -16,9 +16,9 @@
     "typescript": "^5.6.3",
     "vitest": "^2.1.9",
     "@types/express": "^5.0.0",
-    "express": "^4.21.1"
+    "express": "^5.2.1"
   },
   "peerDependencies": {
-    "express": "^4.21.1"
+    "express": "^5.2.1"
   }
 }
