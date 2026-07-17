@@ -154,6 +154,9 @@ importers:
       '@vvugc/shared-auth':
         specifier: workspace:*
         version: link:../../packages/shared-auth
+      '@vvugc/shared-billing':
+        specifier: workspace:*
+        version: link:../../packages/shared-billing
       '@vvugc/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config
@@ -371,6 +374,19 @@ importers:
       '@vvugc/shared-schema':
         specifier: workspace:*
         version: link:../shared-schema
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/shared-billing:
+    dependencies:
+      '@vvugc/shared-config':
+        specifier: workspace:*
+        version: link:../shared-config
+      stripe:
+        specifier: ^22.3.2
+        version: 22.3.2(@types/node@22.20.1)
     devDependencies:
       typescript:
         specifier: ^5.6.3
@@ -2199,6 +2215,15 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
+
+  stripe@22.3.2:
+    resolution: {integrity: sha512-O13QOvgEIQvDlTy6Ubb5kB980wpbhmoZNsgCXKILjCMZS67f+bW+6w99k3gnSi/N1lkryoj1WYdpGT5Wc5edjg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   supports-color@7.2.0:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
@@ -4118,6 +4143,10 @@ snapshots:
   strip-final-newline@2.0.0: {}
 
   strip-json-comments@3.1.1: {}
+
+  stripe@22.3.2(@types/node@22.20.1):
+    optionalDependencies:
+      '@types/node': 22.20.1
 
   supports-color@7.2.0:
     dependencies:

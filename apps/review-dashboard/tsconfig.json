@@ -12,6 +12,7 @@
     { "path": "../../packages/shared-metrics" },
     { "path": "../../packages/shared-auth" },
     { "path": "../orchestrator" },
-    { "path": "../../packages/mcp-publish" }
+    { "path": "../../packages/mcp-publish" },
+    { "path": "../../packages/shared-billing" }
   ]
 }

@@ -81,6 +81,13 @@ export function renderAccountPage(): string {
   </div>
 
   <div class="card">
+    <h2 style="font-size: 1.05rem;">Billing</h2>
+    <p class="msg msg-error" id="billingError" hidden></p>
+    <p id="currentPlanLabel" style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.75rem;">–</p>
+    <div class="row" id="tierButtons"></div>
+  </div>
+
+  <div class="card">
     <h2 style="font-size: 1.05rem;">Settings</h2>
     <p class="msg msg-error" id="settingsError" hidden></p>
     <p class="msg msg-ok" id="settingsOk" hidden></p>
@@ -212,6 +219,47 @@ async function loadUsage() {
     .join('');
 }
 
+async function loadBilling() {
+  hide('billingError');
+  const res = await fetch('/accounts/billing');
+  if (!res.ok) return;
+  const data = await res.json();
+  const label = document.getElementById('currentPlanLabel');
+  label.textContent = data.plan.tierId
+    ? \`Current plan: \${data.plan.tierId} (\${data.plan.status})\${data.monthlyRunLimit ? ' — ' + data.runsUsedThisMonth + '/' + data.monthlyRunLimit + ' runs this month' : ''}\`
+    : 'No active plan.';
+
+  document.getElementById('tierButtons').innerHTML = data.tiers
+    .map((t) => \`<button class="btn \${data.plan.tierId === t.id ? '' : 'btn-primary'}" data-tier="\${t.id}" \${data.plan.tierId === t.id ? 'disabled' : ''}>\${t.name} — $\${t.priceUsdPerMonth}/mo</button>\`)
+    .join('');
+  document.querySelectorAll('#tierButtons button[data-tier]').forEach((btn) => {
+    btn.addEventListener('click', () => startCheckout(btn.getAttribute('data-tier'), btn));
+  });
+}
+
+async function startCheckout(tierId, btn) {
+  hide('billingError');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  try {
+    const res = await fetch('/accounts/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tierId })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Request failed');
+    }
+    const { url } = await res.json();
+    window.location.href = url;
+  } catch (err) {
+    showError('billingError', err.message);
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
+}
+
 async function loadSettings() {
   const res = await fetch('/accounts/settings');
   if (!res.ok) return;
@@ -288,7 +336,7 @@ async function boot() {
   if (res.ok) {
     authView.hidden = true;
     appView.hidden = false;
-    await Promise.all([loadUsage(), loadSettings()]);
+    await Promise.all([loadUsage(), loadSettings(), loadBilling()]);
   } else {
     authView.hidden = false;
     appView.hidden = true;

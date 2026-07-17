@@ -1,0 +1,19 @@
+{
+  "name": "@vvugc/shared-billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vvugc/shared-config": "workspace:*",
+    "stripe": "^22.3.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

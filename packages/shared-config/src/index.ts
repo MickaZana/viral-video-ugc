@@ -63,6 +63,17 @@ const EnvSchema = z.object({
   META_PAGE_ID: z.string().optional(),
   /** A YouTube OAuth access token with the youtube.upload scope. */
   YOUTUBE_ACCESS_TOKEN: z.string().optional(),
+  /** Billing (packages/shared-billing) — placeholder-tier scaffolding, not live pricing.
+   *  Secret key for server-side Stripe API calls (checkout session creation). */
+  STRIPE_SECRET_KEY: z.string().optional(),
+  /** Signing secret for verifying POST /webhooks/stripe payloads. */
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  /** Real Stripe Price IDs for each placeholder tier in shared-billing/src/tiers.ts —
+   *  checkout fails with a clear error for a tier whose Price ID isn't set, rather than
+   *  falling back to a hardcoded price. */
+  STRIPE_PRICE_ID_STARTER: z.string().optional(),
+  STRIPE_PRICE_ID_GROWTH: z.string().optional(),
+  STRIPE_PRICE_ID_AGENCY: z.string().optional(),
   VVUGC_DB_PATH: z.string().default(join(REPO_ROOT, "runs", "review-queue.json")),
   VVUGC_RUNS_DIR: z.string().default(join(REPO_ROOT, "runs")),
   /**

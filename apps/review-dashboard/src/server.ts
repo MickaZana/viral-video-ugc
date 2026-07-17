@@ -22,6 +22,7 @@ import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
 import { renderAccountPage } from "./account-page.js";
+import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -35,6 +36,12 @@ export const app: Express = express();
 // every request once this sits behind any reverse proxy/load balancer.
 const { TRUST_PROXY_HOPS } = loadEnv();
 if (TRUST_PROXY_HOPS > 0) app.set("trust proxy", TRUST_PROXY_HOPS);
+
+// Must be registered before express.json() below — Stripe's webhook signature check
+// needs the raw request body, which express.json() would otherwise already have
+// consumed and replaced with a parsed object by the time any route handler runs.
+registerStripeWebhookRoute(app);
+
 app.use(express.json());
 app.use(requestIdMiddleware);
 app.use(metricsMiddleware);
@@ -96,7 +103,8 @@ const authRateLimiter = rateLimit({
 // they stay reachable. /accounts/me and /accounts/usage guard themselves via
 // requireSession (see accounts.ts). This is a separate, additive auth surface
 // from the dashboard's own operator Basic Auth; neither one weakens the other.
-registerAccountRoutes(app);
+const { requireSession } = registerAccountRoutes(app);
+registerBillingRoutes(app, requireSession);
 
 // The self-service account page — public (session-cookie auth handled client-side),
 // deliberately reachable without the operator Basic Auth below, same reasoning as
