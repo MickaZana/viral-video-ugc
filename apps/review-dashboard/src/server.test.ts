@@ -249,7 +249,6 @@ describe("review-dashboard HTTP API", () => {
         [`${baseUrl}/queue`],
         [`${baseUrl}/stats`],
         [`${baseUrl}/runs`],
-        [`${baseUrl}/tokens.css`],
         [`${baseUrl}/queue/does-not-exist`],
         [`${baseUrl}/queue/does-not-exist/approve`, { method: "POST" }],
         [`${baseUrl}/queue/bulk/approve`, { method: "POST" }]
@@ -258,6 +257,12 @@ describe("review-dashboard HTTP API", () => {
         const res = await fetch(url, init);
         expect(res.status, `${init?.method ?? "GET"} ${url}`).toBe(401);
       }
+    });
+
+    it("GET /tokens.css requires no credentials — it's non-sensitive and the public /account page depends on it", async () => {
+      await startServer();
+      const res = await fetch(`${baseUrl}/tokens.css`);
+      expect(res.status).toBe(200);
     });
 
     it("rejects the wrong password", async () => {

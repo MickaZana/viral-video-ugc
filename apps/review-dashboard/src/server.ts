@@ -119,14 +119,20 @@ app.get("/account", (_req, res) => {
 // Basic Auth below (Instagram's Content Publishing API fetches it directly).
 registerPublicAssetRoute(app);
 
+// Registered here (public, no Basic Auth) rather than after the auth gate below —
+// /account links to this and is itself public, so gating the stylesheet behind
+// operator credentials silently broke it for every non-operator visitor: the
+// <link> tag would 401, the browser drops the failed stylesheet with no visible
+// error, and the page renders in unstyled default HTML. It's just CSS, nothing
+// sensitive, so there's no reason it needs to be behind Basic Auth at all.
+app.get("/tokens.css", (_req, res) => {
+  res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
+});
+
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
 app.use(authRateLimiter);
 app.use(createBasicAuthMiddleware(credentials));
-
-app.get("/tokens.css", (_req, res) => {
-  res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
-});
 
 app.get(
   "/queue",
