@@ -28,5 +28,10 @@ export function getPublishAdapter(platform: Platform): PublishAdapter {
           "publicly reachable video_url, which this pipeline can't supply (finished videos are local " +
           "files with no public asset host). See packages/mcp-publish/src/tools/meta.ts for the detail."
       );
+    default:
+      // Exhaustive over Platform today, but an explicit fallthrough (rather than relying on
+      // switch-exhaustiveness narrowing alone) keeps this a clear error instead of an
+      // implicit-undefined return if a new Platform value is ever added without a case here.
+      throw new Error(`No publish adapter for platform: ${platform}`);
   }
 }
