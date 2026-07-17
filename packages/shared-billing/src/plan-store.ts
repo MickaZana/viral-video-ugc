@@ -51,6 +51,14 @@ export interface PlanStore {
   /** A brand-new account with no subscription reads as {tierId: null, status: "none"}. */
   get(accountId: string): AccountPlan;
   upsert(accountId: string, update: Partial<Omit<AccountPlan, "accountId" | "updatedAt">>): AccountPlan;
+  /**
+   * Reverse lookup for the webhook handler's customer.subscription.updated/deleted
+   * events, which carry Stripe's subscription id but not our accountId — checkout.session.completed
+   * is the only event that ever learns both at once, so it's the one place stripeSubscriptionId
+   * gets written (see billing.ts); this just finds that record again later. A full scan is fine
+   * at this store's expected scale (same JSON-file tradeoff as every other lockfile store here).
+   */
+  findBySubscriptionId(subscriptionId: string): AccountPlan | undefined;
 }
 
 export function createPlanStore(dbPath: string): PlanStore {
@@ -59,6 +67,10 @@ export function createPlanStore(dbPath: string): PlanStore {
       const existing = readAllUnlocked(dbPath).find((p) => p.accountId === accountId);
       if (existing) return existing;
       return { accountId, tierId: null, status: "none", updatedAt: new Date(0).toISOString() };
+    },
+
+    findBySubscriptionId(subscriptionId) {
+      return readAllUnlocked(dbPath).find((p) => p.stripeSubscriptionId === subscriptionId);
     },
 
     upsert(accountId, update) {

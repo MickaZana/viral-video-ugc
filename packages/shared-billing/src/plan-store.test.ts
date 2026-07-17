@@ -49,4 +49,19 @@ describe("createPlanStore", () => {
     expect(store.get("account-1").tierId).toBe("starter");
     expect(store.get("account-2").tierId).toBe("agency");
   });
+
+  it("findBySubscriptionId finds the account a Stripe subscription id belongs to", () => {
+    const store = freshStore();
+    store.upsert("account-1", { tierId: "growth", status: "active", stripeSubscriptionId: "sub_abc" });
+    store.upsert("account-2", { tierId: "starter", status: "active", stripeSubscriptionId: "sub_xyz" });
+
+    expect(store.findBySubscriptionId("sub_abc")?.accountId).toBe("account-1");
+    expect(store.findBySubscriptionId("sub_xyz")?.accountId).toBe("account-2");
+  });
+
+  it("findBySubscriptionId returns undefined for an unknown subscription id", () => {
+    const store = freshStore();
+    store.upsert("account-1", { tierId: "growth", status: "active", stripeSubscriptionId: "sub_abc" });
+    expect(store.findBySubscriptionId("sub_never_seen")).toBeUndefined();
+  });
 });

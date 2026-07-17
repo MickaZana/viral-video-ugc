@@ -8,12 +8,68 @@ import {
   constructWebhookEvent,
   parseClientReferenceId,
   PRICING_TIERS,
-  getTier
+  getTier,
+  type PlanStore
 } from "@vvugc/shared-billing";
 import { createAccountStore, aggregateUsage, resolveOrgId } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
 import { runsUsedThisMonth } from "./quota.js";
+
+/**
+ * Stripe's subscription.status vocabulary is wider than our own PlanStatus —
+ * this maps the values that clearly correspond to one of ours and leaves
+ * everything else (incomplete, incomplete_expired mid-setup, paused) alone
+ * rather than guessing, since none of those cleanly means "billing them" or
+ * "not billing them" the way active/past_due/canceled do.
+ */
+function mapStripeSubscriptionStatus(stripeStatus: string): "active" | "past_due" | "canceled" | undefined {
+  switch (stripeStatus) {
+    case "active":
+    case "trialing":
+      return "active";
+    case "past_due":
+    case "unpaid":
+      return "past_due";
+    case "canceled":
+      return "canceled";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The actual event-handling logic, deliberately separated from Express/HTTP/signature
+ * verification concerns so it's directly unit-testable with plain event objects and a
+ * real PlanStore — no need to mock the "stripe" package or spin up a server to prove
+ * "this event type produces this plan-store write."
+ */
+export function applyStripeWebhookEvent(event: { type: string; data: { object: unknown } }, planStore: PlanStore): void {
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object as { client_reference_id?: string | null; customer?: string | null; subscription?: string | null };
+    const parsed = parseClientReferenceId(session.client_reference_id);
+    if (parsed) {
+      planStore.upsert(parsed.accountId, {
+        tierId: parsed.tierId,
+        status: "active",
+        stripeCustomerId: session.customer ?? undefined,
+        stripeSubscriptionId: session.subscription ?? undefined
+      });
+    }
+  } else if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as { id: string };
+    const plan = planStore.findBySubscriptionId(subscription.id);
+    if (plan) planStore.upsert(plan.accountId, { status: "canceled" });
+  } else if (event.type === "customer.subscription.updated") {
+    const subscription = event.data.object as { id: string; status: string };
+    const plan = planStore.findBySubscriptionId(subscription.id);
+    const mapped = mapStripeSubscriptionStatus(subscription.status);
+    // A status Stripe uses that doesn't cleanly map to ours (e.g. "incomplete",
+    // "paused") leaves the existing plan status alone rather than guessing —
+    // same fail-safe posture as everywhere else in this file.
+    if (plan && mapped) planStore.upsert(plan.accountId, { status: mapped });
+  }
+}
 
 /**
  * Stripe's webhook signature check needs the RAW request body, not the JSON-parsed
@@ -40,26 +96,7 @@ export function registerStripeWebhookRoute(app: Express): void {
       return res.status(400).json({ error: `webhook signature verification failed: ${err instanceof Error ? err.message : String(err)}` });
     }
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as { client_reference_id?: string | null; customer?: string | null; subscription?: string | null };
-      const parsed = parseClientReferenceId(session.client_reference_id);
-      if (parsed) {
-        planStore.upsert(parsed.accountId, {
-          tierId: parsed.tierId,
-          status: "active",
-          stripeCustomerId: session.customer ?? undefined,
-          stripeSubscriptionId: session.subscription ?? undefined
-        });
-      }
-    } else if (event.type === "customer.subscription.deleted" || event.type === "customer.subscription.updated") {
-      const subscription = event.data.object as { id: string; status: string };
-      // Best-effort: without a stored subscriptionId -> accountId index, a status
-      // change can't be attributed here. Real production billing would maintain
-      // that index; this scaffolding intentionally keeps checkout.session.completed
-      // as the one authoritative activation path and treats this as advisory only.
-      void subscription;
-    }
-
+    applyStripeWebhookEvent(event, planStore);
     res.json({ received: true });
   });
 }
