@@ -85,6 +85,7 @@ export function renderAccountPage(): string {
     <p class="msg msg-error" id="teamError" hidden></p>
     <ul id="memberList" style="margin: 0 0 0.75rem; padding-left: 1.1rem; font-size: 0.85rem;"></ul>
     <form id="inviteForm" class="row" style="display: none;" >
+      <label for="inviteEmail" class="visually-hidden">Teammate's email</label>
       <input type="email" id="inviteEmail" class="input" placeholder="teammate@agency.com" required style="flex: 1;" />
       <button type="submit" class="btn btn-primary">Invite</button>
     </form>

@@ -29,6 +29,7 @@
     "typescript": "^5.6.3",
     "tsx": "^4.19.2",
     "@types/express": "^5.0.0",
-    "@playwright/test": "^1.49.1"
+    "@playwright/test": "^1.49.1",
+    "@axe-core/playwright": "^4.10.1"
   }
 }

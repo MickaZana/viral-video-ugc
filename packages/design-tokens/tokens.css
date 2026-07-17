@@ -56,7 +56,8 @@ p { color: var(--text-dim); margin: 0 0 1em; }
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+[tabindex]:focus-visible {
   outline: 2px solid var(--accent-2);
   outline-offset: 2px;
 }
