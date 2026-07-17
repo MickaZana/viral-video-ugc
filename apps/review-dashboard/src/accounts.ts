@@ -17,7 +17,9 @@ import {
 import { loadEnv } from "@vvugc/shared-config";
 import { PlatformSchema, RunConfigSchema } from "@vvugc/shared-schema";
 import { runCycle } from "@vvugc/orchestrator";
+import { createPlanStore } from "@vvugc/shared-billing";
 import { z } from "zod";
+import { checkRunQuota } from "./quota.js";
 
 const SESSION_COOKIE = "vvugc_session";
 const isProduction = process.env.NODE_ENV === "production";
@@ -105,6 +107,7 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
   const sessionStore = createSessionStore(join(VVUGC_RUNS_DIR, "sessions.json"));
   const settingsStore = createSettingsStore(join(VVUGC_RUNS_DIR, "account-settings.json"));
   const inviteStore = createInviteStore(join(VVUGC_RUNS_DIR, "invites.json"));
+  const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
 
   // Triggering a run is a real (potentially paid, once live credentials are configured)
   // vendor call chain — same "every attempt counts" reasoning as regeneration/publishing.
@@ -236,6 +239,13 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
       const settings = settingsStore.get(orgId);
       if (!settings.niche) {
         return res.status(400).json({ error: "save settings (at least a niche) before running" });
+      }
+
+      const plan = planStore.get(orgId);
+      const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
+      const quota = checkRunQuota(plan, usage);
+      if (!quota.allowed) {
+        return res.status(402).json({ error: quota.reason });
       }
 
       const config = RunConfigSchema.parse({

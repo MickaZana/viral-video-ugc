@@ -13,6 +13,7 @@ import {
 import { createAccountStore, aggregateUsage, resolveOrgId } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
+import { runsUsedThisMonth } from "./quota.js";
 
 /**
  * Stripe's webhook signature check needs the RAW request body, not the JSON-parsed
@@ -87,7 +88,7 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
     res.json({
       tiers: PRICING_TIERS,
       plan,
-      runsUsedThisMonth: usage.runs.filter((r) => r.createdAt.slice(0, 7) === new Date().toISOString().slice(0, 7)).length,
+      runsUsedThisMonth: runsUsedThisMonth(usage),
       monthlyRunLimit: tier?.monthlyRunLimit
     });
   });
