@@ -33,6 +33,7 @@ COPY packages/mcp-voiceover/package.json packages/mcp-voiceover/package.json
 COPY packages/shared-auth/package.json packages/shared-auth/package.json
 COPY packages/shared-originality/package.json packages/shared-originality/package.json
 COPY packages/mcp-publish/package.json packages/mcp-publish/package.json
+COPY packages/shared-billing/package.json packages/shared-billing/package.json
 
 RUN pnpm install --frozen-lockfile
 
