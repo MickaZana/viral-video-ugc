@@ -6,6 +6,12 @@ export interface PublishRequest {
   /** Caption/description text — this pipeline passes the script's hook + hashtags. */
   caption: string;
   hashtags?: string[];
+  /**
+   * A publicly reachable URL for the same video at videoPath, required only by
+   * adapters whose vendor API fetches the video itself rather than accepting
+   * uploaded bytes (Instagram Reels). See apps/review-dashboard/src/public-assets.ts.
+   */
+  publicVideoUrl?: string;
 }
 
 export interface PublishResult {

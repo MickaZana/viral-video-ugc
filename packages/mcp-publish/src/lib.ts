@@ -1,7 +1,7 @@
 import type { Platform } from "@vvugc/shared-schema";
 import type { PublishAdapter } from "./adapter.js";
 import { createTikTokPublishAdapter } from "./tools/tiktok.js";
-import { createFacebookPagePublishAdapter } from "./tools/meta.js";
+import { createFacebookPagePublishAdapter, createInstagramReelsPublishAdapter } from "./tools/meta.js";
 import { createYouTubePublishAdapter } from "./tools/youtube.js";
 
 export type { PublishAdapter, PublishRequest, PublishResult } from "./adapter.js";
@@ -23,11 +23,7 @@ export function getPublishAdapter(platform: Platform): PublishAdapter {
     case "youtube_shorts":
       return createYouTubePublishAdapter();
     case "instagram_reels":
-      throw new Error(
-        "Instagram Reels publishing is not implemented — its Content Publishing API requires a " +
-          "publicly reachable video_url, which this pipeline can't supply (finished videos are local " +
-          "files with no public asset host). See packages/mcp-publish/src/tools/meta.ts for the detail."
-      );
+      return createInstagramReelsPublishAdapter();
     default:
       // Exhaustive over Platform today, but an explicit fallthrough (rather than relying on
       // switch-exhaustiveness narrowing alone) keeps this a clear error instead of an

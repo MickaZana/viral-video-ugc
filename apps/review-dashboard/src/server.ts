@@ -23,6 +23,7 @@ import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
 import { renderAccountPage } from "./account-page.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
+import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -112,6 +113,11 @@ registerBillingRoutes(app, requireSession);
 app.get("/account", (_req, res) => {
   res.type("html").send(renderAccountPage());
 });
+
+// Serves a single, signed, time-limited video URL per request — see
+// public-assets.ts for why this needs to be reachable without the operator
+// Basic Auth below (Instagram's Content Publishing API fetches it directly).
+registerPublicAssetRoute(app);
 
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
@@ -312,7 +318,11 @@ app.post(
     try {
       const adapter = getPublishAdapter(item.platform);
       const caption = [item.script.hook, ...item.script.points, item.script.cta].join(" ");
-      const result = await adapter.publish({ videoPath: item.videoPath, caption });
+      // Only Instagram Reels needs a publicly fetchable URL — computed lazily so
+      // publishing to every other platform still works without PUBLIC_BASE_URL set.
+      const publicVideoUrl =
+        item.platform === "instagram_reels" ? createPublicAssetUrl(item.videoPath).url : undefined;
+      const result = await adapter.publish({ videoPath: item.videoPath, caption, publicVideoUrl });
 
       const published = {
         ...item,

@@ -98,6 +98,15 @@ const EnvSchema = z.object({
   DASHBOARD_USERNAME: z.string().optional(),
   DASHBOARD_PASSWORD: z.string().optional(),
   /**
+   * HMAC secret for signing short-lived public video URLs (see
+   * apps/review-dashboard/src/public-assets.ts) — used to hand a vendor API that
+   * requires a publicly fetchable video_url (Instagram Reels' Content Publishing
+   * API) a time-limited link into VVUGC_RUNS_DIR without exposing the whole
+   * directory. Unset: an in-memory secret is generated at startup (fine — these
+   * URLs only need to survive one publish attempt within the same process).
+   */
+  ASSET_SIGNING_SECRET: z.string().optional(),
+  /**
    * Absolute origin (e.g. "https://myapp.example.com", no trailing slash) the
    * marketing-site is publicly reachable at — needed because og:image/twitter:image
    * meta tags must be absolute URLs per spec, and the server has no other way
