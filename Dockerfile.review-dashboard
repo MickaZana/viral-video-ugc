@@ -2,6 +2,15 @@
 FROM node:20-slim AS build
 WORKDIR /repo
 
+# python3 is required at `pnpm install` time, not just runtime — this image now
+# transitively depends on @vvugc/orchestrator (regenerateScene/regenerateScript),
+# which depends on @vvugc/mcp-transcript, whose yt-dlp-exec dependency runs a
+# `preinstall` hook that version-checks a system `python` binary (a vestige of
+# the youtube-dl fork it's based on; the actual yt-dlp binary it downloads needs
+# no Python at runtime). Without this, `pnpm install --frozen-lockfile` below
+# fails outright — see Dockerfile.orchestrator's identical comment.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
@@ -32,6 +41,11 @@ RUN pnpm -r run build
 FROM node:20-slim AS runtime
 WORKDIR /repo
 ENV NODE_ENV=production
+
+# Same reason as the build stage above — the runtime stage below does its own
+# fresh `pnpm install --prod`, which re-triggers yt-dlp-exec's preinstall check.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
+
 # shared-config's REPO_ROOT falls back to process.cwd() when INIT_CWD is unset — pnpm sets
 # INIT_CWD when it launches a script, but this container's CMD runs `node dist/server.js`
 # directly, so without this, VVUGC_RUNS_DIR/VVUGC_DB_PATH would default relative to this
