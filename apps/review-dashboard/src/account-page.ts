@@ -47,7 +47,7 @@ export function renderAccountPage(): string {
     </div>
     <p class="msg msg-error" id="authError" hidden></p>
     <form id="authForm">
-      <div class="field">
+      <div class="field" id="authEmailField">
         <label for="authEmail">Email</label>
         <input type="email" id="authEmail" class="input" required />
       </div>
@@ -78,6 +78,17 @@ export function renderAccountPage(): string {
       <div class="card stat"><div class="stat-num" id="statSpend">–</div><div class="stat-label">Est. spend</div></div>
     </div>
     <div class="chart-bars" id="usageChart" aria-hidden="true"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size: 1.05rem;">Team</h2>
+    <p class="msg msg-error" id="teamError" hidden></p>
+    <ul id="memberList" style="margin: 0 0 0.75rem; padding-left: 1.1rem; font-size: 0.85rem;"></ul>
+    <form id="inviteForm" class="row" style="display: none;" >
+      <input type="email" id="inviteEmail" class="input" placeholder="teammate@agency.com" required style="flex: 1;" />
+      <button type="submit" class="btn btn-primary">Invite</button>
+    </form>
+    <p id="inviteResult" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;"></p>
   </div>
 
   <div class="card">
@@ -158,16 +169,23 @@ export function renderAccountPage(): string {
 <script>
 const authView = document.getElementById('authView');
 const appView = document.getElementById('appView');
-let mode = 'login';
+const inviteToken = new URLSearchParams(window.location.search).get('token');
+let mode = inviteToken ? 'invite' : 'login';
 
 function setMode(next) {
   mode = next;
-  document.getElementById('authSubmit').textContent = mode === 'login' ? 'Log in' : 'Sign up';
-  document.getElementById('orgNameField').hidden = mode === 'login';
+  document.getElementById('authSubmit').textContent = mode === 'login' ? 'Log in' : mode === 'invite' ? 'Accept invite & join' : 'Sign up';
+  document.getElementById('orgNameField').hidden = mode !== 'signup';
+  document.getElementById('authEmailField').hidden = mode === 'invite';
+  document.getElementById('authEmail').required = mode !== 'invite';
 }
 document.getElementById('tabLogin').addEventListener('click', () => setMode('login'));
 document.getElementById('tabSignup').addEventListener('click', () => setMode('signup'));
-setMode('login');
+if (inviteToken) {
+  document.querySelector('#authView h1').textContent = "You've been invited — set a password to join";
+  document.querySelector('.tabs').hidden = true;
+}
+setMode(mode);
 
 function showError(id, message) {
   const el = document.getElementById(id);
@@ -182,8 +200,8 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
   const email = document.getElementById('authEmail').value;
   const password = document.getElementById('authPassword').value;
   const orgName = document.getElementById('authOrgName').value;
-  const path = mode === 'login' ? '/accounts/login' : '/accounts/signup';
-  const body = mode === 'login' ? { email, password } : { email, password, orgName };
+  const path = mode === 'login' ? '/accounts/login' : mode === 'invite' ? '/accounts/invite/accept' : '/accounts/signup';
+  const body = mode === 'login' ? { email, password } : mode === 'invite' ? { token: inviteToken, password } : { email, password, orgName };
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) {
@@ -218,6 +236,41 @@ async function loadUsage() {
     .map((r) => \`<div class="chart-bar" style="height:\${Math.max((r.estimatedCostUsd / max) * 100, 2)}%" title="\${r.runId}: $\${r.estimatedCostUsd.toFixed(4)}"></div>\`)
     .join('');
 }
+
+async function loadTeam() {
+  hide('teamError');
+  const res = await fetch('/accounts/members');
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('memberList').innerHTML = data.members
+    .map((m) => \`<li>\${m.email} \${m.role === 'owner' ? '(owner)' : ''}</li>\`)
+    .join('');
+  document.getElementById('inviteForm').style.display = data.role === 'owner' ? 'flex' : 'none';
+}
+
+document.getElementById('inviteForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('teamError');
+  document.getElementById('inviteResult').textContent = '';
+  const email = document.getElementById('inviteEmail').value;
+  try {
+    const res = await fetch('/accounts/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Request failed');
+    }
+    const { inviteToken } = await res.json();
+    const link = \`\${window.location.origin}/account/join?token=\${inviteToken}\`;
+    document.getElementById('inviteResult').textContent = \`Invite link (send it to \${email}): \${link}\`;
+    document.getElementById('inviteEmail').value = '';
+  } catch (err) {
+    showError('teamError', err.message);
+  }
+});
 
 async function loadBilling() {
   hide('billingError');
@@ -336,7 +389,7 @@ async function boot() {
   if (res.ok) {
     authView.hidden = true;
     appView.hidden = false;
-    await Promise.all([loadUsage(), loadSettings(), loadBilling()]);
+    await Promise.all([loadUsage(), loadSettings(), loadBilling(), loadTeam()]);
   } else {
     authView.hidden = false;
     appView.hidden = true;

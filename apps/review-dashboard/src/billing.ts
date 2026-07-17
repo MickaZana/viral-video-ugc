@@ -10,7 +10,7 @@ import {
   PRICING_TIERS,
   getTier
 } from "@vvugc/shared-billing";
-import { createAccountStore, aggregateUsage } from "@vvugc/shared-auth";
+import { createAccountStore, aggregateUsage, resolveOrgId } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
 
@@ -77,9 +77,13 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
   const accountStore = createAccountStore(join(VVUGC_RUNS_DIR, "accounts.json"));
 
   app.get("/accounts/billing", requireSession, (req: AuthedRequest, res: Response) => {
-    const plan = planStore.get(req.accountId!);
+    const account = accountStore.findById(req.accountId!);
+    if (!account) return res.status(401).json({ error: "not authenticated" });
+    const orgId = resolveOrgId(account);
+
+    const plan = planStore.get(orgId);
     const tier = plan.tierId ? getTier(plan.tierId) : undefined;
-    const usage = aggregateUsage(req.accountId!, VVUGC_RUNS_DIR);
+    const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
     res.json({
       tiers: PRICING_TIERS,
       plan,
@@ -99,11 +103,14 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
       }
       const account = accountStore.findById(req.accountId!);
       if (!account) return res.status(401).json({ error: "not authenticated" });
+      if (account.role !== "owner") {
+        return res.status(403).json({ error: "only the org owner can manage billing" });
+      }
 
       const origin = `${req.protocol}://${req.get("host")}`;
       try {
         const { url } = await createCheckoutSession({
-          accountId: req.accountId!,
+          accountId: resolveOrgId(account),
           email: account.email,
           tierId,
           successUrl: `${origin}/account?checkout=success`,

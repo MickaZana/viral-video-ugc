@@ -3,12 +3,21 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "./passwords.js";
 
+export type AccountRole = "owner" | "member";
+
 export interface Account {
   id: string;
   email: string;
   passwordHash: string;
   /** Agency/brand name shown in the dashboard — not used for auth. */
   orgName?: string;
+  /** The organization this account belongs to — settings/usage/billing are keyed by
+   *  orgId, not accountId, so every member of an org shares one set of each (see
+   *  resolveOrgId). A solo signup's orgId is its own account id — there's no separate
+   *  "create an org" step, every account is implicitly a one-person org until it
+   *  invites someone. */
+  orgId: string;
+  role: AccountRole;
   createdAt: string;
 }
 
@@ -17,6 +26,13 @@ export type PublicAccount = Omit<Account, "passwordHash">;
 export function toPublicAccount(account: Account): PublicAccount {
   const { passwordHash: _passwordHash, ...rest } = account;
   return rest;
+}
+
+/** The org an account's shared data (settings/usage/billing) is keyed under —
+ *  currently always account.orgId, but centralized so call sites don't hardcode
+ *  which field that is. */
+export function resolveOrgId(account: Pick<Account, "orgId">): string {
+  return account.orgId;
 }
 
 /**
@@ -69,42 +85,58 @@ export class EmailAlreadyRegisteredError extends Error {
 
 export interface AccountStore {
   signUp(email: string, password: string, orgName?: string): Account;
+  /** Creates an account already linked to an existing org (via an accepted invite) —
+   *  role is always "member"; only the original signup that created the org is "owner". */
+  signUpAsMember(email: string, password: string, orgId: string): Account;
   /** Returns the account only if the password verifies — never returns a hash to check separately. */
   authenticate(email: string, password: string): Account | undefined;
   findById(id: string): Account | undefined;
+  listByOrg(orgId: string): Account[];
 }
 
 export function createAccountStore(dbPath: string): AccountStore {
   const normalize = (email: string) => email.trim().toLowerCase();
 
+  function insert(email: string, password: string, extra: Pick<Account, "orgId" | "role" | "orgName">): Account {
+    const normalized = normalize(email);
+    let created: Account | undefined;
+    let conflict = false;
+
+    mkdirSync(dirname(dbPath), { recursive: true });
+    acquireLock(dbPath);
+    try {
+      const accounts = readAllUnlocked(dbPath);
+      if (accounts.some((a) => normalize(a.email) === normalized)) {
+        conflict = true;
+      } else {
+        created = {
+          id: randomUUID(),
+          email: normalized,
+          passwordHash: hashPassword(password),
+          createdAt: new Date().toISOString(),
+          ...extra
+        };
+        writeAllUnlocked(dbPath, [...accounts, created]);
+      }
+    } finally {
+      releaseLock(dbPath);
+    }
+
+    if (conflict) throw new EmailAlreadyRegisteredError(normalized);
+    return created!;
+  }
+
   return {
     signUp(email, password, orgName) {
-      const normalized = normalize(email);
-      let created: Account | undefined;
-      let conflict = false;
+      // A solo signup's orgId is generated up front (not "self after insert") so it's
+      // available to store on the very first record — every account is its own
+      // one-person org by default, becoming shared only once it invites someone.
+      const orgId = randomUUID();
+      return insert(email, password, { orgId, role: "owner", orgName });
+    },
 
-      mkdirSync(dirname(dbPath), { recursive: true });
-      acquireLock(dbPath);
-      try {
-        const accounts = readAllUnlocked(dbPath);
-        if (accounts.some((a) => normalize(a.email) === normalized)) {
-          conflict = true;
-        } else {
-          created = {
-            id: randomUUID(),
-            email: normalized,
-            passwordHash: hashPassword(password),
-            orgName,
-            createdAt: new Date().toISOString()
-          };
-          writeAllUnlocked(dbPath, [...accounts, created]);
-        }
-      } finally {
-        releaseLock(dbPath);
-      }
-
-      if (conflict) throw new EmailAlreadyRegisteredError(normalized);
-      return created!;
+    signUpAsMember(email, password, orgId) {
+      return insert(email, password, { orgId, role: "member" });
     },
 
     authenticate(email, password) {
@@ -116,6 +148,10 @@ export function createAccountStore(dbPath: string): AccountStore {
 
     findById(id) {
       return readAllUnlocked(dbPath).find((a) => a.id === id);
+    },
+
+    listByOrg(orgId) {
+      return readAllUnlocked(dbPath).filter((a) => a.orgId === orgId);
     }
   };
 }
