@@ -60,8 +60,8 @@ importers:
         specifier: ^4.21.1
         version: 4.22.2
       express-rate-limit:
-        specifier: ^7.4.1
-        version: 7.5.1(express@4.22.2)
+        specifier: ^8.6.0
+        version: 8.6.0(express@4.22.2)
       pino:
         specifier: ^9.5.0
         version: 9.14.0
@@ -170,8 +170,8 @@ importers:
         specifier: ^4.21.1
         version: 4.22.2
       express-rate-limit:
-        specifier: ^7.4.1
-        version: 7.5.1(express@4.22.2)
+        specifier: ^8.6.0
+        version: 8.6.0(express@4.22.2)
       pino:
         specifier: ^9.5.0
         version: 9.14.0
@@ -1503,14 +1503,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@7.5.1:
-    resolution: {integrity: sha512-7iN8iPMDzOMHPUYllBEsQdWVB6fPDMPqwjBaFrgr4Jgr/+okjvzAy+UHlYYL/Vs0OsOrMkwS6PJDkFlJwoxUnw==}
-    engines: {node: '>= 16'}
-    peerDependencies:
-      express: '>= 4.11'
-
-  express-rate-limit@8.5.2:
-    resolution: {integrity: sha512-5Kb34ipNX694DH48vN9irak1Qx30nb0PLYHXfJgw4YEjiC3ZEmZJhwOp+VfiCYwFzvFTdB9QkArYS5kXa2cx2A==}
+  express-rate-limit@8.6.0:
+    resolution: {integrity: sha512-XKJXDsASUOo0LLtFwW5hCcQGH0N4WQc/Rn8/Pvoia+TJFOkkFPvrtW9lZOeeNcxQJspvOIERMwiRLsVFlhHEkA==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -2689,7 +2683,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
       express: 5.2.1
-      express-rate-limit: 8.5.2(express@5.2.1)
+      express-rate-limit: 8.6.0(express@5.2.1)
       hono: 4.12.30
       jose: 6.2.3
       json-schema-typed: 8.0.2
@@ -3399,14 +3393,21 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@7.5.1(express@4.22.2):
+  express-rate-limit@8.6.0(express@4.22.2):
     dependencies:
+      debug: 4.4.3
       express: 4.22.2
+      ip-address: 10.2.0
+    transitivePeerDependencies:
+      - supports-color
 
-  express-rate-limit@8.5.2(express@5.2.1):
+  express-rate-limit@8.6.0(express@5.2.1):
     dependencies:
+      debug: 4.4.3
       express: 5.2.1
       ip-address: 10.2.0
+    transitivePeerDependencies:
+      - supports-color
 
   express@4.22.2:
     dependencies:

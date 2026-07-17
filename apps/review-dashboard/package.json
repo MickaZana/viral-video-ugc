@@ -21,7 +21,7 @@
     "@vvugc/mcp-publish": "workspace:*",
     "@vvugc/shared-billing": "workspace:*",
     "express": "^4.21.1",
-    "express-rate-limit": "^7.4.1",
+    "express-rate-limit": "^8.6.0",
     "pino": "^9.5.0",
     "zod": "^3.23.8"
   },
