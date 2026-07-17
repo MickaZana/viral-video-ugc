@@ -2,12 +2,39 @@
 
 Snapshot as of this audit. Ratings are honest, not aspirational — "built" means verified working, not just written.
 
-## Overall
+## Overall (current — supersedes every rating below it)
 
 | Dimension | Estimate | Read |
 |---|---|---|
-| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~78%** (was ~65%, originally ~55%) | This pass added concurrency-safety, a real (tested) ASR client, real cost/usage tracking, a working deployable scheduler, and containerization — see `## Verified in this pass (deployment readiness pass)` below. Held below 80 by what's still genuinely unverified: Kling/Runway/Pika against live accounts, ffmpeg on a real execution environment, and the new Docker images (this sandbox has no running Docker daemon to build against) — see the punch list for the exact remaining gaps. |
-| **UX** (what a user/customer actually touches) | **~48%** (was ~20%) | The single largest UX gap called out in the original audit — "`apps/review-dashboard` is a single unstyled page... a working proof-of-concept, not a product surface" — is now closed: a real dashboard with stats, filters, bulk actions, run history, and a shared design system with the marketing site. Auth, billing, multi-seat, multi-language, and A/B testing remain unbuilt — those are what keep this below 50, not something faked to hit a round number. |
+| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **~88%** (was ~78%) | This pass got the repo onto a real GitHub remote for the first time (`github.com/MickaZana/viral-video-ugc`), and — critically — **got real CI passing for the first time ever**: build, lint, 250+ tests, e2e, and all three Docker images now build and push successfully on a clean Linux runner. That closes the single biggest gap from the prior audit ("the new Docker images... could not actually be built... not build-verified"). ASR is now end-to-end wired (yt-dlp + Whisper). Added originality/compliance scoring, scene/script regeneration, and code-complete publishing adapters. What still holds this below 95: no vendor (video-gen, voiceover, publishing) has ever completed a live call against a funded/authorized account — every one of them is real-shaped and unit-tested against real docs, but zero-dollar-spend-verified only. |
+| **UX** (what a user/customer actually touches) | **~62%** (was ~48%) | Real accounts/sessions (not just dashboard Basic Auth), per-account usage metering, in-place scene/script regeneration with a working (if minimal) editor panel, and an originality signal surfaced to reviewers are all new and real. Held below 70 by: no billing, no self-service onboarding UI, no settings panel, no trend charts, no full accessibility audit — see the punch list. |
+
+---
+
+## This pass (2026-07-17 — repo push, CI, and product-depth pass)
+
+**What actually shipped, in order:**
+
+1. **Got the repo deployable for the first time.** Created `github.com/MickaZana/viral-video-ugc`, committed ~110 previously-uncommitted files across 7 logical commits, discovered CI had never once run (default branch was `master`, workflow only triggers on `main`), fixed it, and then found and fixed **four real, previously-undiscoverable bugs** purely by watching real CI execute on a clean Linux runner instead of this Windows dev sandbox:
+   - `ffmpeg-static` doesn't bundle `ffprobe` — silently worked locally (a system `ffprobe` happened to be on PATH), failed outright in CI. Fixed with `ffprobe-static` + explicit `setFfprobePath()`.
+   - All three Dockerfiles were missing `packages/mcp-voiceover`'s (and later `shared-auth`/`shared-originality`/`mcp-publish`'s) `package.json` from their COPY manifests — `pnpm install --frozen-lockfile` never created those workspace symlinks, so `tsc -b` failed with "Cannot find module" the moment those packages were referenced.
+   - `yt-dlp-exec` (added for ASR) runs a `preinstall` hook requiring a system `python` binary — `node:20-slim` has none. Then, once `python3` was added, discovered Debian's `python3` package deliberately does *not* symlink `/usr/bin/python` — needed `python-is-python3` too.
+   - A `switch` in `mcp-publish/src/lib.ts` type-checked fine locally but produced a real TS2366 in the Docker build, traced back to the missing-COPY-manifest bug above breaking module resolution; hardened with an explicit `default` case regardless.
+
+   **Net result: `build-and-test` and all three `build-and-push-images` jobs are now green on real CI.** This is the first time in this project's history any of that has been true.
+
+2. **ASR closed end-to-end.** `transcribeWithAsrFallback` used to `throw` unconditionally. `packages/mcp-transcript/src/audio-extract.ts` now wires in `yt-dlp` (via `yt-dlp-exec`) to pull audio from a candidate's URL and hand it to the already-real Whisper client — no more gap between "Whisper client is real" and "nothing ever calls it with real bytes."
+3. **Originality/compliance scoring** (`packages/shared-originality`) — free, deterministic, no LLM call: 5-word n-gram Jaccard similarity for wording, sentence-count/length ratio for structure, exact 6+-word phrase-overlap detection as concrete evidence for a reviewer. Runs on every candidate; surfaced in the dashboard next to the Claude virality score.
+4. **Scene/script regeneration** — a reviewer can edit hook/points/cta or regenerate a single scene without re-running discovery/transcript/script-rewrite. Backed by a new `replaceReviewItem` on the review-queue store (both JSON and Postgres backends) and a minimal-but-real dashboard editor panel.
+5. **Accounts, sessions, and usage metering** (`packages/shared-auth`) — real signup/login (scrypt-hashed passwords), expiring/revocable sessions, and `aggregateUsage` reading real run manifests + cost ledgers per account. This is genuinely new: the product previously had zero concept of "a customer," only a single operator behind Basic Auth.
+6. **Publishing adapters** (`packages/mcp-publish`) — TikTok Content Posting API, Facebook Page video (resumable upload), YouTube Data API v3 resumable upload, all verified against each platform's current REST docs. Reachable only from `POST /queue/:id/publish` on an already-`approved` item — the human-review gate this whole architecture is built around stays intact.
+7. **Marketing copy repositioned** around the actual ICP (agencies running 5-20 client accounts) instead of a generic solo-creator pitch.
+
+**Deliberately not done, and why:**
+- **Billing/Stripe** — needs real pricing-tier decisions, not something to invent.
+- **Self-service onboarding UI, settings panel, trend charts** — real frontend builds, sequenced behind auth (now in place) rather than done blind.
+- **TikTok/Meta live discovery, any live vendor call** — external approval or funded credentials this session doesn't have; code is real and ready, going live is a business/access step, not an engineering one.
+- **Code scanning (osv-scan)** — blocked on GitHub Advanced Security, which isn't enabled on this private repo; explicitly deferred per your own choice.
 
 ---
 
@@ -102,27 +129,40 @@ Per the earlier scoping decision, that pass targeted foundational engineering hy
 | Design system consistency | 🟢 **Fixed.** `packages/design-tokens` is the single source for palette/type/primitives, served at `/tokens.css` by both apps. One product, one visual language, not two. |
 | Accessibility | 🟡 Improved, not fully audited. Dashboard now has real label/focus-visible/aria-live attention. Marketing site still has decent semantic HTML but no formal a11y audit on either surface. |
 
-## 4. Priority punch list to close the gap
+## 4. Priority punch list to close the gap (current)
 
 **To call engineering "100%" (production-grade, not just architecturally complete):**
-1. ~~Write tests~~ **Done** — 131 tests, all passing, across all 13 packages.
-2. ~~`git init`, commit history, then CI~~ **Done.**
-3. Verify Kling/Runway/Pika adapters against real accounts — still needs a live account to confirm end-to-end.
-4. Verify ffmpeg assembly on an unrestricted machine — **now has two real candidates to try it on** (the new Docker images, or the GitHub Actions runner in `weekly-run.yml`), neither of which has actually been exercised yet.
-5. Build and run the new Docker images for real (this sandbox has no Docker daemon) — confirm `pnpm -r run build` succeeds inside the container and the resulting images actually start.
-6. Wire an audio-extraction step (yt-dlp or a platform downloader) ahead of the now-real `transcribeWithWhisper` client to close the ASR fallback end-to-end.
-7. TikTok Research API + Meta Graph API approval and live wiring (external — application/approval process, not just code).
-8. ~~Deploy scheduling~~ **Mostly done** — `weekly-run.yml` covers the single/few-niche case for real. Multi-niche fan-out and the heavier EventBridge/Lambda path (for longer ffmpeg jobs than a GH-hosted runner comfortably handles) remain future work.
-9. Replace the JSON review-queue with a real datastore before any *multi-machine* concurrent use (it's now safe for same-machine concurrency).
-10. Deeper observability: ship logs somewhere queryable, add error tracking, alert on run failures — the cost ledger covers spend visibility, not error/failure visibility.
+1. ~~Write tests~~ **Done** — 250+ tests, all passing, across every package.
+2. ~~`git init`, commit history, then CI~~ **Done**, and now genuinely proven — CI passes on real GitHub Actions infrastructure, not just "would probably work."
+3. ~~Build and run the Docker images for real~~ **Done** — all three build and push to GHCR on every push to `main`, verified this pass.
+4. ~~ASR audio-extraction~~ **Done** — yt-dlp wired ahead of Whisper.
+5. **No vendor has completed a real, funded/authorized live call — for anything.** Video-gen (Kling/Runway/Pika/Higgsfield/Gemini), voiceover (ElevenLabs/Grok), and publishing (TikTok/Facebook/YouTube) are all real-shaped, tested against real API docs, and ready — none has actually moved a dollar or posted a real video yet. This is the single largest remaining engineering unknown, and it's fundamentally not closeable without you providing funded/authorized credentials for at least one vendor per stage and running it live.
+6. TikTok Research API + Meta Graph API discovery approval and live wiring (external application/approval process, not code).
+7. Instagram Reels publishing — genuinely unimplemented, needs a public asset host this pipeline doesn't have (see `packages/mcp-publish/src/tools/meta.ts`).
+8. Enable GitHub Advanced Security (or make the repo public) to unblock the `osv-scan` dependency-scanning job — currently the only red job in CI, deferred at your explicit choice.
+9. Multi-niche fan-out and the heavier EventBridge/Lambda scheduling path (`infra/cron/eventbridge-stub.ts`) remain documentation-only — `weekly-run.yml` covers the single/few-niche case for real.
+10. Replace the JSON review-queue with the already-built Postgres backend for any *multi-machine* deployment (same-machine concurrency is already safe).
+11. Deeper observability: ship logs somewhere queryable, add error tracking (Sentry-equivalent), alert on run failures — the cost ledger covers spend visibility, not error/failure visibility.
+12. Billing/Stripe integration against the now-real per-account usage data — needs your actual pricing tiers, not invented numbers.
 
-**To call UX "100%" (a premium, Yorby-beating dashboard):**
-1. **Auth** — this still blocks everything below it (accounts, billing, multi-seat).
-2. ~~A real dashboard app~~ **Mostly done** — stats, filters, bulk actions, run history, shared design system, and real accessibility attention are all now in place. What's left at the dashboard-app layer specifically: a settings panel (niche/brand-voice/cadence configuration without touching a CLI or workflow file), trend charts instead of a flat history table, and a regenerate-in-place action.
-3. **Billing** — Stripe (or equivalent) with plan tiers, credit/usage metering tied to the now-real per-run cost data.
-4. **Multi-language support** in the script-agent, since that's a named Yorby feature you'd want parity on.
-5. **Full accessibility audit** on both surfaces — this pass improved the dashboard specifically but didn't do a formal audit of either surface.
+**To call UX "100%":**
+1. ~~Auth~~ **Done** — real accounts, sessions, and per-account usage metering, additive to the existing operator Basic Auth.
+2. ~~Regenerate-in-place~~ **Done** — scene and full-script regeneration, with a working (intentionally minimal) editor panel in the dashboard.
+3. **Self-service onboarding** — no signup wizard/UI walks a new account through picking a niche and starting their first run; today that's still `POST /accounts/signup` + the CLI.
+4. **Settings panel** — niche/brand-voice/cadence configuration is still CLI flags or GitHub Actions workflow inputs, not a UI a non-technical operator could use.
+5. **Trend charts** — run history is still a flat table, not visualized over time.
+6. **Billing UI** — plan tiers, upgrade/downgrade, payment method — none of it exists (matches the billing gap above).
+7. **Multi-seat/teams within one account** — each account is a single implicit owner; no invited-teammate or role concept yet.
+8. **Multi-language script generation** — `script-agent.ts` still has no locale parameter.
+9. **Full accessibility audit** on both surfaces — real attention (labels, focus-visible, aria-live) exists on the dashboard, but neither surface has had a formal WCAG pass.
+10. **The "content labs" / public live-counter concept** (327 videos · 4.2M views · $6.80 avg cost) from the agency-positioning strategy — genuinely can't be built with fabricated numbers; needs 30-60 days of real published content and real analytics feedback, which needs live publishing (above) and a paying/testing account first.
 
 ## What I'd do first
 
-Tests + git + CI, then hygiene/bug fixes, then this pass's deployment-readiness and dashboard work are all done. What's left unchanged in kind from the original read: **auth** is the next real blocker — billing, multi-seat, and a settings panel all sit behind it, and none of them are worth building against an unauthenticated single-implicit-user app. That's the next natural pass whenever you want to take it on. Separately and independently of auth, the highest-leverage *engineering* next step is simply running the things that have never been run for real: build the Docker images, push to a GitHub remote and let `weekly-run.yml` and `ci.yml` actually execute, and get one live (non-dry-run) pipeline cycle through Kling or Runway with real credentials.
+The two things that were structurally impossible to verify before this pass — "does this actually deploy" and "does CI actually pass" — are now both real yes's, proven on live infrastructure, not assumed. That was the correct thing to close first, because everything else (billing, self-service UI, live vendor spend) is only worth building against a foundation you know actually ships.
+
+**Next, in order:**
+1. **Pick one vendor per stage and go live with real credentials** — even just Higgsfield (video) + one voice vendor + TikTok (publish) end to end, for one real candidate. This retires the single biggest remaining unknown and is the prerequisite for the "20 genuinely strong finished examples" and "content labs" goals in the agency-positioning strategy.
+2. **Settings panel + self-service onboarding UI** — now that auth exists, this is a real, scoped frontend project, not blocked on anything else.
+3. **Billing**, once you have real pricing tiers to wire against the usage data that's already being tracked.
+4. **TikTok/Meta discovery approval** — submit the applications; the code is waiting.
