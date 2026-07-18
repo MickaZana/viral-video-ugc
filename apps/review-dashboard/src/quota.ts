@@ -24,6 +24,15 @@ export interface QuotaCheck {
  * A plan pointing at an unrecognized tierId (shouldn't happen, but Stripe
  * webhooks are external input) fails open the same way, rather than blocking
  * a paying customer over a data-integrity issue that isn't their fault.
+ *
+ * Scope: only `POST /accounts/run` (accounts.ts) calls this. The CLI's own
+ * `runCycle` invocation (apps/orchestrator/src/cli.ts, the operator/cron path)
+ * has no accountId/billing concept and is not metered by this check — correct
+ * today since the CLI isn't customer-facing, but if CLI/cron access is ever
+ * exposed directly to paying customers, that path would need its own call into
+ * checkRunQuota (or a shared enforcement point above both callers) to avoid
+ * silently reintroducing the same "display vs. enforce" gap this function was
+ * built to close for the HTTP path.
  */
 export function checkRunQuota(plan: AccountPlan, usage: AccountUsage): QuotaCheck {
   if (plan.status !== "active" || !plan.tierId) return { allowed: true };
