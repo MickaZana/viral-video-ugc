@@ -1,0 +1,42 @@
+# Deploys the marketing site to Fly.io. Same repo-root build-context requirement as
+# fly.review-dashboard.toml — see docs/deploy-fly.md.
+app = "vvugc-marketing-site"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.marketing-site"
+
+[env]
+  PORT = "4320"
+  NODE_ENV = "production"
+  # Waitlist signups (runs/waitlist.jsonl) persist here — without this pointed at
+  # the mounted volume below, every deploy silently loses prior waitlist entries.
+  VVUGC_RUNS_DIR = "/data/runs"
+  # Set to this app's real Fly URL (or custom domain) once known — needed for
+  # correct absolute og:image/twitter:image URLs. See .env.example's note.
+  # PUBLIC_BASE_URL = "https://vvugc-marketing-site.fly.dev"
+  # Fly's edge always sits in front of your app as exactly one reverse-proxy hop —
+  # without this, the waitlist rate limiter's IP-keying sees every real visitor as
+  # the same client (Fly's proxy IP). See @vvugc/shared-config's TRUST_PROXY_HOPS.
+  TRUST_PROXY_HOPS = "1"
+
+[http_service]
+  internal_port = 4320
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "2s"
+
+# Create once with `fly volumes create vvugc_runs --region iad --size 1 -a vvugc-marketing-site`
+# before the first deploy — this is a SEPARATE volume from the review-dashboard's (Fly
+# volumes are per-app), even though both mount at the same in-container path.
+[mounts]
+  source = "vvugc_runs"
+  destination = "/data"

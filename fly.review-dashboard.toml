@@ -1,0 +1,50 @@
+# Deploys the review-dashboard (operator queue UI + self-service /account) to Fly.io.
+# Build context is the repo root (Dockerfile.review-dashboard's COPY commands assume
+# it), so run every `fly` command from the repo root with --config pointing at this
+# file — see docs/deploy-fly.md for the full walkthrough.
+#
+# `app` must be globally unique across all of Fly, not just your account — the name
+# below is a placeholder; `fly apps create vvugc-review-dashboard` will fail with a
+# clear "name taken" error if so, pick another and update this line to match.
+app = "vvugc-review-dashboard"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.review-dashboard"
+
+[env]
+  PORT = "4310"
+  NODE_ENV = "production"
+  # accounts.json, sessions.json, account-plans.json, and the review queue itself
+  # all live under this path — it must point at the mounted volume below, not the
+  # container's ephemeral filesystem, or every deploy silently resets all
+  # account/billing state.
+  VVUGC_RUNS_DIR = "/data/runs"
+  # Fly's edge always sits in front of your app as exactly one reverse-proxy hop —
+  # without this, express-rate-limit's IP-keyed limiters (login, checkout, run)
+  # see every real visitor as the same client (Fly's proxy IP) and misbehave: one
+  # bad actor's failed logins locks out everyone, or normal traffic false-positives
+  # into 429s. See @vvugc/shared-config's TRUST_PROXY_HOPS.
+  TRUST_PROXY_HOPS = "1"
+
+[http_service]
+  internal_port = 4310
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "2s"
+
+# Persists accounts/sessions/billing/review-queue state across deploys and restarts —
+# Fly machines otherwise wipe their local filesystem on every deploy. Create this once
+# with `fly volumes create vvugc_runs --region iad --size 1 -a vvugc-review-dashboard`
+# before the first deploy (see docs/deploy-fly.md).
+[mounts]
+  source = "vvugc_runs"
+  destination = "/data"
