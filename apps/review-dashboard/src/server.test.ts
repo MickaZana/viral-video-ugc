@@ -265,6 +265,13 @@ describe("review-dashboard HTTP API", () => {
       expect(res.status).toBe(200);
     });
 
+    it("GET /account/join requires no credentials — the invite link account-page.ts hands the owner to send a teammate must not fall through to the operator Basic Auth gate", async () => {
+      await startServer();
+      const res = await fetch(`${baseUrl}/account/join?token=some-invite-token`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("Your Account");
+    });
+
     it("rejects the wrong password", async () => {
       await startServer();
       const badHeader = { Authorization: "Basic " + Buffer.from(`${TEST_USER}:wrong-password`).toString("base64") };

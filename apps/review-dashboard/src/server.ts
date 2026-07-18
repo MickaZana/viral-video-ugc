@@ -109,8 +109,13 @@ registerBillingRoutes(app, requireSession);
 
 // The self-service account page — public (session-cookie auth handled client-side),
 // deliberately reachable without the operator Basic Auth below, same reasoning as
-// the /accounts/* API routes it talks to.
-app.get("/account", (_req, res) => {
+// the /accounts/* API routes it talks to. /account/join is the same page (its
+// client-side JS reads ?token= to switch into invite-accept mode — see
+// account-page.ts) under the exact URL account-page.ts's own invite flow hands
+// the owner to send a teammate; without this second route it fell through past
+// /account to the operator Basic Auth gate below and 401'd for every invited
+// teammate, the same failure mode /tokens.css had before it was moved up here.
+app.get(["/account", "/account/join"], (_req, res) => {
   res.type("html").send(renderAccountPage());
 });
 
