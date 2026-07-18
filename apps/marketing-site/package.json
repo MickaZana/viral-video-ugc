@@ -18,6 +18,7 @@
     "@vvugc/shared-config": "workspace:*",
     "@vvugc/shared-metrics": "workspace:*",
     "@vvugc/shared-schema": "workspace:*",
+    "@vvugc/shared-billing": "workspace:*",
     "@vvugc/mcp-video-gen": "workspace:*",
     "@vvugc/mcp-assembly": "workspace:*",
     "@vvugc/mcp-voiceover": "workspace:*",

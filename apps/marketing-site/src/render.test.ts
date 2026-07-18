@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, renderHeroBlock, renderPage, renderVideoCard, type VideoEntry } from "./render.js";
+import type { PricingTier } from "@vvugc/shared-billing";
+import { escapeHtml, renderHeroBlock, renderPage, renderPricingGrid, renderVideoCard, type VideoEntry } from "./render.js";
 
 function makeEntry(overrides: Partial<VideoEntry> = {}): VideoEntry {
   return {
@@ -78,6 +79,41 @@ describe("renderHeroBlock", () => {
     expect(html).toContain("muted");
     expect(html).toContain("loop");
     expect(html).toContain('src="/videos/hero.mp4"');
+  });
+});
+
+describe("renderPricingGrid", () => {
+  const tiers: PricingTier[] = [
+    { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
+    { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },
+    { id: "agency", name: "Agency", priceUsdPerMonth: 249, monthlyRunLimit: 60, stripePriceIdEnvVar: "STRIPE_PRICE_ID_AGENCY" }
+  ];
+
+  it("renders one card per tier with its real name, price, and run limit", () => {
+    const html = renderPricingGrid(tiers);
+    for (const tier of tiers) {
+      expect(html).toContain(`<h3>${tier.name}</h3>`);
+      expect(html).toContain(`$${tier.priceUsdPerMonth}`);
+      expect(html).toContain(`${tier.monthlyRunLimit} client runs / month`);
+    }
+  });
+
+  it("highlights exactly the middle tier of an odd-length list as 'Most popular'", () => {
+    const html = renderPricingGrid(tiers);
+    expect(html).toContain("price-badge");
+    expect((html.match(/price-badge/g) ?? []).length).toBe(1);
+    const growthStart = html.indexOf("Growth");
+    const badgeStart = html.indexOf("price-badge");
+    const starterStart = html.indexOf("Starter");
+    expect(badgeStart).toBeLessThan(growthStart);
+    expect(badgeStart).toBeGreaterThan(starterStart);
+  });
+
+  it("defaults to the real @vvugc/shared-billing tiers when called with no argument", () => {
+    const html = renderPricingGrid();
+    expect(html).toContain("Starter");
+    expect(html).toContain("Growth");
+    expect(html).toContain("Agency");
   });
 });
 

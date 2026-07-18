@@ -51,6 +51,9 @@ importers:
       '@vvugc/mcp-voiceover':
         specifier: workspace:*
         version: link:../../packages/mcp-voiceover
+      '@vvugc/shared-billing':
+        specifier: workspace:*
+        version: link:../../packages/shared-billing
       '@vvugc/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config

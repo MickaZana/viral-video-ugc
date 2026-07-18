@@ -12,8 +12,19 @@ export function renderAccountPage(): string {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Viral Video UGC — Your Account</title>
+<script>
+  // Applied before first paint so the saved theme doesn't flash the default
+  // (dark) theme for a frame — must run ahead of tokens.css taking effect.
+  (function () {
+    var saved = localStorage.getItem('vvugc-theme');
+    if (saved === 'light' || saved === 'dark') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  })();
+</script>
 <link rel="stylesheet" href="/tokens.css" />
 <style>
+  .theme-toggle { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
   body { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
   h1 { font-size: 1.5rem; margin-bottom: 0.25em; }
   .card { padding: 1.25rem; margin-bottom: 1.25rem; }
@@ -67,7 +78,10 @@ export function renderAccountPage(): string {
 <div id="appView" hidden>
   <div class="row" style="justify-content: space-between;">
     <h1>Your account</h1>
-    <button class="btn" id="logoutBtn" type="button">Log out</button>
+    <div class="row">
+      <button class="btn theme-toggle" id="themeToggleBtn" type="button" aria-pressed="false">Light mode</button>
+      <button class="btn" id="logoutBtn" type="button">Log out</button>
+    </div>
   </div>
 
   <div class="card">
@@ -187,6 +201,19 @@ if (inviteToken) {
   document.querySelector('.tabs').hidden = true;
 }
 setMode(mode);
+
+const themeToggleBtn = document.getElementById('themeToggleBtn');
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('vvugc-theme', theme);
+  themeToggleBtn.textContent = theme === 'light' ? 'Dark mode' : 'Light mode';
+  themeToggleBtn.setAttribute('aria-pressed', String(theme === 'light'));
+}
+applyTheme(currentTheme());
+themeToggleBtn.addEventListener('click', () => applyTheme(currentTheme() === 'light' ? 'dark' : 'light'));
 
 function showError(id, message) {
   const el = document.getElementById(id);

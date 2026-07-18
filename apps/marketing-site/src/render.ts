@@ -1,3 +1,5 @@
+import { PRICING_TIERS, type PricingTier } from "@vvugc/shared-billing";
+
 export interface VideoEntry {
   id: string;
   type: "product-demo" | "ugc-review";
@@ -45,6 +47,31 @@ export function renderVideoCard(entry: VideoEntry): string {
     </article>`;
 }
 
+/**
+ * Real tier data from @vvugc/shared-billing (the same source /account's billing
+ * panel and the Stripe checkout flow read from) — previously the public site's
+ * "Pricing" nav link only led to a feature-comparison table with no actual
+ * dollar amounts for this product, while the real numbers only ever surfaced
+ * behind a signup+login wall. One source of truth now; edit tiers.ts, both
+ * surfaces update.
+ */
+export function renderPricingGrid(tiers: PricingTier[] = PRICING_TIERS): string {
+  const highlightIndex = Math.floor((tiers.length - 1) / 2);
+  return tiers
+    .map((tier, i) => {
+      const highlighted = tiers.length > 1 && i === highlightIndex;
+      return `
+    <article class="price-card${highlighted ? " price-card-highlight" : ""}">
+      ${highlighted ? `<span class="price-badge">Most popular</span>` : ""}
+      <h3>${escapeHtml(tier.name)}</h3>
+      <p class="price-amount"><span class="price-num">$${tier.priceUsdPerMonth}</span><span class="price-period">/mo</span></p>
+      <p class="price-limit">${tier.monthlyRunLimit} client runs / month</p>
+      <a class="btn ${highlighted ? "btn-primary" : "btn-ghost"} price-cta" href="#cta">Start with ${escapeHtml(tier.name)}</a>
+    </article>`;
+    })
+    .join("\n");
+}
+
 export function renderHeroBlock(entry: VideoEntry | undefined): string {
   if (!entry) return `<div class="phone-frame"></div>`;
   const media =
@@ -76,5 +103,6 @@ export function renderPage(manifest: VideoEntry[], template: string, baseUrl = "
     .replace("{{HERO_BLOCK}}", renderHeroBlock(hero))
     .replace("{{GALLERY_GRID}}", gallery.map(renderVideoCard).join("\n"))
     .replace("{{UGC_WALL_GRID}}", ugcWall.map(renderVideoCard).join("\n"))
+    .replace("{{PRICING_GRID}}", renderPricingGrid())
     .replaceAll("{{BASE_URL}}", baseUrl);
 }
