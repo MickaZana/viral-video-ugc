@@ -66,6 +66,46 @@ IDs, platform approval, GHAS decision) — correctly blocked on the product
 owner, unchanged. Section A5 (a real `docker compose up` CI smoke test) and
 the alerting trend-detection nice-to-have were not built this pass.
 
+## Deployment-readiness pass (2026-07-18, later)
+
+Scope: prepare for an actual first deployment — root-caused two uncommitted
+`fly.*.toml` files sitting in the working tree, finished them, and closed the
+single longest-standing unverified claim in this project's history.
+
+- **`fly.marketing-site.toml`/`fly.review-dashboard.toml` finished and committed.**
+  Root cause for why they were never committed: both referenced a
+  `docs/deploy-fly.md` walkthrough that didn't exist — genuinely unfinished
+  work, correctly kept out of version control until it was real. Fixed a real
+  bug in both while finishing them: neither set `TRUST_PROXY_HOPS`, which
+  Fly's always-one-proxy-hop edge requires — deployed as committed, every
+  IP-keyed rate limiter (login/checkout/run/waitlist) would have bucketed all
+  real traffic under Fly's own proxy IP. Wrote `docs/deploy-fly.md` (secrets,
+  volumes, first deploy, rollback — `rollback.yml`'s GHCR retag doesn't apply
+  to a from-source Fly build, documented what does instead) and linked it from
+  the README.
+- **All three Docker images build- and run-verified for real, for the first
+  time.** Every prior audit pass (including this document's own baseline)
+  listed this as the single largest unverified engineering claim — "should
+  work... neither has been build/run-verified yet." It now has been:
+  `docker build` succeeded for `review-dashboard`, `marketing-site`, and
+  `orchestrator`; each was then actually run (not just built) —
+  `review-dashboard` and `marketing-site` booted and answered real
+  `/healthz`/`/account`/`/` requests with 200s over real HTTP, and
+  `orchestrator` executed a real `--dry-run` pipeline cycle end to end inside
+  the container (discovery → transcribe → rewrite → generate → assemble →
+  score → queued for review), confirming ffmpeg/ffprobe/yt-dlp-exec's
+  python3 dependency all resolve correctly in the actual container
+  environment, not just in this sandbox's host Node process. (One retry was
+  needed: building all three in parallel crashed the local Docker Desktop
+  engine under load; sequential builds — one at a time — completed cleanly.
+  Not a code or Dockerfile issue.)
+
+Still open: this repo has never build-verified against a **real** `fly deploy`
+(only a local `docker build`/`docker run` — no Fly account/billing exists in
+this environment to test against), and Section A5 (a CI-side
+`docker compose up` smoke test catching COPY-manifest regressions
+automatically) remains unbuilt.
+
 ## Baseline recap (what verification actually found)
 
 | Claim | Verdict | Detail |
