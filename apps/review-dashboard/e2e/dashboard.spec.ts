@@ -82,8 +82,17 @@ test.describe("review queue", () => {
   });
 
   test("switching status filter to All reveals the already-approved item too", async ({ page }) => {
+    // Scoped to the "fitness" niche (2 pending + 1 already-approved, per
+    // global-setup.ts) rather than asserting a raw total across the whole store:
+    // the review-queue store has no delete operation (an intentional audit-trail
+    // design, not a gap), so any other e2e spec that creates real items via a
+    // live runCycle() call (see customer-journey.spec.ts, operator-journey.spec.ts)
+    // permanently grows the store's all-time total/rejected counts for the rest
+    // of this e2e run — an unscoped count here would be a false failure the
+    // moment those specs run first, not a real regression in this behavior.
+    await page.selectOption("#filter-niche", "fitness");
     await page.selectOption("#filter-status", "");
-    await expect(page.locator(".queue-list .item")).toHaveCount(7);
+    await expect(page.locator(".queue-list .item")).toHaveCount(3);
     await expect(page.locator(".pill-approved")).toHaveCount(1);
   });
 
