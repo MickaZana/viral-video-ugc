@@ -14,13 +14,13 @@ export interface VideoGenAdapter {
 }
 
 /**
- * Higgsfield has two reachable paths, both implementing this same interface —
- * see getVideoGenAdapter's selection logic in lib.ts: a standalone REST API
- * (platform.higgsfield.ai — higgsfield-rest.ts, HIGGSFIELD_ACCESS_KEY/
- * HIGGSFIELD_SECRET_KEY, works from any process) and, for a Claude Agent SDK
- * session with the `HiggsfieldAi` MCP server already connected,
- * higgsfield.ts's callMcpTool-based path. The REST path is preferred when
- * configured — the MCP path exists for interactive/agent-driven use where a
- * live MCP session is already present and no separate credentials are set up.
+ * Higgsfield's tools are only reachable through the MCP connection a Claude
+ * Agent SDK session already has (this environment's `HiggsfieldAi` MCP
+ * server) — there is no separate public REST API for a standalone Node
+ * process to call directly. Adapters for MCP-only vendors take a
+ * `callMcpTool` callback the conductor supplies at runtime, rather than
+ * making their own HTTP calls, so the same VideoGenAdapter interface covers
+ * both "direct REST vendor" (Kling, Runway, Pika) and "MCP-only vendor"
+ * (Higgsfield) cases.
  */
 export type McpToolCaller = (toolName: string, args: Record<string, unknown>) => Promise<unknown>;

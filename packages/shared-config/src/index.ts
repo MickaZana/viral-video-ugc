@@ -28,13 +28,6 @@ const EnvSchema = z.object({
   META_IG_BUSINESS_ACCOUNT_ID: z.string().optional(),
   KLING_ACCESS_KEY: z.string().optional(),
   KLING_SECRET_KEY: z.string().optional(),
-  /** Higgsfield's standalone REST platform (https://platform.higgsfield.ai) — a static
-   *  key:secret pair, not a signed/expiring token. When set, the "higgsfield" video-gen
-   *  vendor uses this REST path instead of requiring an active Claude Agent SDK session
-   *  with the HiggsfieldAi MCP server connected — see mcp-video-gen/src/adapters/
-   *  higgsfield-rest.ts. */
-  HIGGSFIELD_ACCESS_KEY: z.string().optional(),
-  HIGGSFIELD_SECRET_KEY: z.string().optional(),
   RUNWAY_API_KEY: z.string().optional(),
   /** Pika is served through fal.ai's platform, not a standalone Pika API — see adapters/pika.ts. */
   FAL_KEY: z.string().optional(),
