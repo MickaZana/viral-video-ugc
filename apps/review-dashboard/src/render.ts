@@ -245,10 +245,17 @@ function populateFilterOptions() {
   const platformSel = document.getElementById('filter-platform');
   const niches = [...new Set(state.items.map((i) => i.niche))].sort();
   const platforms = [...new Set(state.items.map((i) => i.platform))].sort();
+  // An active filter (e.g. niche=X) can legitimately narrow the current fetch
+  // down to zero items — approving/rejecting the last pending item in a niche
+  // is the common case. That must not silently drop the filter back to "All":
+  // keep the currently-selected value in the option list even when it isn't
+  // present in this fetch's items, instead of only ever offering values seen
+  // in the (possibly now-empty) current result set.
   const keepValue = (sel, values) => {
     const current = sel.value;
-    sel.innerHTML = '<option value="">All</option>' + values.map((v) => \`<option value="\${esc(v)}">\${esc(v)}</option>\`).join('');
-    if (values.includes(current)) sel.value = current;
+    const options = current && !values.includes(current) ? [...values, current] : values;
+    sel.innerHTML = '<option value="">All</option>' + options.map((v) => \`<option value="\${esc(v)}">\${esc(v)}</option>\`).join('');
+    sel.value = current;
   };
   keepValue(nicheSel, niches);
   keepValue(platformSel, platforms);
