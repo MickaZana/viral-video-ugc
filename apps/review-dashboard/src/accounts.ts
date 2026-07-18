@@ -67,8 +67,8 @@ export interface AuthedRequest extends Request {
   accountId?: string;
 }
 
-// Same rationale as server.ts's own asyncHandler (Express 4 doesn't forward a rejected
-// promise from an async handler on its own) — duplicated rather than imported since these
+// Same rationale as server.ts's own asyncHandler (kept explicit even though Express 5
+// forwards async rejections on its own) — duplicated rather than imported since these
 // are two independent route-registration modules, not worth a shared-utility extraction
 // for four lines.
 function asyncHandler<P = Record<string, string>>(

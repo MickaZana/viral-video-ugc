@@ -23,9 +23,10 @@ function loadManifest(): VideoEntry[] {
   return JSON.parse(readFileSync(manifestPath, "utf-8"));
 }
 
-// Express 4 (unlike 5) does not forward a rejected promise from an async
-// handler to error-handling middleware on its own — load-bearing here since
-// recordWaitlistSubmission does real I/O (a webhook fetch) that can reject.
+// Express 5 forwards a rejected async-handler promise to error-handling
+// middleware on its own, so this is redundant-but-harmless now — kept explicit
+// (rather than relying on the framework default) since recordWaitlistSubmission
+// does real I/O (a webhook fetch) that can reject.
 function asyncHandler<P = Record<string, string>>(
   fn: (req: Request<P>, res: Response) => Promise<unknown>
 ): RequestHandler<P> {

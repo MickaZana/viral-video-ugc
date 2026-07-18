@@ -47,11 +47,11 @@ app.use(express.json());
 app.use(requestIdMiddleware);
 app.use(metricsMiddleware);
 
-// Express 4 (unlike 5) does not forward a rejected promise from an async
-// handler to error-handling middleware on its own — an unhandled rejection
-// there would otherwise hang the request instead of returning a response.
-// Now load-bearing for the Postgres-backed review-queue store (postgres-store.ts),
-// whose calls are real network I/O and can reject (e.g. connection dropped).
+// Express 5 forwards a rejected async-handler promise to error-handling
+// middleware on its own, so this is redundant-but-harmless now — kept explicit
+// (rather than relying on the framework default) for the Postgres-backed
+// review-queue store (postgres-store.ts), whose calls are real network I/O
+// and can reject (e.g. connection dropped).
 function asyncHandler<P = Record<string, string>>(
   fn: (req: Request<P>, res: Response) => Promise<unknown>
 ): RequestHandler<P> {
