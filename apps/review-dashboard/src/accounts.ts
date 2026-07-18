@@ -84,7 +84,7 @@ const SettingsInputSchema = z.object({
   brandVoice: z.string().min(1),
   platforms: z.array(PlatformSchema).min(1),
   targetDurationSec: z.number().int().min(15).max(60),
-  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]),
+  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]),
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
   cadence: z.enum(["weekly", "manual"])
 });

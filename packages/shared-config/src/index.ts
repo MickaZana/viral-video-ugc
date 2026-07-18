@@ -48,6 +48,15 @@ const EnvSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   /** Defaults to "gemini-2.5-flash-image" ("Nano Banana") if unset — see adapters/gemini.ts. */
   GEMINI_IMAGE_MODEL: z.string().optional(),
+  /** Replicate (replicate.com) — a model-hosting platform, not a single vendor: one token
+   *  gives access to many interchangeable text-to-video models. Select it with
+   *  --video-vendor replicate; see packages/mcp-video-gen/src/adapters/replicate.ts. */
+  REPLICATE_API_TOKEN: z.string().optional(),
+  /** Model slug to run, e.g. "minimax/video-01" or "luma/ray-3.2" — defaults to
+   *  replicate.ts's own DEFAULT_MODEL if unset. Per-model input schemas vary; an
+   *  incompatible override surfaces as a clear error from Replicate's own API, not
+   *  a silent misparse. */
+  REPLICATE_MODEL: z.string().optional(),
   /** Publishing (packages/mcp-publish) — never called automatically by the pipeline, only
    *  from an explicit post-approval action (review-dashboard's POST /queue/:id/publish).
    *  A TikTok user access token with the video.publish scope, from a completed 3-legged

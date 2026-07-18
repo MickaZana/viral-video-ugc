@@ -16,7 +16,8 @@ export type CostVendor =
   | "youtube"
   | "elevenlabs"
   | "grok"
-  | "gemini";
+  | "gemini"
+  | "replicate";
 
 export interface CostEvent {
   stage: string;
@@ -59,7 +60,12 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // at up to 1024x1024. Newer/higher-resolution Gemini image models are priced per
   // resolution tier instead of flat-per-image — if GEMINI_IMAGE_MODEL is overridden to
   // one of those, this rate will under/overestimate; confirm against current pricing.
-  gemini: { image: 0.039 }
+  gemini: { image: 0.039 },
+  // Replicate hosts many different models at different prices (this pipeline's
+  // DEFAULT_MODEL is overridable via REPLICATE_MODEL) — this is a rough
+  // representative estimate, not tied to any specific model's real per-run cost.
+  // Confirm against the actual model's listed price on replicate.com before relying on it.
+  replicate: { clip: 0.4 }
 };
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {

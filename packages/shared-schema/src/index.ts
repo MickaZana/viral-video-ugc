@@ -15,7 +15,7 @@ export const RunConfigSchema = z.object({
   locale: z.string().default("en"),
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
-  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]).default("higgsfield"),
+  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]).default("higgsfield"),
   /** Narration synced to burned-in captions (see packages/mcp-voiceover) — opt-in,
    *  omitted means the current silent/vendor-native-audio behavior is unchanged. */
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
@@ -92,7 +92,7 @@ export type CaptionCue = z.infer<typeof CaptionCueSchema>;
 export const RawClipSchema = z.object({
   id: z.string(),
   scriptSegmentIndex: z.number().int().nonnegative(),
-  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini"]),
+  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]),
   filePath: z.string(),
   durationSec: z.number().positive()
 });

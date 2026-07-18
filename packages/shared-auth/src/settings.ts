@@ -8,7 +8,7 @@ export interface AccountSettings {
   brandVoice: string;
   platforms: Platform[];
   targetDurationSec: number;
-  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini";
+  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate";
   voiceVendor?: "elevenlabs" | "grok";
   /** "weekly" maps to this account being included in the scheduled cron run (see
    *  infra/cron); "manual" means the account only runs when a user clicks "Run now". */

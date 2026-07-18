@@ -87,8 +87,10 @@ program
   .option("--max-candidates <n>", "max source videos to process", (v) => Number(v), 5)
   .option(
     "--video-vendor <vendor>",
-    "higgsfield | kling | runway | pika | gemini — gemini generates a still image per script " +
-      "segment (Gemini API) and Ken-Burns-pans it into a clip, instead of calling a video vendor",
+    "higgsfield | kling | runway | pika | gemini | replicate — gemini generates a still image per " +
+      "script segment (Gemini API) and Ken-Burns-pans it into a clip, instead of calling a video " +
+      "vendor; replicate is a model-hosting platform (many interchangeable text-to-video models " +
+      "behind one API — see REPLICATE_MODEL)",
     "higgsfield"
   )
   .option(

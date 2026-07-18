@@ -147,6 +147,7 @@ export function renderAccountPage(): string {
           <option value="runway">Runway</option>
           <option value="pika">Pika</option>
           <option value="gemini">Gemini (stills + Ken Burns)</option>
+          <option value="replicate">Replicate (many models — see REPLICATE_MODEL)</option>
         </select>
       </div>
       <div class="field">

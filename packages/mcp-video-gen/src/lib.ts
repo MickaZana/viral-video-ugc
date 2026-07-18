@@ -5,6 +5,7 @@ import { createKlingAdapter } from "./adapters/kling.js";
 import { createRunwayAdapter } from "./adapters/runway.js";
 import { createPikaAdapter } from "./adapters/pika.js";
 import { createGeminiAdapter } from "./adapters/gemini.js";
+import { createReplicateAdapter } from "./adapters/replicate.js";
 import { createMockAdapter } from "./adapters/mock.js";
 
 export type { VideoGenAdapter, VideoGenRequest, McpToolCaller } from "./adapters/VideoGenAdapter.js";
@@ -32,5 +33,7 @@ export function getVideoGenAdapter(
       return createPikaAdapter(opts.outDir);
     case "gemini":
       return createGeminiAdapter(opts.outDir);
+    case "replicate":
+      return createReplicateAdapter(opts.outDir);
   }
 }
