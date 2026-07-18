@@ -74,7 +74,11 @@ export const RewrittenScriptSchema = z.object({
    *  call can see what language a script was written in without re-reading RunConfig. */
   locale: z.string().default("en"),
   trendingPhrases: z.array(z.string()).default([]),
-  platformNotes: z.record(PlatformSchema, z.string()).optional()
+  // Zod 4 made z.record() with an enum key exhaustive by default (every enum member
+  // required as a key) — this field is genuinely partial (Claude only returns notes
+  // for the platforms actually targeted in the request), so it needs partialRecord,
+  // not record, to keep the pre-Zod-4 "subset of keys is fine" behavior.
+  platformNotes: z.partialRecord(PlatformSchema, z.string()).optional()
 });
 export type RewrittenScript = z.infer<typeof RewrittenScriptSchema>;
 
