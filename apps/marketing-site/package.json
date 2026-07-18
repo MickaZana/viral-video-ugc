@@ -21,8 +21,8 @@
     "@vvugc/mcp-video-gen": "workspace:*",
     "@vvugc/mcp-assembly": "workspace:*",
     "@vvugc/mcp-voiceover": "workspace:*",
-    "express-rate-limit": "^7.4.1",
-    "pino": "^9.5.0",
+    "express-rate-limit": "^8.6.0",
+    "pino": "^10.3.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
