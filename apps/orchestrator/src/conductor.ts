@@ -191,6 +191,8 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           const reviewItem: ReviewItem = {
             id: nanoid(),
             runId: config.runId,
+            orgId: config.orgId ?? config.accountId,
+            clientId: config.clientId,
             niche: config.niche,
             videoPath: assembled.filePath,
             platform,
@@ -252,6 +254,8 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
   const result = RunResultSchema.parse({
     runId: config.runId,
     accountId: config.accountId,
+    orgId: config.orgId ?? config.accountId,
+    clientId: config.clientId,
     niche: config.niche,
     candidatesFound: allCandidates.length,
     reviewItemsCreated,

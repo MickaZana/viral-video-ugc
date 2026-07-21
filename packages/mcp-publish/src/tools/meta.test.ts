@@ -14,6 +14,7 @@ describe("createFacebookPagePublishAdapter", () => {
 
   beforeEach(() => {
     process.env.META_PAGE_ACCESS_TOKEN = "page-token";
+    process.env.META_USER_ACCESS_TOKEN = "user-token";
     process.env.META_APP_ID = "app-123";
     process.env.META_PAGE_ID = "page-456";
     dir = mkdtempSync(join(tmpdir(), "fb-publish-"));
@@ -24,6 +25,7 @@ describe("createFacebookPagePublishAdapter", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.META_PAGE_ACCESS_TOKEN;
+    delete process.env.META_USER_ACCESS_TOKEN;
     delete process.env.META_APP_ID;
     delete process.env.META_PAGE_ID;
     rmSync(dir, { recursive: true, force: true });
@@ -76,7 +78,7 @@ describe("createFacebookPagePublishAdapter", () => {
     await adapter.publish({ videoPath, caption: "x" });
 
     const headers = uploadInit?.headers as Record<string, string>;
-    expect(headers.Authorization).toBe("OAuth page-token");
+    expect(headers.Authorization).toBe("OAuth user-token");
     expect(headers.file_offset).toBe("0");
   });
 

@@ -4,6 +4,8 @@ export interface ReviewItemFilter {
   status?: ReviewItem["status"];
   niche?: string;
   platform?: ReviewItem["platform"];
+  orgId?: string;
+  clientId?: string;
 }
 
 /**

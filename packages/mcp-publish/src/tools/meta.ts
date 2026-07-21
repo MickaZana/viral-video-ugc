@@ -36,6 +36,7 @@ export function createFacebookPagePublishAdapter(): PublishAdapter {
     platform: "facebook",
     async publish(req: PublishRequest): Promise<PublishResult> {
       const pageAccessToken = requireEnvVar("META_PAGE_ACCESS_TOKEN");
+      const userAccessToken = requireEnvVar("META_USER_ACCESS_TOKEN");
       const appId = requireEnvVar("META_APP_ID");
       const pageId = requireEnvVar("META_PAGE_ID");
 
@@ -48,7 +49,7 @@ export function createFacebookPagePublishAdapter(): PublishAdapter {
           file_name: req.videoPath.split(/[/\\]/).pop(),
           file_length: videoSize,
           file_type: "video/mp4",
-          access_token: pageAccessToken
+          access_token: userAccessToken
         })
       });
       if (!sessionRes.ok) {
@@ -59,7 +60,7 @@ export function createFacebookPagePublishAdapter(): PublishAdapter {
       const videoBytes = readFileSync(req.videoPath);
       const chunkRes = await fetchWithRetry(`${GRAPH_API_BASE}/${uploadSessionId}`, {
         method: "POST",
-        headers: { Authorization: `OAuth ${pageAccessToken}`, file_offset: "0" },
+        headers: { Authorization: `OAuth ${userAccessToken}`, file_offset: "0" },
         body: videoBytes,
         timeoutMs: 120_000
       });

@@ -43,9 +43,9 @@ export function createPostgresStore(pool: PgPool): ReviewQueueStore {
     async insertReviewItem(item) {
       await ensureSchema();
       await pool.query(
-        `INSERT INTO review_items (id, status, niche, platform, created_at, data)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [item.id, item.status, item.niche, item.platform, item.createdAt, JSON.stringify(item)]
+        `INSERT INTO review_items (id, status, niche, platform, created_at, data, org_id, client_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [item.id, item.status, item.niche, item.platform, item.createdAt, JSON.stringify(item), item.orgId ?? null, item.clientId ?? null]
       );
     },
 
@@ -64,6 +64,14 @@ export function createPostgresStore(pool: PgPool): ReviewQueueStore {
       if (filter?.platform) {
         params.push(filter.platform);
         conditions.push(`platform = $${params.length}`);
+      }
+      if (filter?.orgId) {
+        params.push(filter.orgId);
+        conditions.push(`org_id = $${params.length}`);
+      }
+      if (filter?.clientId) {
+        params.push(filter.clientId);
+        conditions.push(`client_id = $${params.length}`);
       }
       const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
       const { rows } = await pool.query(`SELECT data FROM review_items ${where} ORDER BY created_at DESC`, params);

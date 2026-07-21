@@ -147,6 +147,29 @@ describe("account signup/login/session routes (additive, separate from dashboard
     expect(body.account.email).toBe("me@example.com");
   });
 
+  it("requires the session-bound CSRF token for browser-originated mutations", async () => {
+    await startServer();
+    const signupRes = await fetch(`${baseUrl}/accounts/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "csrf@example.com", password: "hunter22" })
+    });
+    const cookie = sessionCookieFrom(signupRes);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+
+    const rejected = await fetch(`${baseUrl}/accounts/logout`, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: baseUrl }
+    });
+    expect(rejected.status).toBe(403);
+
+    const accepted = await fetch(`${baseUrl}/accounts/logout`, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: baseUrl, "X-CSRF-Token": me.csrfToken }
+    });
+    expect(accepted.status).toBe(204);
+  });
+
   it("logout revokes the session — a subsequent /accounts/me with the same cookie is unauthenticated", async () => {
     await startServer();
     const signupRes = await fetch(`${baseUrl}/accounts/signup`, {

@@ -53,10 +53,6 @@ export function createReplicateAdapter(outDir: string): VideoGenAdapter {
       const apiToken = requireEnvVar("REPLICATE_API_TOKEN");
       const model = loadEnv().REPLICATE_MODEL || DEFAULT_MODEL;
       const headers = { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" };
-      // `Prefer: wait` (confirmed in Replicate's own curl example) asks the API to block
-      // server-side and return the completed result inline for fast models, up to its own
-      // timeout — saves a full poll round-trip when the model finishes quickly.
-      const submitHeaders = { ...headers, Prefer: "wait" };
 
       const input: Record<string, unknown> = {
         prompt: req.prompt,
@@ -65,9 +61,16 @@ export function createReplicateAdapter(outDir: string): VideoGenAdapter {
       };
       if (req.referenceImageUrl) input.image = req.referenceImageUrl;
 
+      // No `Prefer: wait` here — live-tested against a real account and found it
+      // holds the connection open server-side until the video finishes, which for
+      // a video model routinely exceeds fetchWithRetry's own 30s timeout (3
+      // attempts, ~90s, all wasted on a request that would eventually 200 if given
+      // long enough). Plain async submit-then-poll below is both simpler and
+      // actually correct for a job this long-running — same pattern every other
+      // adapter in this codebase already uses.
       const submitRes = await fetchWithRetry(`${REPLICATE_API_BASE}/models/${model}/predictions`, {
         method: "POST",
-        headers: submitHeaders,
+        headers,
         body: JSON.stringify({ input })
       });
       if (!submitRes.ok) {

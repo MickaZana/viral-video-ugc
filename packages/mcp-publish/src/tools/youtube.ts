@@ -18,11 +18,11 @@ interface VideoInsertResponse {
  * a full OAuth consent flow, not a static API key, which is why this needs
  * YOUTUBE_ACCESS_TOKEN already minted rather than a client id/secret pair here.
  */
-export function createYouTubePublishAdapter(): PublishAdapter {
+export function createYouTubePublishAdapter(options: { accessToken?: string } = {}): PublishAdapter {
   return {
     platform: "youtube_shorts",
     async publish(req: PublishRequest): Promise<PublishResult> {
-      const accessToken = requireEnvVar("YOUTUBE_ACCESS_TOKEN");
+      const accessToken = options.accessToken ?? requireEnvVar("YOUTUBE_ACCESS_TOKEN");
       const videoSize = statSync(req.videoPath).size;
 
       const initRes = await fetchWithRetry(

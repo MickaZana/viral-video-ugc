@@ -25,6 +25,10 @@ export const RunConfigSchema = z.object({
    *  without an account stays exactly as it was; only self-service/API-driven
    *  runs need to tag ownership for usage metering (see shared-auth's usage.ts). */
   accountId: z.string().optional(),
+  /** Organization and agency-client ownership. Optional for backwards-compatible
+   * CLI runs; every customer-triggered run must provide both. */
+  orgId: z.string().optional(),
+  clientId: z.string().optional(),
   createdAt: z.string().datetime()
 });
 export type RunConfig = z.infer<typeof RunConfigSchema>;
@@ -120,6 +124,8 @@ export type ReviewItemStatus = z.infer<typeof ReviewItemStatusSchema>;
 export const ReviewItemSchema = z.object({
   id: z.string(),
   runId: z.string(),
+  orgId: z.string().optional(),
+  clientId: z.string().optional(),
   niche: z.string(),
   videoPath: z.string(),
   platform: PlatformSchema,
@@ -157,6 +163,8 @@ export const RunResultSchema = z.object({
   /** Mirrors RunConfig.accountId — carried onto the manifest so usage.ts (@vvugc/shared-auth)
    *  can attribute this run's cost-ledger spend to an account without re-reading RunConfig. */
   accountId: z.string().optional(),
+  orgId: z.string().optional(),
+  clientId: z.string().optional(),
   niche: z.string(),
   candidatesFound: z.number().int().nonnegative(),
   reviewItemsCreated: z.number().int().nonnegative(),

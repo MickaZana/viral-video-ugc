@@ -83,59 +83,5 @@
     "videoPath": null,
     "posterPath": "/videos/demo-finance.svg",
     "status": "placeholder"
-  },
-  {
-    "id": "ugc-review-1",
-    "type": "ugc-review",
-    "niche": "creator testimonial",
-    "platform": "tiktok",
-    "aspectRatio": "9:16",
-    "creatorHandle": "@jordan.creates",
-    "hook": "I was skeptical about another 'AI video tool'... then I saw the queue.",
-    "points": [
-      "It found the trend before I did",
-      "The script actually sounded like me, not a robot"
-    ],
-    "cta": "I approved 4 videos before my coffee finished.",
-    "viralityScore": null,
-    "videoPath": null,
-    "posterPath": "/videos/ugc-review-1.svg",
-    "status": "placeholder"
-  },
-  {
-    "id": "ugc-review-2",
-    "type": "ugc-review",
-    "niche": "creator testimonial",
-    "platform": "instagram_reels",
-    "aspectRatio": "9:16",
-    "creatorHandle": "@mariah.grows",
-    "hook": "My agency quoted me $3,400 a month for this. I pay way less.",
-    "points": [
-      "Same hook-point-CTA structure, way faster turnaround",
-      "I still get to approve everything before it posts"
-    ],
-    "cta": "Never going back to manual editing.",
-    "viralityScore": null,
-    "videoPath": null,
-    "posterPath": "/videos/ugc-review-2.svg",
-    "status": "placeholder"
-  },
-  {
-    "id": "ugc-review-3",
-    "type": "ugc-review",
-    "niche": "creator testimonial",
-    "platform": "youtube_shorts",
-    "aspectRatio": "9:16",
-    "creatorHandle": "@devon.builds",
-    "hook": "Every Wednesday I get a Slack ping: your videos are ready to review.",
-    "points": [
-      "It's genuinely automated, not 'automated with an assistant'",
-      "The virality score actually tracks with what performs"
-    ],
-    "cta": "That's the whole workflow now.",
-    "viralityScore": null,
-    "videoPath": null,
-    "posterPath": "/videos/ugc-review-3.svg",
-    "status": "placeholder"
   }
 ]

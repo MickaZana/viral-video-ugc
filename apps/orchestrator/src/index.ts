@@ -10,3 +10,4 @@
  */
 export { regenerateScene, regenerateScript, type RegenerateOptions } from "./regenerate.js";
 export { runCycle, type RunCycleOptions } from "./conductor.js";
+export { runAcceptance, type AcceptanceEvidence } from "./acceptance.js";

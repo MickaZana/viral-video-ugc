@@ -7,8 +7,9 @@
     "build": "tsc -b",
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
-    "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test": "vitest run --configLoader runner",
+    "test:e2e": "playwright test",
+    "rotate-social-key": "node dist/rotate-social-key.js"
   },
   "dependencies": {
     "@vvugc/shared-schema": "workspace:*",

@@ -13,6 +13,16 @@ export function renderAccountPage(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Viral Video UGC — Your Account</title>
 <script>
+let csrfToken = '';
+const nativeFetch = window.fetch.bind(window);
+window.fetch = function(input, init) {
+  const options = Object.assign({}, init || {});
+  const method = String(options.method || 'GET').toUpperCase();
+  if (csrfToken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    options.headers = Object.assign({}, options.headers || {}, { 'X-CSRF-Token': csrfToken });
+  }
+  return nativeFetch(input, options);
+};
   // Applied before first paint so the saved theme doesn't flash the default
   // (dark) theme for a frame — must run ahead of tokens.css taking effect.
   (function () {
@@ -114,6 +124,22 @@ export function renderAccountPage(): string {
   </div>
 
   <div class="card">
+    <h2 style="font-size: 1.05rem;">Clients</h2>
+    <p style="font-size: 0.85rem; color: var(--text-dim);">Each client has independent brand, platform, language, and schedule settings.</p>
+    <p class="msg msg-error" id="clientsError" hidden></p>
+    <div class="row">
+      <label for="clientSelect" class="visually-hidden">Active client</label>
+      <select id="clientSelect" class="input" style="flex: 1;"><option value="">No client selected</option></select>
+      <input id="newClientName" class="input" style="flex: 1;" placeholder="Client / brand name" aria-label="New client or brand name" />
+      <button class="btn btn-primary" id="saveClientBtn" type="button">Save as client</button>
+    </div>
+    <div class="row" style="margin-top: 0.75rem;">
+      <button class="btn" id="connectYouTubeBtn" type="button">Connect YouTube</button>
+      <span id="socialConnectionStatus" style="font-size: 0.8rem; color: var(--text-dim);"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2 style="font-size: 1.05rem;">Settings</h2>
     <p class="msg msg-error" id="settingsError" hidden></p>
     <p class="msg msg-ok" id="settingsOk" hidden></p>
@@ -134,6 +160,10 @@ export function renderAccountPage(): string {
           <label><input type="checkbox" name="platform" value="instagram_reels" /> Instagram Reels</label>
           <label><input type="checkbox" name="platform" value="facebook" /> Facebook</label>
         </div>
+      </div>
+      <div class="field">
+        <label for="locale">Content language</label>
+        <input type="text" id="locale" class="input" value="en" placeholder="e.g. en, sv, es, pt-BR" required />
       </div>
       <div class="field">
         <label for="targetDurationSec">Target duration (seconds)</label>
@@ -180,6 +210,15 @@ export function renderAccountPage(): string {
       </label>
     </div>
   </div>
+
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <h2 style="font-size: 1.05rem;">Client review queue</h2>
+      <button class="btn" id="refreshReviewsBtn" type="button">Refresh</button>
+    </div>
+    <p class="msg msg-error" id="reviewsError" hidden></p>
+    <div id="customerReviewList"><p style="color: var(--text-dim);">Select a client to see its videos.</p></div>
+  </div>
 </div>
 
 <script>
@@ -187,6 +226,16 @@ const authView = document.getElementById('authView');
 const appView = document.getElementById('appView');
 const inviteToken = new URLSearchParams(window.location.search).get('token');
 let mode = inviteToken ? 'invite' : 'login';
+let agencyClients = [];
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function setMode(next) {
   mode = next;
@@ -352,10 +401,134 @@ async function loadSettings() {
   document.getElementById('videoVendor').value = s.videoVendor || 'higgsfield';
   document.getElementById('voiceVendor').value = s.voiceVendor || '';
   document.getElementById('cadence').value = s.cadence || 'manual';
+  document.getElementById('locale').value = s.locale || 'en';
   document.querySelectorAll('input[name="platform"]').forEach((cb) => {
     cb.checked = (s.platforms || []).includes(cb.value);
   });
 }
+
+function applyClient(client) {
+  if (!client) return;
+  document.getElementById('newClientName').value = client.name;
+  document.getElementById('niche').value = client.niche;
+  document.getElementById('brandVoice').value = client.brandVoice;
+  document.getElementById('locale').value = client.locale || 'en';
+  document.getElementById('targetDurationSec').value = client.targetDurationSec;
+  document.getElementById('videoVendor').value = client.videoVendor;
+  document.getElementById('voiceVendor').value = client.voiceVendor || '';
+  document.getElementById('cadence').value = client.cadence;
+  document.querySelectorAll('input[name="platform"]').forEach((cb) => { cb.checked = client.platforms.includes(cb.value); });
+}
+
+async function loadClients() {
+  const res = await fetch('/accounts/clients');
+  if (!res.ok) return;
+  const data = await res.json();
+  agencyClients = data.clients.filter((client) => client.active);
+  const select = document.getElementById('clientSelect');
+  const selected = select.value;
+  select.innerHTML = '<option value="">No client selected</option>' + agencyClients
+    .map((client) => '<option value="' + client.id + '">' + escapeHtml(client.name) + '</option>').join('');
+  if (agencyClients.some((client) => client.id === selected)) select.value = selected;
+  else if (agencyClients.length) {
+    select.value = agencyClients[0].id;
+    applyClient(agencyClients[0]);
+  }
+}
+
+document.getElementById('clientSelect').addEventListener('change', (event) => {
+  applyClient(agencyClients.find((client) => client.id === event.target.value));
+  loadCustomerReviews();
+  loadSocialConnections();
+});
+
+async function loadSocialConnections() {
+  const clientId = document.getElementById('clientSelect').value;
+  const status = document.getElementById('socialConnectionStatus');
+  if (!clientId) {
+    status.textContent = 'Select a client first.';
+    return;
+  }
+  const res = await fetch('/accounts/social-connections?clientId=' + encodeURIComponent(clientId));
+  const data = await res.json().catch(() => ({}));
+  const youtube = data.connections?.find((connection) => connection.platform === 'youtube_shorts');
+  status.textContent = youtube ? 'YouTube: ' + youtube.accountLabel + ' · ' + youtube.status : 'YouTube not connected';
+}
+
+document.getElementById('connectYouTubeBtn').addEventListener('click', async () => {
+  const clientId = document.getElementById('clientSelect').value;
+  if (!clientId) return showError('clientsError', 'Select or create a client first.');
+  const res = await fetch('/accounts/clients/' + clientId + '/oauth/google/start', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('clientsError', data.error || 'Could not start Google authorization.');
+  window.location.assign(data.authorizationUrl);
+});
+
+document.getElementById('saveClientBtn').addEventListener('click', async () => {
+  hide('clientsError');
+  const name = document.getElementById('newClientName').value.trim();
+  if (!name) return showError('clientsError', 'Enter a client or brand name.');
+  const platforms = [...document.querySelectorAll('input[name="platform"]:checked')].map((cb) => cb.value);
+  const body = {
+    name,
+    niche: document.getElementById('niche').value,
+    brandVoice: document.getElementById('brandVoice').value,
+    locale: document.getElementById('locale').value,
+    platforms,
+    targetDurationSec: Number(document.getElementById('targetDurationSec').value),
+    videoVendor: document.getElementById('videoVendor').value,
+    voiceVendor: document.getElementById('voiceVendor').value || undefined,
+    cadence: document.getElementById('cadence').value,
+    active: true
+  };
+  const selectedId = document.getElementById('clientSelect').value;
+  const res = await fetch(selectedId ? '/accounts/clients/' + selectedId : '/accounts/clients', {
+    method: selectedId ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('clientsError', data.error || 'Could not save client.');
+  await loadClients();
+  document.getElementById('clientSelect').value = data.client.id;
+  await loadCustomerReviews();
+});
+
+async function loadCustomerReviews() {
+  hide('reviewsError');
+  const clientId = document.getElementById('clientSelect').value;
+  const list = document.getElementById('customerReviewList');
+  if (!clientId) {
+    list.innerHTML = '<p style="color: var(--text-dim);">Select a client to see its videos.</p>';
+    return;
+  }
+  const res = await fetch('/accounts/review-items?clientId=' + encodeURIComponent(clientId));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('reviewsError', data.error || 'Could not load review queue.');
+  if (!data.items.length) {
+    list.innerHTML = '<p style="color: var(--text-dim);">No videos yet. Run this client to create its first review batch.</p>';
+    return;
+  }
+  list.innerHTML = data.items.map((item) =>
+    '<article class="card" data-review-id="' + item.id + '">' +
+      '<div class="row" style="justify-content: space-between;"><strong>' + escapeHtml(item.niche) + ' · ' + escapeHtml(item.platform) + '</strong><span class="pill">' + escapeHtml(item.status) + '</span></div>' +
+      '<p>' + escapeHtml(item.script.hook) + '</p>' +
+      '<p style="font-size: 0.8rem; color: var(--text-dim);">Virality score ' + item.score + '/100</p>' +
+      (item.status === 'pending' ? '<div class="row"><button class="btn btn-primary customer-review-action" data-action="approve">Approve</button><button class="btn customer-review-action" data-action="reject">Reject</button></div>' : '') +
+    '</article>'
+  ).join('');
+}
+
+document.getElementById('refreshReviewsBtn').addEventListener('click', loadCustomerReviews);
+document.getElementById('customerReviewList').addEventListener('click', async (event) => {
+  const button = event.target.closest('.customer-review-action');
+  if (!button) return;
+  const article = button.closest('[data-review-id]');
+  const res = await fetch('/accounts/review-items/' + article.dataset.reviewId + '/' + button.dataset.action, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('reviewsError', data.error || 'Could not update review item.');
+  await loadCustomerReviews();
+});
 
 document.getElementById('settingsForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -395,7 +568,7 @@ document.getElementById('runNowBtn').addEventListener('click', async () => {
     const res = await fetch('/accounts/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dryRun: !live })
+      body: JSON.stringify({ dryRun: !live, clientId: document.getElementById('clientSelect').value || undefined })
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -405,6 +578,7 @@ document.getElementById('runNowBtn').addEventListener('click', async () => {
     document.getElementById('runOk').textContent = \`Run complete — \${result.reviewItemsCreated} video(s) queued for review.\`;
     document.getElementById('runOk').hidden = false;
     await loadUsage();
+    await loadCustomerReviews();
   } catch (err) {
     showError('runError', err.message);
   } finally {
@@ -416,9 +590,14 @@ document.getElementById('runNowBtn').addEventListener('click', async () => {
 async function boot() {
   const res = await fetch('/accounts/me');
   if (res.ok) {
+    const me = await res.json();
+    csrfToken = me.csrfToken || '';
     authView.hidden = true;
     appView.hidden = false;
     await Promise.all([loadUsage(), loadSettings(), loadBilling(), loadTeam()]);
+    await loadClients();
+    await loadCustomerReviews();
+    await loadSocialConnections();
   } else {
     authView.hidden = false;
     appView.hidden = true;

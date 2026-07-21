@@ -62,10 +62,15 @@ export default defineConfig({
       PORT: String(PORT),
       VVUGC_DB_PATH: process.env.VVUGC_DB_PATH!,
       VVUGC_RUNS_DIR: process.env.VVUGC_RUNS_DIR!,
+      // Browser tests must remain hermetic even when the developer's root .env
+      // points at a real Supabase project.
+      DATABASE_URL: "",
+      SUPABASE_DATABASE_URL: "",
       DASHBOARD_USERNAME,
       DASHBOARD_PASSWORD,
       STRIPE_SECRET_KEY,
-      STRIPE_WEBHOOK_SECRET
+      STRIPE_WEBHOOK_SECRET,
+      SOCIAL_TOKEN_ENCRYPTION_KEY: "e2e-social-token-encryption-key-at-least-32-characters"
     },
     reuseExistingServer: false,
     timeout: 15_000

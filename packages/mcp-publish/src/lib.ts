@@ -14,14 +14,18 @@ export type { PublishAdapter, PublishRequest, PublishResult } from "./adapter.js
  * (see apps/review-dashboard's POST /queue/:id/publish) — there's no run-time code
  * path that could accidentally post something unapproved.
  */
-export function getPublishAdapter(platform: Platform): PublishAdapter {
+export interface PublishCredentials {
+  accessToken?: string;
+}
+
+export function getPublishAdapter(platform: Platform, credentials: PublishCredentials = {}): PublishAdapter {
   switch (platform) {
     case "tiktok":
       return createTikTokPublishAdapter();
     case "facebook":
       return createFacebookPagePublishAdapter();
     case "youtube_shorts":
-      return createYouTubePublishAdapter();
+      return createYouTubePublishAdapter({ accessToken: credentials.accessToken });
     case "instagram_reels":
       return createInstagramReelsPublishAdapter();
     default:

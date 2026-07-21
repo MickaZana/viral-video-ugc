@@ -73,9 +73,14 @@ export function createJsonStore(dbPath: string): ReviewQueueStore {
 
     listReviewItems(filter) {
       const items = readAllUnlocked(dbPath).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      const { status, niche, platform } = filter ?? ({} as ReviewItemFilter);
+      const { status, niche, platform, orgId, clientId } = filter ?? ({} as ReviewItemFilter);
       return items.filter(
-        (i) => (!status || i.status === status) && (!niche || i.niche === niche) && (!platform || i.platform === platform)
+        (i) =>
+          (!status || i.status === status) &&
+          (!niche || i.niche === niche) &&
+          (!platform || i.platform === platform) &&
+          (!orgId || i.orgId === orgId) &&
+          (!clientId || i.clientId === clientId)
       );
     },
 

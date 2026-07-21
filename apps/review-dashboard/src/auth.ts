@@ -124,13 +124,14 @@ function parseBasicAuthHeader(header: string | undefined): { user: string; pass:
 }
 
 export function createBasicAuthMiddleware(credentials: DashboardCredentials): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request & { auditActor?: string }, res: Response, next: NextFunction) => {
     const parsed = parseBasicAuthHeader(req.headers.authorization);
     if (
       parsed &&
       timingSafeStringEqual(parsed.user, credentials.username) &&
       timingSafeStringEqual(parsed.pass, credentials.password)
     ) {
+      req.auditActor = `operator:${parsed.user}`;
       return next();
     }
     res.set("WWW-Authenticate", 'Basic realm="Viral Video UGC Review Dashboard"');

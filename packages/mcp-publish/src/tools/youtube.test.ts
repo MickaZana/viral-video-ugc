@@ -71,6 +71,20 @@ describe("createYouTubePublishAdapter", () => {
     expect(result).toEqual({ platform: "youtube_shorts", postId: "video-id-1", url: "https://youtube.com/shorts/video-id-1" });
   });
 
+  it("uses an explicitly supplied client OAuth token instead of the global token", async () => {
+    let authorization: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (url.toString().includes("uploadType=resumable")) {
+        authorization = (init?.headers as Record<string, string>).Authorization;
+        return initResponse("https://upload.youtube.com/session/client");
+      }
+      return jsonResponse({ id: "client-video" });
+    }));
+
+    await createYouTubePublishAdapter({ accessToken: "client-token" }).publish({ videoPath, caption: "Client video" });
+    expect(authorization).toBe("Bearer client-token");
+  });
+
   it("truncates the title to YouTube's 100-character limit", async () => {
     let capturedBody: Record<string, unknown> | undefined;
     vi.stubGlobal(

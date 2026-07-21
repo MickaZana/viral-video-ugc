@@ -13,3 +13,15 @@ export { createSessionStore, type Session, type SessionStore } from "./sessions.
 export { aggregateUsage, type AccountUsage } from "./usage.js";
 export { createSettingsStore, type AccountSettings, type AccountSettingsInput, type SettingsStore } from "./settings.js";
 export { createInviteStore, type Invite, type InviteStore } from "./invites.js";
+export {
+  createAgencyClientStore,
+  type AgencyClient,
+  type AgencyClientInput,
+  type AgencyClientStore
+} from "./clients.js";
+export {
+  createSocialConnectionStore,
+  rotateSocialConnectionEncryptionKey,
+  type SocialConnection,
+  type SocialConnectionSecrets
+} from "./social-connections.js";

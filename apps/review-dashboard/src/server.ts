@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import pino from "pino";
 import { createAppMetrics, installLifecycleHandlers, requestIdMiddleware } from "@vvugc/shared-metrics";
-import { loadEnv } from "@vvugc/shared-config";
+import { loadEnv, validateProductionEnv } from "@vvugc/shared-config";
 import { PlatformSchema, ReviewItemStatusSchema } from "@vvugc/shared-schema";
 import {
   listReviewItems,
@@ -17,6 +17,7 @@ import { regenerateScene, regenerateScript } from "@vvugc/orchestrator";
 import { getPublishAdapter } from "@vvugc/mcp-publish";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { listRuns } from "./runs.js";
 import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
@@ -24,12 +25,51 @@ import { registerAccountRoutes } from "./accounts.js";
 import { renderAccountPage } from "./account-page.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
+import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
+import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
+import { createSocialConnectionStore } from "@vvugc/shared-auth";
+import { refreshGoogleAccessToken } from "./google-oauth.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
 const startedAt = Date.now();
 const credentials = resolveCredentials(logger);
 const { metricsMiddleware, metricsHandler } = createAppMetrics("review-dashboard");
+
+async function clientPublishAccessToken(item: { orgId?: string; clientId?: string; platform: string }): Promise<string | undefined> {
+  if (!item.orgId || !item.clientId) return undefined;
+  const env = loadEnv();
+  const encryptionKey =
+    env.SOCIAL_TOKEN_ENCRYPTION_KEY ??
+    (process.env.NODE_ENV === "production" ? undefined : "development-only-social-token-key-32chars");
+  if (!encryptionKey) throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY is required to publish client content");
+  const store = createSocialConnectionStore(join(env.VVUGC_RUNS_DIR, "social-connections.json"), encryptionKey);
+  const connection = store.list(item.orgId, item.clientId).find((entry) => entry.platform === item.platform);
+  if (!connection) throw new Error(`Connect the client's ${item.platform} account before publishing`);
+  const secrets = store.getSecrets(item.orgId, connection.id);
+  if (!secrets) throw new Error("The client's publishing credentials could not be decrypted");
+
+  if (item.platform !== "youtube_shorts" || connection.status !== "expired") return secrets.accessToken;
+  if (!secrets.refreshToken) throw new Error("The client's YouTube authorization expired; reconnect YouTube");
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required to refresh YouTube authorization");
+  }
+  const refreshed = await refreshGoogleAccessToken({
+    refreshToken: secrets.refreshToken,
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET
+  });
+  store.connect(item.orgId, {
+    clientId: item.clientId,
+    platform: "youtube_shorts",
+    accountLabel: connection.accountLabel,
+    providerAccountId: connection.providerAccountId,
+    accessToken: refreshed.accessToken,
+    refreshToken: secrets.refreshToken,
+    expiresAt: refreshed.expiresAt
+  });
+  return refreshed.accessToken;
+}
 
 export const app: Express = express();
 // See TRUST_PROXY_HOPS in @vvugc/shared-config — without this, req.ip (and so the
@@ -44,6 +84,52 @@ if (TRUST_PROXY_HOPS > 0) app.set("trust proxy", TRUST_PROXY_HOPS);
 registerStripeWebhookRoute(app);
 
 app.use(express.json());
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'");
+  if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
+
+// Browser mutations carrying the session cookie must be same-origin. Non-browser
+// API clients generally omit Origin and authenticate separately; an explicitly
+// cross-origin browser request is rejected before it reaches any state change.
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  const origin = req.headers.origin;
+  if (!origin) return next();
+  try {
+    if (new URL(origin).host !== req.get("host")) return res.status(403).json({ error: "cross-origin mutation rejected" });
+  } catch {
+    return res.status(403).json({ error: "invalid origin" });
+  }
+  next();
+});
+
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  res.on("finish", () => {
+    const { VVUGC_RUNS_DIR } = loadEnv();
+    mkdirSync(VVUGC_RUNS_DIR, { recursive: true });
+    appendFileSync(
+      join(VVUGC_RUNS_DIR, "audit.ndjson"),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        requestId: (req as Request & { id?: string }).id,
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        ip: req.ip,
+        actor: (req as Request & { auditActor?: string }).auditActor ?? "anonymous"
+      }) + "\n"
+    );
+  });
+  next();
+});
 app.use(requestIdMiddleware);
 app.use(metricsMiddleware);
 
@@ -138,6 +224,13 @@ app.get("/tokens.css", (_req, res) => {
 // its details (scripts, video paths, run history) — not safe to leave open.
 app.use(authRateLimiter);
 app.use(createBasicAuthMiddleware(credentials));
+
+app.post(
+  "/scheduler/run-due",
+  asyncHandler(async (_req, res) => {
+    res.json(await runDueClientSchedules());
+  })
+);
 
 app.get(
   "/queue",
@@ -327,7 +420,8 @@ app.post(
     }
 
     try {
-      const adapter = getPublishAdapter(item.platform);
+      const accessToken = await clientPublishAccessToken(item);
+      const adapter = getPublishAdapter(item.platform, { accessToken });
       const caption = [item.script.hook, ...item.script.points, item.script.cta].join(" ");
       // Only Instagram Reels needs a publicly fetchable URL — computed lazily so
       // publishing to every other platform still works without PUBLIC_BASE_URL set.
@@ -362,9 +456,15 @@ app.use((err: unknown, req: Request & { id?: string }, res: Response, _next: Nex
 
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
+  if (process.env.NODE_ENV === "production") validateProductionEnv();
   const port = Number(process.env.PORT ?? 4310);
   const server = app.listen(port, () => {
     logger.info({ port }, "review dashboard listening");
   });
+  startClientScheduler(Number(process.env.CLIENT_SCHEDULER_INTERVAL_MS ?? 60_000));
+  startPipelineJobWorker(
+    createPipelineJobStore(join(loadEnv().VVUGC_RUNS_DIR, "pipeline-jobs.json")),
+    Number(process.env.PIPELINE_JOB_INTERVAL_MS ?? 1_000)
+  );
   installLifecycleHandlers(server, logger);
 }

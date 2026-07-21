@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx src/server.ts",
     "generate-demo-videos": "tsx scripts/generate-demo-videos.ts",
-    "test": "vitest run",
+    "test": "vitest run --configLoader runner",
     "test:e2e": "playwright test"
   },
   "dependencies": {

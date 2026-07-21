@@ -64,6 +64,7 @@ const EnvSchema = z.object({
   TIKTOK_ACCESS_TOKEN: z.string().optional(),
   /** A Facebook Page access token (not a user token) with pages_manage_posts. */
   META_PAGE_ACCESS_TOKEN: z.string().optional(),
+  META_USER_ACCESS_TOKEN: z.string().optional(),
   /** The Meta App ID that owns the upload session — required by the Graph API's
    *  resumable Upload API (POST /<APP_ID>/uploads), separate from META_ACCESS_TOKEN
    *  (discovery's hashtag-search token) and META_PAGE_ACCESS_TOKEN above. */
@@ -115,6 +116,12 @@ const EnvSchema = z.object({
    * URLs only need to survive one publish attempt within the same process).
    */
   ASSET_SIGNING_SECRET: z.string().optional(),
+  /** Master secret used to encrypt per-client social OAuth tokens at rest. */
+  SOCIAL_TOKEN_ENCRYPTION_KEY: z.string().min(32).optional(),
+  OAUTH_STATE_SECRET: z.string().min(32).optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
   /**
    * Absolute origin (e.g. "https://myapp.example.com", no trailing slash) the
    * marketing-site is publicly reachable at — needed because og:image/twitter:image
@@ -151,7 +158,11 @@ export type Env = z.infer<typeof EnvSchema>;
  * a test suite) permanently stuck at whatever they were on first call.
  */
 export function loadEnv(): Env {
-  return EnvSchema.parse(process.env);
+  const env = { ...process.env };
+  if (!env.DATABASE_URL && env.SUPABASE_DATABASE_URL) {
+    env.DATABASE_URL = env.SUPABASE_DATABASE_URL;
+  }
+  return EnvSchema.parse(env);
 }
 
 /** Keys of Env whose value is an optional secret/string — everything requireEnvVar
@@ -171,4 +182,26 @@ export function requireEnvVar(key: StringEnvKey): string {
     );
   }
   return value;
+}
+
+export function validateProductionEnv(env: Env = loadEnv()): void {
+  const required: Array<keyof Env> = [
+    "DATABASE_URL",
+    "DASHBOARD_USERNAME",
+    "DASHBOARD_PASSWORD",
+    "ASSET_SIGNING_SECRET",
+    "SOCIAL_TOKEN_ENCRYPTION_KEY",
+    "OAUTH_STATE_SECRET",
+    "PUBLIC_BASE_URL"
+  ];
+  const missing = required.filter((key) => !env[key]);
+  if (missing.length) {
+    throw new Error(`Production configuration is incomplete. Missing: ${missing.join(", ")}`);
+  }
+  if (!env.PUBLIC_BASE_URL!.startsWith("https://")) {
+    throw new Error("PUBLIC_BASE_URL must use https:// in production");
+  }
+  if (env.DASHBOARD_PASSWORD!.length < 16) {
+    throw new Error("DASHBOARD_PASSWORD must be at least 16 characters in production");
+  }
 }

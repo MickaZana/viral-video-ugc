@@ -33,6 +33,47 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS review_items_created_at_idx ON review_items (created_at DESC);
       CREATE INDEX IF NOT EXISTS review_items_status_idx ON review_items (status);
     `
+  },
+  {
+    id: "0002_add_tenant_scope",
+    sql: `
+      ALTER TABLE review_items ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE review_items ADD COLUMN IF NOT EXISTS client_id TEXT;
+      CREATE INDEX IF NOT EXISTS review_items_org_id_idx ON review_items (org_id);
+      CREATE INDEX IF NOT EXISTS review_items_client_id_idx ON review_items (client_id);
+    `
+  },
+  {
+    id: "0003_create_pipeline_jobs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS pipeline_jobs (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        config JSONB NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'dead_letter')),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
+        available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        lease_owner TEXT,
+        lease_expires_at TIMESTAMPTZ,
+        cancel_requested BOOLEAN NOT NULL DEFAULT false,
+        result JSONB,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (org_id, idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS pipeline_jobs_claim_idx
+        ON pipeline_jobs (available_at, created_at)
+        WHERE status = 'queued';
+      CREATE INDEX IF NOT EXISTS pipeline_jobs_lease_idx
+        ON pipeline_jobs (lease_expires_at)
+        WHERE status = 'running';
+      CREATE INDEX IF NOT EXISTS pipeline_jobs_tenant_idx
+        ON pipeline_jobs (org_id, client_id, created_at DESC);
+    `
   }
 ];
 
@@ -53,24 +94,30 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
  * fully-migrated database just checks and returns.
  */
 export async function runMigrations(pool: PgPool, migrations: Migration[] = MIGRATIONS): Promise<void> {
-  await pool.query(TRACKING_TABLE_SQL);
-  const { rows } = await pool.query("SELECT id FROM schema_migrations");
-  const applied = new Set(rows.map((r) => r.id as string));
+  const client = await pool.connect();
+  try {
+    // Multiple freshly deployed instances may start simultaneously. A
+    // session-level advisory lock serializes their migration checks and avoids
+    // both instances applying the same not-yet-recorded migration.
+    await client.query("SELECT pg_advisory_lock(hashtext('vvugc_schema_migrations'))");
+    await client.query(TRACKING_TABLE_SQL);
+    const { rows } = await client.query("SELECT id FROM schema_migrations");
+    const applied = new Set(rows.map((r) => r.id as string));
 
-  for (const migration of migrations) {
-    if (applied.has(migration.id)) continue;
-
-    const client = await pool.connect();
-    try {
+    for (const migration of migrations) {
+      if (applied.has(migration.id)) continue;
       await client.query("BEGIN");
-      await client.query(migration.sql);
-      await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [migration.id]);
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
+      try {
+        await client.query(migration.sql);
+        await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [migration.id]);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
     }
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtext('vvugc_schema_migrations'))").catch(() => undefined);
+    client.release();
   }
 }
