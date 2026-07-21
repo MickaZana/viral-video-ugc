@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -9,14 +9,40 @@ import {
 } from "@vvugc/review-queue";
 import { runCycle } from "@vvugc/orchestrator";
 
+const LOCK_TIMEOUT_MS = 30_000;
+const LOCK_RETRY_MS = 50;
+/** If the lock file is older than this, assume the holder crashed and remove it. */
+const STALE_LOCK_MS = 60_000;
+
 function lock(path: string): void {
-  for (;;) {
+  const lockPath = `${path}.lock`;
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
     try {
-      closeSync(openSync(`${path}.lock`, "wx"));
+      closeSync(openSync(lockPath, "wx"));
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // Check for stale locks left by crashed processes
+      try {
+        const stat = statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > STALE_LOCK_MS) {
+          rmSync(lockPath, { force: true });
+          continue; // Retry immediately after cleaning up stale lock
+        }
+      } catch { /* lock was removed between our check — retry */ }
+      // Brief sleep to avoid burning CPU
+      const start = Date.now();
+      while (Date.now() - start < LOCK_RETRY_MS) { /* spin-wait */ }
     }
+  }
+  // Last resort: force-remove the lock and try once more
+  rmSync(lockPath, { force: true });
+  try {
+    closeSync(openSync(lockPath, "wx"));
+    return;
+  } catch {
+    throw new Error(`Failed to acquire lock on ${path} after ${LOCK_TIMEOUT_MS}ms — another process may be holding it`);
   }
 }
 
