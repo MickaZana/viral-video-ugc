@@ -157,8 +157,8 @@ window.fetch = function(input, init) {
         <div class="checkbox-row">
           <label><input type="checkbox" name="platform" value="youtube_shorts" /> YouTube Shorts</label>
           <label><input type="checkbox" name="platform" value="tiktok" /> TikTok</label>
-          <label><input type="checkbox" name="platform" value="instagram_reels" /> Instagram Reels</label>
-          <label><input type="checkbox" name="platform" value="facebook" /> Facebook</label>
+          <!-- <label><input type="checkbox" name="platform" value="instagram_reels" /> Instagram Reels</label> -->
+          <!-- <label><input type="checkbox" name="platform" value="facebook" /> Facebook</label> -->
         </div>
       </div>
       <div class="field">
