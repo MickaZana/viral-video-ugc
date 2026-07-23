@@ -32,7 +32,7 @@ export interface PipelineJobStore {
   claim(workerId: string, leaseMs?: number): Promise<PipelineJob | undefined>;
   heartbeat(id: string, workerId: string, leaseMs?: number): Promise<boolean>;
   complete(id: string, workerId: string, result: RunResult): Promise<boolean>;
-  fail(id: string, workerId: string, error: string): Promise<PipelineJob | undefined>;
+  fail(id: string, workerId: string, error: string, retryable?: boolean): Promise<PipelineJob | undefined>;
   cancel(orgId: string, id: string): Promise<boolean>;
   acknowledgeCancelled(id: string, workerId: string): Promise<boolean>;
   replay(orgId: string, id: string): Promise<PipelineJob | undefined>;
@@ -149,17 +149,17 @@ export function createPostgresPipelineJobStore(pool: PgPool): PipelineJobStore {
       return (updated.rowCount ?? 0) === 1;
     },
 
-    async fail(id, workerId, error) {
+    async fail(id, workerId, error, retryable = true) {
       await ensureSchema();
       const { rows } = await pool.query<JobRow>(
         `UPDATE pipeline_jobs
-         SET status=CASE WHEN attempts >= max_attempts THEN 'dead_letter' ELSE 'queued' END,
-             available_at=CASE WHEN attempts >= max_attempts THEN available_at
-               ELSE now() + (LEAST(300, power(2, attempts)::int) * interval '1 second') END,
+         SET status=CASE WHEN $4=false OR attempts >= max_attempts THEN 'dead_letter' ELSE 'queued' END,
+             available_at=CASE WHEN $4=false OR attempts >= max_attempts THEN available_at
+                           ELSE now() + (random() * LEAST(300, power(2, attempts)::int) * interval '1 second') END,
              last_error=$3, lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
          WHERE id=$1 AND status='running' AND lease_owner=$2
          RETURNING *`,
-        [id, workerId, error.slice(0, 4000)]
+        [id, workerId, error.slice(0, 4000), retryable]
       );
       return rows[0] ? rowToJob(rows[0]) : undefined;
     },

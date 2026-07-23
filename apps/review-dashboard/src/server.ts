@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import pino from "pino";
-import { createAppMetrics, installLifecycleHandlers, requestIdMiddleware } from "@vvugc/shared-metrics";
+import { createAppMetrics, installLifecycleHandlers, reportError, requestIdMiddleware } from "@vvugc/shared-metrics";
 import { loadEnv, validateProductionEnv } from "@vvugc/shared-config";
 import { PlatformSchema, ReviewItemStatusSchema } from "@vvugc/shared-schema";
 import {
@@ -15,7 +15,8 @@ import {
 } from "@vvugc/review-queue";
 import { regenerateScene, regenerateScript } from "@vvugc/orchestrator";
 import { getPublishAdapter } from "@vvugc/mcp-publish";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { z } from "zod";
 import { join } from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { listRuns } from "./runs.js";
@@ -29,6 +30,7 @@ import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
 import { createSocialConnectionStore } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
+import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -39,10 +41,7 @@ const { metricsMiddleware, metricsHandler } = createAppMetrics("review-dashboard
 async function clientPublishAccessToken(item: { orgId?: string; clientId?: string; platform: string }): Promise<string | undefined> {
   if (!item.orgId || !item.clientId) return undefined;
   const env = loadEnv();
-  const encryptionKey =
-    env.SOCIAL_TOKEN_ENCRYPTION_KEY ??
-    (process.env.NODE_ENV === "production" ? undefined : "development-only-social-token-key-32chars");
-  if (!encryptionKey) throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY is required to publish client content");
+  const encryptionKey = resolveSocialTokenEncryptionKey();
   const store = createSocialConnectionStore(join(env.VVUGC_RUNS_DIR, "social-connections.json"), encryptionKey);
   const connection = store.list(item.orgId, item.clientId).find((entry) => entry.platform === item.platform);
   if (!connection) throw new Error(`Connect the client's ${item.platform} account before publishing`);
@@ -83,14 +82,16 @@ if (TRUST_PROXY_HOPS > 0) app.set("trust proxy", TRUST_PROXY_HOPS);
 // consumed and replaced with a parsed object by the time any route handler runs.
 registerStripeWebhookRoute(app);
 
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
-app.use((req, res, next) => {
+app.use((req: Request & { scriptNonce?: string }, res, next) => {
+  const scriptNonce = randomBytes(18).toString("base64");
+  req.scriptNonce = scriptNonce;
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'");
+  res.setHeader("Content-Security-Policy", `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-${scriptNonce}'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`);
   if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   next();
 });
@@ -201,8 +202,8 @@ registerBillingRoutes(app, requireSession);
 // the owner to send a teammate; without this second route it fell through past
 // /account to the operator Basic Auth gate below and 401'd for every invited
 // teammate, the same failure mode /tokens.css had before it was moved up here.
-app.get(["/account", "/account/join"], (_req, res) => {
-  res.type("html").send(renderAccountPage());
+app.get(["/account", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
+  res.type("html").send(renderAccountPage(req.scriptNonce));
 });
 
 // Serves a single, signed, time-limited video URL per request — see
@@ -281,16 +282,18 @@ app.get("/runs", (_req, res) => {
 app.post(
   "/queue/bulk/approve",
   asyncHandler(async (req, res) => {
-    const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
-    res.json({ updated: await setReviewItemsStatus(ids, "approved") });
+    const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
+    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "approved") });
   })
 );
 
 app.post(
   "/queue/bulk/reject",
   asyncHandler(async (req, res) => {
-    const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
-    res.json({ updated: await setReviewItemsStatus(ids, "rejected") });
+    const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
+    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "rejected") });
   })
 );
 
@@ -443,14 +446,18 @@ app.post(
   })
 );
 
-app.get("/", (_req, res) => {
-  res.type("html").send(renderDashboardPage());
+app.get("/", (req: Request & { scriptNonce?: string }, res) => {
+  res.type("html").send(renderDashboardPage(req.scriptNonce));
 });
 
 // Error-handling middleware — must have exactly 4 params for Express to
 // recognize it as such. Catches rejections forwarded by asyncHandler.
 app.use((err: unknown, req: Request & { id?: string }, res: Response, _next: NextFunction) => {
-  logger.error({ requestId: req.id, method: req.method, path: req.path, err: String(err) }, "request failed");
+  reportError(err, { requestId: req.id, method: req.method, path: req.path }, {
+    service: "review-dashboard",
+    errorFile: join(loadEnv().VVUGC_RUNS_DIR, "errors.ndjson"),
+    log: (record, message) => logger.error(record, message)
+  });
   res.status(500).json({ error: "internal error" });
 });
 

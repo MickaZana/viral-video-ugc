@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pino from "pino";
-import { createAppMetrics, installLifecycleHandlers, requestIdMiddleware } from "@vvugc/shared-metrics";
+import { createAppMetrics, installLifecycleHandlers, reportError, requestIdMiddleware } from "@vvugc/shared-metrics";
 import { loadEnv } from "@vvugc/shared-config";
 import { renderPage, type VideoEntry } from "./render.js";
 import { recordWaitlistSubmission } from "./waitlist.js";
@@ -41,7 +41,21 @@ export const app: Express = express();
 // request once this sits behind any reverse proxy/load balancer.
 const { TRUST_PROXY_HOPS } = loadEnv();
 if (TRUST_PROXY_HOPS > 0) app.set("trust proxy", TRUST_PROXY_HOPS);
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+  );
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 app.use(requestIdMiddleware);
 app.use(metricsMiddleware);
 
@@ -114,7 +128,11 @@ app.post(
 // Error-handling middleware — must have exactly 4 params for Express to
 // recognize it as such. Catches rejections forwarded by asyncHandler.
 app.use((err: unknown, req: Request & { id?: string }, res: Response, _next: NextFunction) => {
-  logger.error({ requestId: req.id, method: req.method, path: req.path, err: String(err) }, "request failed");
+  reportError(err, { requestId: req.id, method: req.method, path: req.path }, {
+    service: "marketing-site",
+    errorFile: join(loadEnv().VVUGC_RUNS_DIR, "errors.ndjson"),
+    log: (record, message) => logger.error(record, message)
+  });
   res.status(500).json({ ok: false, error: "internal error" });
 });
 

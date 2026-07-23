@@ -5,14 +5,14 @@
  * new customer signs up, configures their niche/brand-voice/platforms, and
  * triggers their first run without touching the CLI.
  */
-export function renderAccountPage(): string {
+export function renderAccountPage(scriptNonce = "development-nonce"): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Viral Video UGC — Your Account</title>
-<script>
+<script nonce="${scriptNonce}">
 let csrfToken = '';
 const nativeFetch = window.fetch.bind(window);
 window.fetch = function(input, init) {
@@ -221,7 +221,7 @@ window.fetch = function(input, init) {
   </div>
 </div>
 
-<script>
+<script nonce="${scriptNonce}">
 const authView = document.getElementById('authView');
 const appView = document.getElementById('appView');
 const inviteToken = new URLSearchParams(window.location.search).get('token');

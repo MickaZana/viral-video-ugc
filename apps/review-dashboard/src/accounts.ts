@@ -37,9 +37,10 @@ import {
   googleAuthorizationUrl,
   verifyGoogleOAuthState
 } from "./google-oauth.js";
+import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
 
-const SESSION_COOKIE = "vvugc_session";
 const isProduction = process.env.NODE_ENV === "production";
+const SESSION_COOKIE = isProduction ? "__Host-vvugc_session" : "vvugc_session";
 
 /**
  * Minimal manual cookie parsing rather than adding the `cookie`/`cookie-parser`
@@ -151,10 +152,7 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
   const clientStore = createAgencyClientStore(join(VVUGC_RUNS_DIR, "agency-clients.json"));
   const inviteStore = createInviteStore(join(VVUGC_RUNS_DIR, "invites.json"));
   const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
-  const tokenEncryptionKey =
-    process.env.SOCIAL_TOKEN_ENCRYPTION_KEY ??
-    (isProduction ? undefined : "development-only-social-token-key-32chars");
-  if (!tokenEncryptionKey) throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY is required in production");
+  const tokenEncryptionKey = resolveSocialTokenEncryptionKey();
   const socialStore = createSocialConnectionStore(join(VVUGC_RUNS_DIR, "social-connections.json"), tokenEncryptionKey);
   const jobStore = createPipelineJobStore(join(VVUGC_RUNS_DIR, "pipeline-jobs.json"));
   const oauthNonceStore = createOAuthNonceStore(join(VVUGC_RUNS_DIR, "oauth-nonces.json"));

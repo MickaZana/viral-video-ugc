@@ -4,7 +4,7 @@
  * itself is static, which keeps it trivially testable (no request/response fixtures
  * needed to assert on markup) unlike the marketing site's per-request render.
  */
-export function renderDashboardPage(): string {
+export function renderDashboardPage(scriptNonce = "development-nonce"): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -149,7 +149,7 @@ export function renderDashboardPage(): string {
   </div>
 </section>
 
-<script>
+<script nonce="${scriptNonce}">
 const state = { items: [], selected: new Set(), regenOpen: new Set() };
 
 function pillClass(status) { return 'pill pill-' + status; }

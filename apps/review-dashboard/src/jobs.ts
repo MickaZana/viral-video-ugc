@@ -1,6 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
 import {
   getConfiguredPostgresPipelineJobStore,
@@ -8,6 +9,10 @@ import {
   type PipelineJobStore
 } from "@vvugc/review-queue";
 import { runCycle } from "@vvugc/orchestrator";
+import { aggregateUsage } from "@vvugc/shared-auth";
+import { createPlanStore } from "@vvugc/shared-billing";
+import { loadEnv } from "@vvugc/shared-config";
+import { checkRunQuota } from "./quota.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -149,13 +154,15 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
         return true;
       });
     },
-    async fail(id, workerId, error) {
+    async fail(id, workerId, error, retryable = true) {
       return mutate((jobs) => {
         const job = jobs.find((entry) => entry.id === id && entry.status === "running" && entry.leaseOwner === workerId);
         if (!job) return undefined;
         Object.assign(job, {
-          status: job.attempts >= job.maxAttempts ? "dead_letter" : "queued",
-          availableAt: new Date(Date.now() + Math.min(300, 2 ** job.attempts) * 1000).toISOString(),
+          status: !retryable || job.attempts >= job.maxAttempts ? "dead_letter" : "queued",
+          // Full jitter prevents a provider recovery from waking every failed
+          // worker simultaneously (the classic retry/thundering-herd failure).
+          availableAt: new Date(Date.now() + Math.random() * Math.min(300, 2 ** job.attempts) * 1000).toISOString(),
           lastError: error.slice(0, 4000), leaseOwner: undefined, leaseExpiresAt: undefined,
           updatedAt: new Date().toISOString()
         });
@@ -204,6 +211,13 @@ export async function processNextPipelineJob(
   const heartbeat = setInterval(() => void store.heartbeat(job.id, workerId, leaseMs), Math.max(1_000, Math.floor(leaseMs / 3)));
   heartbeat.unref();
   try {
+    const { VVUGC_RUNS_DIR } = loadEnv();
+    const plan = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json")).get(job.orgId);
+    const quota = checkRunQuota(plan, aggregateUsage(job.orgId, VVUGC_RUNS_DIR));
+    if (!quota.allowed) {
+      await store.fail(job.id, workerId, `Quota check failed immediately before execution: ${quota.reason}`, false);
+      return store.get(job.orgId, job.id);
+    }
     const result = await runCycle(job.config, { onProgress: () => {} });
     const current = await store.get(job.orgId, job.id);
     if (current?.cancelRequested) await store.acknowledgeCancelled(job.id, workerId);

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { collectDefaultMetrics, Counter, Histogram, Registry } from "prom-client";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
@@ -79,4 +81,33 @@ export function requestIdMiddleware(req: Request & { id?: string }, res: Respons
   req.id = id;
   res.setHeader("X-Request-Id", id);
   next();
+}
+
+export interface ErrorReporterOptions {
+  service: string;
+  errorFile?: string;
+  log?: (record: Record<string, unknown>, message: string) => void;
+}
+
+/** A vendor-neutral error boundary: structured logs today, durable NDJSON when
+ * configured, and one small function to replace if a hosted tracker is added. */
+export function reportError(
+  error: unknown,
+  context: Record<string, unknown>,
+  options: ErrorReporterOptions
+): void {
+  const normalized = error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { name: "Error", message: String(error), stack: undefined };
+  const record = {
+    at: new Date().toISOString(),
+    service: options.service,
+    ...context,
+    error: normalized
+  };
+  options.log?.(record, "unhandled application error");
+  if (options.errorFile) {
+    mkdirSync(dirname(options.errorFile), { recursive: true });
+    appendFileSync(options.errorFile, `${JSON.stringify(record)}\n`);
+  }
 }
