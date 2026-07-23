@@ -465,8 +465,9 @@ const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) =
 if (isMain) {
   if (process.env.NODE_ENV === "production") validateProductionEnv();
   const port = Number(process.env.PORT ?? 4310);
-  const server = app.listen(port, () => {
-    logger.info({ port }, "review dashboard listening");
+  const host = process.env.HOST ?? "0.0.0.0";
+  const server = app.listen(port, host, () => {
+    logger.info({ host, port }, "review dashboard listening");
   });
   startClientScheduler(Number(process.env.CLIENT_SCHEDULER_INTERVAL_MS ?? 60_000));
   startPipelineJobWorker(

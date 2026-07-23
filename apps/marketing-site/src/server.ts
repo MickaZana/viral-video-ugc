@@ -139,8 +139,9 @@ app.use((err: unknown, req: Request & { id?: string }, res: Response, _next: Nex
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
   const port = Number(process.env.PORT ?? 4320);
-  const server = app.listen(port, () => {
-    logger.info({ port }, "marketing site listening");
+  const host = process.env.HOST ?? "0.0.0.0";
+  const server = app.listen(port, host, () => {
+    logger.info({ host, port }, "marketing site listening");
   });
   installLifecycleHandlers(server, logger);
 }
