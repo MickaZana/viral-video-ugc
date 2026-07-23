@@ -6,7 +6,7 @@
 # `app` must be globally unique across all of Fly, not just your account — the name
 # below is a placeholder; `fly apps create vvugc-review-dashboard` will fail with a
 # clear "name taken" error if so, pick another and update this line to match.
-app = "vvugc-review-dashboard"
+app = "viral-video-ugc"
 primary_region = "iad"
 
 [build]

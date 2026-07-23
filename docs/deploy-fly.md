@@ -31,11 +31,11 @@ GHCR packages public, or Fly's registry-credential secrets) — not covered here
 The two apps are independent Fly apps — repeat this section once for each
 (`fly.review-dashboard.toml`, `fly.marketing-site.toml`).
 
-1. **Create the app.** `app = "vvugc-review-dashboard"` / `app = "vvugc-marketing-site"`
+1. **Create the app.** `app = "viral-video-ugc"` / `app = "vvugc-marketing-site"`
    in each `.toml` are placeholders — Fly app names are globally unique across *all*
    of Fly, not just your account, so one of them will likely already be taken:
    ```
-   fly apps create vvugc-review-dashboard
+   fly apps create viral-video-ugc
    ```
    If that name is taken, pick another and update `app =` in the `.toml` to match
    before continuing — every command below assumes the `.toml`'s `app` value is the
@@ -47,7 +47,7 @@ The two apps are independent Fly apps — repeat this section once for each
    on every deploy. Each app gets its **own** volume (Fly volumes are per-app even
    when the name string matches):
    ```
-   fly volumes create vvugc_runs --region iad --size 1 -a vvugc-review-dashboard
+   fly volumes create vvugc_runs --region iad --size 1 -a viral-video-ugc
    fly volumes create vvugc_runs --region iad --size 1 -a vvugc-marketing-site
    ```
    Use the same `--region` as each `.toml`'s `primary_region` (`iad` by default —
@@ -59,7 +59,7 @@ The two apps are independent Fly apps — repeat this section once for each
 
    **review-dashboard** — set at minimum:
    ```
-   fly secrets set -a vvugc-review-dashboard \
+   fly secrets set -a viral-video-ugc \
      DASHBOARD_USERNAME=<a real username> \
      DASHBOARD_PASSWORD=<a real, strong password>
    ```
@@ -73,7 +73,7 @@ The two apps are independent Fly apps — repeat this section once for each
    loudly with a clear error if unset — nothing silently breaks or falls back to a
    placeholder):
    ```
-   fly secrets set -a vvugc-review-dashboard \
+   fly secrets set -a viral-video-ugc \
      STRIPE_SECRET_KEY=sk_live_... \
      STRIPE_WEBHOOK_SECRET=whsec_... \
      STRIPE_PRICE_ID_STARTER=price_... \
@@ -105,7 +105,7 @@ fly deploy --config fly.marketing-site.toml
 Each `[[http_service.checks]]` block hits `/healthz` (unauthenticated by design — see
 both `server.ts` files) every 15s with a 10s grace period; `fly status -a <app>` and
 the Fly dashboard will show the machine unhealthy until that check passes. Tail logs
-with `fly logs -a vvugc-review-dashboard` (or `-a vvugc-marketing-site`) while it boots.
+with `fly logs -a viral-video-ugc` (or `-a vvugc-marketing-site`) while it boots.
 
 ## After the first deploy
 
