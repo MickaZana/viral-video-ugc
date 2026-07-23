@@ -24,7 +24,7 @@
     "@vvugc/review-queue": "workspace:*",
     "@vvugc/shared-cost": "workspace:*",
     "@vvugc/shared-originality": "workspace:*",
-    "@anthropic-ai/sdk": "^0.112.1",
+    "@anthropic-ai/sdk": "^0.113.0",
     "commander": "^15.0.0",
     "pino": "^10.3.1",
     "nanoid": "^6.0.0",
