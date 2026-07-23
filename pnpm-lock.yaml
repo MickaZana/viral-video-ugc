@@ -95,8 +95,8 @@ importers:
   apps/orchestrator:
     dependencies:
       '@anthropic-ai/sdk':
-        specifier: ^0.112.1
-        version: 0.112.3(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(zod@4.4.3)
       '@vvugc/mcp-assembly':
         specifier: workspace:*
         version: link:../../packages/mcp-assembly
@@ -476,8 +476,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sdk@0.112.3':
-    resolution: {integrity: sha512-wjcozJlitVIuBEw9cj/xBuRznwkhcLmXmNzlFoeHbh4AvrDG3HGZrdvEOTTmobcbhjGkfOpKbmDTCQ4s9LQvCg==}
+  '@anthropic-ai/sdk@0.113.0':
+    resolution: {integrity: sha512-8YKIP333ypmy8QjtSP691fIqdes3HL/rSXAT4FDZX/HRnkQaNG+iOVBfEQw4vjPNpYHeoy7FSYc2o/jb8b3AnA==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -2198,7 +2198,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@0.112.3(zod@4.4.3)':
+  '@anthropic-ai/sdk@0.113.0(zod@4.4.3)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.0.0
