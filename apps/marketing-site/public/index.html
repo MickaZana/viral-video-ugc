@@ -1,5 +1,10 @@
 <!doctype html>
-<html lang="en">
+<!-- This page is deliberately dark-designed (hardcoded dark nav bar, black hero
+     frame, dark overlay cards) and has no theme toggle, so it must opt into the
+     dark palette explicitly — tokens.css now defaults to the light theme, and
+     rendering this page against light tokens puts near-black text on the dark
+     nav bar (a 1.38:1 WCAG contrast failure caught by the axe e2e). -->
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
