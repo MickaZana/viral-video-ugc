@@ -57,3 +57,8 @@ export async function setReviewItemsStatus(ids: string[], status: "approved" | "
 export async function replaceReviewItem(item: ReviewItem): Promise<void> {
   await (await getStore()).replaceReviewItem(item);
 }
+
+/** Hard-deletes every item belonging to an org (org owner's account deletion). */
+export async function deleteReviewItemsByOrg(orgId: string): Promise<number> {
+  return await (await getStore()).deleteByOrg(orgId);
+}

@@ -67,6 +67,7 @@ window.fetch = function(input, init) {
       <button class="btn" id="tabSignup" type="button">Sign up</button>
     </div>
     <p class="msg msg-error" id="authError" hidden></p>
+    <p class="msg msg-ok" id="authNotice" hidden></p>
     <form id="authForm">
       <div class="field" id="authEmailField">
         <label for="authEmail">Email</label>
@@ -75,6 +76,10 @@ window.fetch = function(input, init) {
       <div class="field">
         <label for="authPassword">Password</label>
         <input type="password" id="authPassword" class="input" required minlength="8" />
+      </div>
+      <div class="field" id="mfaField" hidden>
+        <label for="authMfaCode">Authentication code</label>
+        <input type="text" id="authMfaCode" class="input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" />
       </div>
       <div class="field" id="orgNameField">
         <label for="authOrgName">Agency / brand name (optional)</label>
@@ -89,6 +94,7 @@ window.fetch = function(input, init) {
   <div class="row" style="justify-content: space-between;">
     <h1>Your account</h1>
     <div class="row">
+      <a class="btn" href="/">Home dashboard</a>
       <button class="btn theme-toggle" id="themeToggleBtn" type="button" aria-pressed="false">Light mode</button>
       <button class="btn" id="logoutBtn" type="button">Log out</button>
     </div>
@@ -108,9 +114,15 @@ window.fetch = function(input, init) {
     <h2 style="font-size: 1.05rem;">Team</h2>
     <p class="msg msg-error" id="teamError" hidden></p>
     <ul id="memberList" style="margin: 0 0 0.75rem; padding-left: 1.1rem; font-size: 0.85rem;"></ul>
-    <form id="inviteForm" class="row" style="display: none;" >
+    <form id="inviteForm" class="row" style="display: none;">
       <label for="inviteEmail" class="visually-hidden">Teammate's email</label>
       <input type="email" id="inviteEmail" class="input" placeholder="teammate@agency.com" required style="flex: 1;" />
+      <select id="inviteRole" class="input" style="width: auto;" aria-label="Role for the invitee">
+        <option value="admin">Admin</option>
+        <option value="editor" selected>Editor</option>
+        <option value="reviewer">Reviewer</option>
+        <option value="viewer">Viewer</option>
+      </select>
       <button type="submit" class="btn btn-primary">Invite</button>
     </form>
     <p id="inviteResult" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;"></p>
@@ -200,6 +212,63 @@ window.fetch = function(input, init) {
   </div>
 
   <div class="card">
+    <h2 style="font-size: 1.05rem;">Security</h2>
+    <p class="msg msg-error" id="securityError" hidden></p>
+    <form id="passwordForm">
+      <div class="field">
+        <label for="currentPassword">Current password</label>
+        <input type="password" id="currentPassword" class="input" required />
+      </div>
+      <div class="field">
+        <label for="newPassword">New password</label>
+        <input type="password" id="newPassword" class="input" required minlength="8" />
+      </div>
+      <button type="submit" class="btn">Change password</button>
+      <span style="font-size: 0.78rem; color: var(--text-dim); margin-left: 0.6rem;">Changing it signs you out everywhere.</span>
+    </form>
+    <div id="securityCard" style="margin-top: 1rem;">
+      <div id="mfaSection" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
+        <h3 style="font-size: 0.9rem; margin-bottom: 0.4rem;">Two-factor authentication</h3>
+        <p id="mfaStatus" style="font-size: 0.82rem; color: var(--text-dim);"></p>
+        <div id="mfaEnableRow" class="row" style="margin-top: 0.5rem;">
+          <button class="btn" id="mfaEnableBtn" type="button">Enable 2FA</button>
+        </div>
+        <div id="mfaEnroll" hidden style="margin-top: 0.5rem;">
+          <p style="font-size: 0.82rem; color: var(--text-dim);">Add this secret to your authenticator app (Google Authenticator, Authy, 1Password…), then enter the current code to confirm:</p>
+          <code id="mfaSecret" style="display:block; margin: 0.5rem 0; word-break: break-all; font-size: 0.85rem;"></code>
+          <div class="row">
+            <input id="mfaVerifyCode" class="input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" style="max-width: 9rem;" aria-label="Authentication code to confirm enrollment" />
+            <button class="btn btn-primary" id="mfaVerifyBtn" type="button">Confirm and enable</button>
+          </div>
+        </div>
+        <div id="mfaDisableRow" hidden style="margin-top: 0.5rem;">
+          <div class="row">
+            <input id="mfaDisableCode" class="input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" style="max-width: 9rem;" aria-label="Current authentication code" />
+            <button class="btn" id="mfaDisableBtn" type="button">Disable 2FA</button>
+          </div>
+        </div>
+      </div>
+      <h3 style="font-size: 0.9rem; margin-bottom: 0.4rem;">Recent security events</h3>
+      <ul id="securityEventsList" style="font-size: 0.8rem; padding-left: 1.1rem; color: var(--text-dim);"></ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size: 1.05rem;">Data &amp; account</h2>
+    <p class="msg msg-error" id="deleteError" hidden></p>
+    <div class="row" style="margin-bottom: 0.75rem;">
+      <a class="btn" href="/accounts/export" id="exportLink">Download my data (JSON)</a>
+      <span style="font-size: 0.78rem; color: var(--text-dim);">A copy of everything this org has stored.</span>
+    </div>
+    <p id="deleteHint" style="font-size: 0.82rem; color: var(--text-dim);">Type DELETE and your password, then confirm. This cannot be undone.</p>
+    <form id="deleteForm" class="row">
+      <input id="deleteConfirm" class="input" placeholder="Type DELETE" style="max-width: 9rem;" />
+      <input type="password" id="deletePassword" class="input" placeholder="Your password" />
+      <button type="submit" class="btn" style="color: var(--bad); border-color: var(--bad);">Delete account</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2 style="font-size: 1.05rem;">Run</h2>
     <p class="msg msg-error" id="runError" hidden></p>
     <p class="msg msg-ok" id="runOk" hidden></p>
@@ -227,6 +296,8 @@ const appView = document.getElementById('appView');
 const inviteToken = new URLSearchParams(window.location.search).get('token');
 let mode = inviteToken ? 'invite' : 'login';
 let agencyClients = [];
+let pendingMfaToken = '';
+let isOwner = false;
 
 function escapeHtml(value) {
   return String(value)
@@ -239,10 +310,18 @@ function escapeHtml(value) {
 
 function setMode(next) {
   mode = next;
+  pendingMfaToken = '';
+  document.getElementById('mfaField').hidden = true;
   document.getElementById('authSubmit').textContent = mode === 'login' ? 'Log in' : mode === 'invite' ? 'Accept invite & join' : 'Sign up';
   document.getElementById('orgNameField').hidden = mode !== 'signup';
   document.getElementById('authEmailField').hidden = mode === 'invite';
   document.getElementById('authEmail').required = mode !== 'invite';
+  // Restore the password constraint when leaving the MFA challenge step (the
+  // challenge branch below clears the value and temporarily drops "required",
+  // otherwise the empty-but-required password field silently blocks the form's
+  // submit event via HTML5 constraint validation — the "Verify code" button
+  // would appear to do nothing).
+  document.getElementById('authPassword').required = true;
 }
 document.getElementById('tabLogin').addEventListener('click', () => setMode('login'));
 document.getElementById('tabSignup').addEventListener('click', () => setMode('signup'));
@@ -254,7 +333,7 @@ setMode(mode);
 
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 function currentTheme() {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 }
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
@@ -275,6 +354,30 @@ function hide(id) { document.getElementById(id).hidden = true; }
 document.getElementById('authForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   hide('authError');
+  hide('authNotice');
+
+  // Step two of a two-factor login: the password was already accepted and we're
+  // now redeeming the challenge token with the authenticator code.
+  if (pendingMfaToken) {
+    const code = document.getElementById('authMfaCode').value;
+    try {
+      const res = await fetch('/accounts/mfa/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfaToken: pendingMfaToken, code })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Request failed');
+      }
+      pendingMfaToken = '';
+      await boot();
+    } catch (err) {
+      showError('authError', err.message);
+    }
+    return;
+  }
+
   const email = document.getElementById('authEmail').value;
   const password = document.getElementById('authPassword').value;
   const orgName = document.getElementById('authOrgName').value;
@@ -285,6 +388,23 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'Request failed');
+    }
+    const data = await res.json();
+    // Password accepted but the account has 2FA enabled — switch the form to the
+    // authenticator-code step instead of proceeding to the app.
+    if (data.mfaRequired) {
+      pendingMfaToken = data.mfaToken;
+      document.getElementById('mfaField').hidden = false;
+      document.getElementById('authMfaCode').value = '';
+      document.getElementById('authPassword').value = '';
+      // The password was already accepted by the server; an empty-but-required
+      // field here would block the "Verify code" submit via HTML5 constraint
+      // validation (submit event never fires). Drop "required" for the
+      // challenge step — setMode() restores it when the form resets.
+      document.getElementById('authPassword').removeAttribute('required');
+      document.getElementById('authSubmit').textContent = 'Verify code';
+      document.getElementById('authMfaCode').focus();
+      return;
     }
     await boot();
   } catch (err) {
@@ -320,22 +440,77 @@ async function loadTeam() {
   const res = await fetch('/accounts/members');
   if (!res.ok) return;
   const data = await res.json();
+  const canManageTeam = data.canManageTeam;
+  const roleLabel = (role) => ({ owner: 'Owner', admin: 'Admin', editor: 'Editor', reviewer: 'Reviewer', viewer: 'Viewer', member: 'Editor' })[role] || role;
+  const changeableRoles = ['admin', 'editor', 'reviewer', 'viewer'];
   document.getElementById('memberList').innerHTML = data.members
-    .map((m) => \`<li>\${m.email} \${m.role === 'owner' ? '(owner)' : ''}</li>\`)
+    .map((m) => {
+      const effectiveRole = m.role === 'member' ? 'editor' : m.role;
+      let controls = '';
+      if (canManageTeam && m.role !== 'owner') {
+        controls =
+          '<select class="input member-role" data-id="' + m.id + '" style="width: auto; margin-left: 0.5rem;">' +
+          changeableRoles.map((r) => '<option value="' + r + '"' + (effectiveRole === r ? ' selected' : '') + '>' + r + '</option>').join('') +
+          '</select>' +
+          '<button class="btn member-remove" type="button" data-id="' + m.id + '" data-email="' + escapeHtml(m.email) + '" style="margin-left: 0.5rem; font-size: 0.75rem;">Remove</button>';
+      }
+      return '<li style="margin-bottom: 0.4rem;">' + escapeHtml(m.email) + ' <span class="pill">' + roleLabel(m.role) + '</span>' + controls + '</li>';
+    })
     .join('');
-  document.getElementById('inviteForm').style.display = data.role === 'owner' ? 'flex' : 'none';
+  document.getElementById('inviteForm').style.display = canManageTeam ? 'flex' : 'none';
+  document.getElementById('securityCard').style.display = canManageTeam ? '' : 'none';
 }
+
+document.getElementById('memberList').addEventListener('change', async (event) => {
+  if (!event.target.classList.contains('member-role')) return;
+  const id = event.target.dataset.id;
+  const role = event.target.value;
+  try {
+    const res = await fetch('/accounts/members/' + id + '/role', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not change role');
+    }
+    await loadTeam();
+  } catch (err) {
+    showError('teamError', err.message);
+    await loadTeam();
+  }
+});
+
+document.getElementById('memberList').addEventListener('click', async (event) => {
+  const button = event.target.closest('.member-remove');
+  if (!button) return;
+  const id = button.dataset.id;
+  const email = button.dataset.email;
+  if (!window.confirm('Remove ' + email + ' from this org? Their sessions will be revoked immediately.')) return;
+  try {
+    const res = await fetch('/accounts/members/' + id, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not remove member');
+    }
+    await loadTeam();
+  } catch (err) {
+    showError('teamError', err.message);
+  }
+});
 
 document.getElementById('inviteForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   hide('teamError');
   document.getElementById('inviteResult').textContent = '';
   const email = document.getElementById('inviteEmail').value;
+  const role = document.getElementById('inviteRole').value;
   try {
     const res = await fetch('/accounts/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, role })
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -343,7 +518,7 @@ document.getElementById('inviteForm').addEventListener('submit', async (e) => {
     }
     const { inviteToken } = await res.json();
     const link = \`\${window.location.origin}/account/join?token=\${inviteToken}\`;
-    document.getElementById('inviteResult').textContent = \`Invite link (send it to \${email}): \${link}\`;
+    document.getElementById('inviteResult').textContent = \`\${role} invite link (send it to \${email}): \${link}\`;
     document.getElementById('inviteEmail').value = '';
   } catch (err) {
     showError('teamError', err.message);
@@ -587,14 +762,143 @@ document.getElementById('runNowBtn').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('securityError');
+  const currentPassword = document.getElementById('currentPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  try {
+    const res = await fetch('/accounts/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not change password');
+    }
+    // Every session (including this one) was revoked — return to the login view.
+    csrfToken = '';
+    document.getElementById('currentPassword').value = '';
+    document.getElementById('newPassword').value = '';
+    appView.hidden = true;
+    authView.hidden = false;
+    setMode('login');
+    document.getElementById('authNotice').textContent = 'Password changed — all sessions were signed out. Please log in with your new password.';
+    document.getElementById('authNotice').hidden = false;
+  } catch (err) {
+    showError('securityError', err.message);
+  }
+});
+
+async function loadSecurityEvents() {
+  const res = await fetch('/accounts/security-events');
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('securityEventsList').innerHTML = data.events.length
+    ? data.events.map((ev) => {
+        const when = new Date(ev.at).toLocaleString();
+        const who = ev.email || ev.actorAccountId || '';
+        const detail = ev.detail ? ' — ' + ev.detail : '';
+        return '<li>' + escapeHtml(when + ' · ' + ev.type + ' · ' + who + detail) + '</li>';
+      }).join('')
+    : '<li>No security events yet.</li>';
+}
+
+function renderMfa(enabled) {
+  document.getElementById('mfaStatus').textContent = enabled
+    ? "Two-factor authentication is ON — you'll be asked for an authenticator code at login."
+    : 'Two-factor authentication is OFF.';
+  document.getElementById('mfaEnableRow').hidden = enabled;
+  document.getElementById('mfaEnroll').hidden = true;
+  document.getElementById('mfaDisableRow').hidden = !enabled;
+}
+
+document.getElementById('mfaEnableBtn').addEventListener('click', async () => {
+  hide('securityError');
+  const res = await fetch('/accounts/mfa/enroll', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('securityError', data.error || 'Could not start two-factor enrollment.');
+  document.getElementById('mfaSecret').textContent = data.secret;
+  document.getElementById('mfaEnroll').hidden = false;
+  document.getElementById('mfaStatus').textContent = 'Scan this code or enter it manually, then enter the current code to confirm.';
+});
+
+document.getElementById('mfaVerifyBtn').addEventListener('click', async () => {
+  hide('securityError');
+  const code = document.getElementById('mfaVerifyCode').value.trim();
+  if (!code) return showError('securityError', 'Enter the code from your authenticator app.');
+  const res = await fetch('/accounts/mfa/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('securityError', data.error || 'Could not confirm two-factor enrollment.');
+  document.getElementById('mfaVerifyCode').value = '';
+  renderMfa(true);
+  await loadSecurityEvents();
+});
+
+document.getElementById('mfaDisableBtn').addEventListener('click', async () => {
+  hide('securityError');
+  const code = document.getElementById('mfaDisableCode').value.trim();
+  if (!code) return showError('securityError', 'Enter the current code from your authenticator app.');
+  const res = await fetch('/accounts/mfa/disable', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showError('securityError', data.error || 'Could not disable two-factor authentication.');
+  document.getElementById('mfaDisableCode').value = '';
+  renderMfa(false);
+  await loadSecurityEvents();
+});
+
+document.getElementById('deleteForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('deleteError');
+  const confirm = document.getElementById('deleteConfirm').value.trim();
+  const password = document.getElementById('deletePassword').value;
+  if (confirm !== 'DELETE') return showError('deleteError', 'Type DELETE to confirm.');
+  try {
+    const res = await fetch('/accounts/delete-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm, password })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not delete account');
+    }
+    csrfToken = '';
+    pendingMfaToken = '';
+    appView.hidden = true;
+    authView.hidden = false;
+    setMode('login');
+    document.getElementById('authNotice').textContent = isOwner
+      ? 'Your account and organization were deleted.'
+      : 'Your account was deleted.';
+    document.getElementById('authNotice').hidden = false;
+  } catch (err) {
+    showError('deleteError', err.message);
+  }
+});
+
 async function boot() {
   const res = await fetch('/accounts/me');
   if (res.ok) {
     const me = await res.json();
     csrfToken = me.csrfToken || '';
+    isOwner = me.account.role === 'owner';
+    renderMfa(Boolean(me.mfaEnabled));
+    document.getElementById('deleteHint').textContent = isOwner
+      ? 'You are the owner — deleting your account deletes the entire organization and all of its data. This cannot be undone.'
+      : 'Deleting your account removes you from this organization. This cannot be undone.';
     authView.hidden = true;
     appView.hidden = false;
-    await Promise.all([loadUsage(), loadSettings(), loadBilling(), loadTeam()]);
+    await Promise.all([loadUsage(), loadSettings(), loadBilling(), loadTeam(), loadSecurityEvents()]);
     await loadClients();
     await loadCustomerReviews();
     await loadSocialConnections();

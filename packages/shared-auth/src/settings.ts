@@ -68,6 +68,9 @@ export interface SettingsStore {
   get(accountId: string): AccountSettings;
   /** Full replace, not a partial patch — the settings form always submits the complete shape. */
   upsert(accountId: string, input: AccountSettingsInput): AccountSettings;
+  /** Removes the saved settings record (org deletion wipes it rather than leaving a
+   *  default-settings ghost behind). Returns false if nothing was stored. */
+  delete(accountId: string): boolean;
 }
 
 export function createSettingsStore(dbPath: string): SettingsStore {
@@ -92,6 +95,24 @@ export function createSettingsStore(dbPath: string): SettingsStore {
         releaseLock(dbPath);
       }
       return settings;
+    },
+
+    delete(accountId) {
+      let removed = false;
+      mkdirSync(dirname(dbPath), { recursive: true });
+      acquireLock(dbPath);
+      try {
+        const all = readAllUnlocked(dbPath);
+        const index = all.findIndex((s) => s.accountId === accountId);
+        if (index !== -1) {
+          all.splice(index, 1);
+          writeAllUnlocked(dbPath, all);
+          removed = true;
+        }
+      } finally {
+        releaseLock(dbPath);
+      }
+      return removed;
     }
   };
 }

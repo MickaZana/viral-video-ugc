@@ -11,9 +11,15 @@ export function renderDashboardPage(scriptNonce = "development-nonce"): string {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Viral Video UGC — Review Queue</title>
+<script nonce="${scriptNonce}">
+(function () {
+  var saved = localStorage.getItem('vvugc-theme');
+  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+})();
+</script>
 <link rel="stylesheet" href="/tokens.css" />
 <style>
-  body { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
+  body { max-width: 1100px; margin: 0 auto; padding: 1rem 1.25rem 4rem; }
   header.page-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
   .stats { display: flex; gap: 0.75rem; flex-wrap: wrap; }
   .stat { padding: 0.5rem 0.9rem; }
@@ -23,6 +29,8 @@ export function renderDashboardPage(scriptNonce = "development-nonce"): string {
   .toolbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .toolbar label { font-size: 0.8rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.4rem; }
   .bulk-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+  .page-nav { display: flex; gap: 0.5rem; align-items: center; }
+  .theme-toggle { padding: 0.45rem 0.75rem; font-size: 0.8rem; }
 
   .queue-list { display: flex; flex-direction: column; gap: 0.75rem; }
   .item { display: flex; gap: 0.9rem; align-items: flex-start; }
@@ -91,9 +99,14 @@ export function renderDashboardPage(scriptNonce = "development-nonce"): string {
 
 <header class="page-head">
   <div>
+    <p class="eyebrow" style="margin-bottom: 0.35rem;">Viral Video UGC</p>
     <h1 style="font-size: 1.5rem; margin-bottom: 0.15em;">Review Queue</h1>
-    <p style="margin: 0;">Approve or reject generated videos before they go out.</p>
+    <p style="margin: 0;">Approve or reject videos before they go out.</p>
   </div>
+  <nav aria-label="Dashboard navigation" class="page-nav">
+    <button class="btn btn-ghost theme-toggle" id="themeToggleBtn" type="button" aria-pressed="false">Dark mode</button>
+    <a class="btn btn-ghost" href="/account">Account</a>
+  </nav>
   <div class="stats" id="stats" role="status" aria-live="polite">
     <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-pending">–</div><div class="stat-label">Pending</div></div>
     <div class="card stat"><div class="stat-num skeleton skeleton-stat-num" id="stat-approved">–</div><div class="stat-label">Approved</div></div>
@@ -503,6 +516,17 @@ document.getElementById('select-all').addEventListener('change', (e) => {
 });
 document.getElementById('bulk-approve').addEventListener('click', () => bulkAct('approve'));
 document.getElementById('bulk-reject').addEventListener('click', () => bulkAct('reject'));
+
+const themeToggleBtn = document.getElementById('themeToggleBtn');
+function applyTheme(theme) {
+  if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  localStorage.setItem('vvugc-theme', theme);
+  themeToggleBtn.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+  themeToggleBtn.setAttribute('aria-pressed', String(theme === 'dark'));
+}
+applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+themeToggleBtn.addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
 
 safeLoad();
 </script>

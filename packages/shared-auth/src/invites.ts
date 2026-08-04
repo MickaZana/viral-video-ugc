@@ -1,11 +1,16 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
+import type { AccountRole } from "./accounts.js";
 
 export interface Invite {
   token: string;
   orgId: string;
   email: string;
+  /** The role the invitee gets on accepting — the owner picks it at invite time
+   *  (default "editor"), so an invited teammate lands with exactly the access
+   *  intended rather than a one-size "member" bucket. */
+  role: AccountRole;
   invitedByAccountId: string;
   createdAt: string;
   expiresAt: string;
@@ -49,20 +54,27 @@ function writeAllUnlocked(dbPath: string, invites: Invite[]): void {
 }
 
 export interface InviteStore {
-  create(orgId: string, email: string, invitedByAccountId: string, ttlMs?: number): Invite;
+  create(orgId: string, email: string, invitedByAccountId: string, role?: AccountRole, ttlMs?: number): Invite;
   /** Returns the invite only if it exists and hasn't expired — same "expired = absent" contract as sessions. */
   verify(token: string): Invite | undefined;
   consume(token: string): void;
+  /** Removes every pending invite for an org (org deletion). */
+  deleteOrg(orgId: string): void;
+  /** Removes pending invites addressed to a specific email (member self-deletion —
+   *  a removed account shouldn't leave a live invite behind that would let someone
+   *  re-join the org with the same email). */
+  deleteByEmail(email: string): void;
 }
 
 export function createInviteStore(dbPath: string): InviteStore {
   return {
-    create(orgId, email, invitedByAccountId, ttlMs = DEFAULT_TTL_MS) {
+    create(orgId, email, invitedByAccountId, role = "editor", ttlMs = DEFAULT_TTL_MS) {
       const now = Date.now();
       const invite: Invite = {
         token: randomBytes(24).toString("base64url"),
         orgId,
         email: email.trim().toLowerCase(),
+        role,
         invitedByAccountId,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + ttlMs).toISOString()
@@ -90,6 +102,31 @@ export function createInviteStore(dbPath: string): InviteStore {
         writeAllUnlocked(
           dbPath,
           readAllUnlocked(dbPath).filter((i) => i.token !== token)
+        );
+      } finally {
+        releaseLock(dbPath);
+      }
+    },
+
+    deleteOrg(orgId) {
+      acquireLock(dbPath);
+      try {
+        writeAllUnlocked(
+          dbPath,
+          readAllUnlocked(dbPath).filter((i) => i.orgId !== orgId)
+        );
+      } finally {
+        releaseLock(dbPath);
+      }
+    },
+
+    deleteByEmail(email) {
+      const normalized = email.trim().toLowerCase();
+      acquireLock(dbPath);
+      try {
+        writeAllUnlocked(
+          dbPath,
+          readAllUnlocked(dbPath).filter((i) => i.email !== normalized)
         );
       } finally {
         releaseLock(dbPath);

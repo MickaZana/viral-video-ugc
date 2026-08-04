@@ -3,9 +3,13 @@ export {
   createAccountStore,
   toPublicAccount,
   resolveOrgId,
+  roleHasPermission,
   EmailAlreadyRegisteredError,
+  ACCOUNT_ROLES,
+  ROLE_LABELS,
   type Account,
   type AccountRole,
+  type AccountPermission,
   type PublicAccount,
   type AccountStore
 } from "./accounts.js";

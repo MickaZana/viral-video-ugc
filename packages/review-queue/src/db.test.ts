@@ -46,7 +46,12 @@ describe("review-queue db (JSON-file backend)", () => {
   beforeEach(() => {
     testDir = mkdtempSync(join(tmpdir(), "vvugc-review-queue-test-"));
     process.env.VVUGC_DB_PATH = join(testDir, "queue.json");
+    // shared-config skips loading the repo-root .env under Vitest, but clear both
+    // DB vars anyway so this suite deterministically exercises the JSON backend
+    // ("selected whenever DATABASE_URL is unset") even if run outside Vitest where
+    // the .env (with SUPABASE_DATABASE_URL mapped to DATABASE_URL by loadEnv) is loaded.
     delete process.env.DATABASE_URL;
+    delete process.env.SUPABASE_DATABASE_URL;
   });
 
   afterEach(() => {

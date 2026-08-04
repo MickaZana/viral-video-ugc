@@ -37,6 +37,9 @@ export interface PipelineJobStore {
   acknowledgeCancelled(id: string, workerId: string): Promise<boolean>;
   replay(orgId: string, id: string): Promise<PipelineJob | undefined>;
   recoverExpiredLeases(): Promise<number>;
+  /** Hard-deletes every job belonging to an org (org owner's account deletion).
+   *  Returns how many were removed. */
+  deleteOrg(orgId: string): Promise<number>;
 }
 
 type JobRow = {
@@ -209,6 +212,12 @@ export function createPostgresPipelineJobStore(pool: PgPool): PipelineJobStore {
              lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
          WHERE status='running' AND lease_expires_at < now()`
       );
+      return result.rowCount ?? 0;
+    },
+
+    async deleteOrg(orgId) {
+      await ensureSchema();
+      const result = await pool.query(`DELETE FROM pipeline_jobs WHERE org_id = $1`, [orgId]);
       return result.rowCount ?? 0;
     }
   };

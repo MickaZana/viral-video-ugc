@@ -59,6 +59,9 @@ export interface PlanStore {
    * at this store's expected scale (same JSON-file tradeoff as every other lockfile store here).
    */
   findBySubscriptionId(subscriptionId: string): AccountPlan | undefined;
+  /** Removes the plan record (org deletion wipes billing state too). Returns false
+   *  if no record existed. */
+  delete(accountId: string): boolean;
 }
 
 export function createPlanStore(dbPath: string): PlanStore {
@@ -88,6 +91,24 @@ export function createPlanStore(dbPath: string): PlanStore {
       } finally {
         releaseLock(dbPath);
       }
+    },
+
+    delete(accountId) {
+      let removed = false;
+      mkdirSync(dirname(dbPath), { recursive: true });
+      acquireLock(dbPath);
+      try {
+        const all = readAllUnlocked(dbPath);
+        const index = all.findIndex((p) => p.accountId === accountId);
+        if (index !== -1) {
+          all.splice(index, 1);
+          writeAllUnlocked(dbPath, all);
+          removed = true;
+        }
+      } finally {
+        releaseLock(dbPath);
+      }
+      return removed;
     }
   };
 }

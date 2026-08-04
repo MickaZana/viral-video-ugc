@@ -114,6 +114,12 @@ export function createPostgresStore(pool: PgPool): ReviewQueueStore {
         item.status,
         JSON.stringify(item)
       ]);
+    },
+
+    async deleteByOrg(orgId) {
+      await ensureSchema();
+      const result = await pool.query(`DELETE FROM review_items WHERE org_id = $1`, [orgId]);
+      return result.rowCount ?? 0;
     }
   };
 }

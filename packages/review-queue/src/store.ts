@@ -24,4 +24,7 @@ export interface ReviewQueueStore {
    *  (apps/orchestrator/src/regenerate.ts) to replace videoPath/clips/score/etc. in place
    *  after producing a new render. A no-op if no item with that id exists. */
   replaceReviewItem(item: ReviewItem): Promise<void> | void;
+  /** Hard-deletes every item belonging to an org (account deletion of the org owner).
+   *  Returns how many were removed. */
+  deleteByOrg(orgId: string): Promise<number> | number;
 }

@@ -28,6 +28,7 @@ import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js"
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
+import { pruneRetainedLogs } from "./retention.js";
 import { createSocialConnectionStore } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
 import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
@@ -474,5 +475,20 @@ if (isMain) {
     createPipelineJobStore(join(loadEnv().VVUGC_RUNS_DIR, "pipeline-jobs.json")),
     Number(process.env.PIPELINE_JOB_INTERVAL_MS ?? 1_000)
   );
+  // Prune the append-only audit/security-event logs once at boot and then daily —
+  // bounded retention (SECURITY_LOG_RETENTION_DAYS) keeps these files from growing
+  // without limit on a long-lived service.
+  try {
+    pruneRetainedLogs();
+  } catch (err) {
+    logger.error({ err }, "retention prune at startup failed");
+  }
+  setInterval(() => {
+    try {
+      pruneRetainedLogs();
+    } catch (err) {
+      logger.error({ err }, "retention prune failed");
+    }
+  }, 24 * 60 * 60 * 1000).unref();
   installLifecycleHandlers(server, logger);
 }

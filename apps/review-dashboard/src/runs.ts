@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnv } from "@vvugc/shared-config";
 
@@ -60,4 +60,33 @@ export function listRuns(): RunSummary[] {
   }
 
   return runs.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+/**
+ * Hard-deletes every run directory whose manifest is tagged with the org (org
+ * owner's account deletion). Run directories hold the actual produced videos,
+ * manifests, cost ledgers and acceptance evidence — a "delete my account"
+ * request that left those behind would be a leak of the customer's finished
+ * content, so this physically removes them. Returns how many run dirs were
+ * removed. Best-effort: an unreadable manifest is skipped, never fatal.
+ */
+export function purgeOrgRuns(orgId: string): number {
+  const { VVUGC_RUNS_DIR } = loadEnv();
+  if (!existsSync(VVUGC_RUNS_DIR)) return 0;
+  let removed = 0;
+  for (const entry of readdirSync(VVUGC_RUNS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = join(VVUGC_RUNS_DIR, entry.name, "manifest.json");
+    if (!existsSync(manifestPath)) continue;
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as { config?: { accountId?: string } };
+      if (manifest.config?.accountId === orgId) {
+        rmSync(join(VVUGC_RUNS_DIR, entry.name), { recursive: true, force: true });
+        removed++;
+      }
+    } catch {
+      // malformed manifest — skip this run dir rather than aborting the purge
+    }
+  }
+  return removed;
 }

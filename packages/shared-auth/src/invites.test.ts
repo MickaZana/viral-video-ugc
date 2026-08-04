@@ -24,6 +24,12 @@ describe("createInviteStore", () => {
     expect(verified?.email).toBe("new.teammate@example.com"); // normalized
   });
 
+  it("defaults an invite's role to editor and honors an explicit role", () => {
+    const store = freshStore();
+    expect(store.create("org-1", "a@example.com", "owner-1").role).toBe("editor");
+    expect(store.create("org-1", "b@example.com", "owner-1", "reviewer").role).toBe("reviewer");
+  });
+
   it("returns undefined for an unknown token", () => {
     const store = freshStore();
     expect(store.verify("not-a-real-token")).toBeUndefined();
@@ -31,7 +37,7 @@ describe("createInviteStore", () => {
 
   it("treats an expired invite as absent", () => {
     const store = freshStore();
-    const invite = store.create("org-1", "x@example.com", "owner-1", -1000);
+    const invite = store.create("org-1", "x@example.com", "owner-1", "editor", -1000);
     expect(store.verify(invite.token)).toBeUndefined();
   });
 

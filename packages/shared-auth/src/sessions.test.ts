@@ -57,4 +57,15 @@ describe("createSessionStore", () => {
     expect(store.verify(a.token)).toBeUndefined();
     expect(store.verify(b.token)).toBeDefined();
   });
+
+  it("revokeAllForAccount revokes every session for one account but leaves other accounts alone", () => {
+    const store = freshStore();
+    const a1 = store.create("account-1");
+    const a2 = store.create("account-1");
+    const other = store.create("account-2");
+    store.revokeAllForAccount("account-1");
+    expect(store.verify(a1.token)).toBeUndefined();
+    expect(store.verify(a2.token)).toBeUndefined();
+    expect(store.verify(other.token)).toBeDefined();
+  });
 });

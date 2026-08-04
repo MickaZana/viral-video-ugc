@@ -3,7 +3,84 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "./passwords.js";
 
-export type AccountRole = "owner" | "member";
+/**
+ * Fine-grained org roles — Owner/Admin/Editor/Reviewer/Viewer (docs/remaining-p0-execution-plan.md
+ * Phase 7). Legacy on-disk accounts created before this model carried role "member"; that value is
+ * treated as editor-equivalent everywhere (see roleHasPermission) so no existing account is locked
+ * out or silently elevated — it just behaves like an editor until the owner re-roles them.
+ */
+export type AccountRole = "owner" | "admin" | "editor" | "reviewer" | "viewer";
+
+export const ACCOUNT_ROLES: readonly AccountRole[] = ["owner", "admin", "editor", "reviewer", "viewer"];
+
+/** Every granular action a route can gate on. Kept coarse-grained (one action per route group,
+ *  not per endpoint) so the map stays readable; split further only when a real product need
+ *  demands it. */
+export type AccountPermission =
+  | "billing.manage"
+  | "team.manage"
+  | "settings.manage"
+  | "clients.manage"
+  | "social.manage"
+  | "pipeline.run"
+  | "pipeline.run.live"
+  | "jobs.manage"
+  | "review.manage"
+  | "view";
+
+const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
+  owner: [
+    "billing.manage",
+    "team.manage",
+    "settings.manage",
+    "clients.manage",
+    "social.manage",
+    "pipeline.run",
+    "pipeline.run.live",
+    "jobs.manage",
+    "review.manage",
+    "view"
+  ],
+  admin: [
+    "team.manage",
+    "settings.manage",
+    "clients.manage",
+    "social.manage",
+    "pipeline.run",
+    "jobs.manage",
+    "review.manage",
+    "view"
+  ],
+  editor: [
+    "settings.manage",
+    "clients.manage",
+    "social.manage",
+    "pipeline.run",
+    "jobs.manage",
+    "review.manage",
+    "view"
+  ],
+  reviewer: ["review.manage", "view"],
+  viewer: ["view"]
+};
+
+/** True if the role may perform `permission`. Accepts the legacy "member" role (maps to editor)
+ *  and any unknown string (fails safe to no permissions rather than guessing up). */
+export function roleHasPermission(role: string | undefined | null, permission: AccountPermission): boolean {
+  if (!role) return false;
+  const normalized: AccountRole = role === "member" ? "editor" : (role as AccountRole);
+  return ROLE_PERMISSIONS[normalized]?.includes(permission) ?? false;
+}
+
+/** Human-readable labels for the account page's member list and role picker. */
+export const ROLE_LABELS: Record<string, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  editor: "Editor",
+  reviewer: "Reviewer",
+  viewer: "Viewer",
+  member: "Editor" // legacy role shown with its effective label
+};
 
 export interface Account {
   id: string;
@@ -17,7 +94,7 @@ export interface Account {
    *  "create an org" step, every account is implicitly a one-person org until it
    *  invites someone. */
   orgId: string;
-  role: AccountRole;
+  role: AccountRole | "member";
   createdAt: string;
 }
 
@@ -85,13 +162,33 @@ export class EmailAlreadyRegisteredError extends Error {
 
 export interface AccountStore {
   signUp(email: string, password: string, orgName?: string): Account;
-  /** Creates an account already linked to an existing org (via an accepted invite) —
-   *  role is always "member"; only the original signup that created the org is "owner". */
-  signUpAsMember(email: string, password: string, orgId: string): Account;
+  /** Creates an account already linked to an existing org (via an accepted invite).
+   *  The invite carries the role the owner chose (default "editor" — see invites.ts);
+   *  only the original signup that created the org is "owner". */
+  signUpAsMember(email: string, password: string, orgId: string, role?: AccountRole): Account;
   /** Returns the account only if the password verifies — never returns a hash to check separately. */
   authenticate(email: string, password: string): Account | undefined;
   findById(id: string): Account | undefined;
   listByOrg(orgId: string): Account[];
+  /** Re-hashes and persists a new password. Returns false if the account doesn't exist. */
+  updatePassword(accountId: string, newPassword: string): boolean;
+  /** Reassigns a member's role. Returns undefined if the target isn't in the org or is the
+   *  org's owner (the owner role is not reassignable through this store — see setRole). */
+  setRole(orgId: string, accountId: string, role: AccountRole): Account | undefined;
+  /** Removes a member account from the org. Returns false if the target isn't in the org
+   *  or is the org's owner (an org must keep its owner; deleting an owner is org deletion,
+   *  a separate concern). */
+  removeMember(orgId: string, accountId: string): boolean;
+  /** Hard-deletes a single account regardless of role — used by self-service account
+   *  deletion, where a member removes only their own record (and their sessions/invites
+   *  are handled by the caller). The org's owner is handled by deleteOrg, never here:
+   *  an owner deleting their account means deleting the whole org, which is a separate,
+   *  deliberate operation. */
+  deleteAccount(accountId: string): boolean;
+  /** Hard-deletes every account in the org — the account-deletion path for the org's
+   *  owner, which removes the entire organization (members, settings, clients, runs...)
+   *  rather than leaving a headless org behind. */
+  deleteOrg(orgId: string): boolean;
 }
 
 export function createAccountStore(dbPath: string): AccountStore {
@@ -126,6 +223,19 @@ export function createAccountStore(dbPath: string): AccountStore {
     return created!;
   }
 
+  function mutate<T>(fn: (accounts: Account[]) => T): T {
+    mkdirSync(dirname(dbPath), { recursive: true });
+    acquireLock(dbPath);
+    try {
+      const accounts = readAllUnlocked(dbPath);
+      const result = fn(accounts);
+      writeAllUnlocked(dbPath, accounts);
+      return result;
+    } finally {
+      releaseLock(dbPath);
+    }
+  }
+
   return {
     signUp(email, password, orgName) {
       // A solo signup's orgId is generated up front (not "self after insert") so it's
@@ -135,8 +245,8 @@ export function createAccountStore(dbPath: string): AccountStore {
       return insert(email, password, { orgId, role: "owner", orgName });
     },
 
-    signUpAsMember(email, password, orgId) {
-      return insert(email, password, { orgId, role: "member" });
+    signUpAsMember(email, password, orgId, role = "editor") {
+      return insert(email, password, { orgId, role });
     },
 
     authenticate(email, password) {
@@ -152,6 +262,69 @@ export function createAccountStore(dbPath: string): AccountStore {
 
     listByOrg(orgId) {
       return readAllUnlocked(dbPath).filter((a) => a.orgId === orgId);
+    },
+
+    updatePassword(accountId, newPassword) {
+      let updated = false;
+      mutate((accounts) => {
+        const account = accounts.find((a) => a.id === accountId);
+        if (account) {
+          account.passwordHash = hashPassword(newPassword);
+          updated = true;
+        }
+      });
+      return updated;
+    },
+
+    setRole(orgId, accountId, role) {
+      let result: Account | undefined;
+      mutate((accounts) => {
+        const account = accounts.find((a) => a.id === accountId && a.orgId === orgId);
+        // The owner is the org's anchor — demoting or transferring ownership is org
+        // restructuring, not a member edit; refuse here and let a future dedicated
+        // "transfer ownership" flow handle it deliberately.
+        if (account && account.role !== "owner") {
+          account.role = role;
+          result = { ...account };
+        }
+      });
+      return result;
+    },
+
+    removeMember(orgId, accountId) {
+      let removed = false;
+      mutate((accounts) => {
+        const index = accounts.findIndex((a) => a.id === accountId && a.orgId === orgId);
+        if (index !== -1 && accounts[index].role !== "owner") {
+          accounts.splice(index, 1);
+          removed = true;
+        }
+      });
+      return removed;
+    },
+
+    deleteAccount(accountId) {
+      let removed = false;
+      mutate((accounts) => {
+        const index = accounts.findIndex((a) => a.id === accountId);
+        if (index !== -1) {
+          accounts.splice(index, 1);
+          removed = true;
+        }
+      });
+      return removed;
+    },
+
+    deleteOrg(orgId) {
+      let removed = false;
+      mutate((accounts) => {
+        const before = accounts.length;
+        for (let i = accounts.length - 1; i >= 0; i--) {
+          if (accounts[i].orgId === orgId) accounts.splice(i, 1);
+        }
+        removed = accounts.length < before;
+      });
+      return removed;
     }
   };
 }

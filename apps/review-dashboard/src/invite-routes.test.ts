@@ -77,7 +77,7 @@ describe("multi-seat: invites and shared org data", () => {
 
     // Confirm the invited member's session actually reaches the org data, not just that signup succeeded.
     const memberMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: memberCookie } })).json();
-    expect(memberMe.account.role).toBe("member");
+    expect(memberMe.account.role).toBe("editor"); // default invite role
   });
 
   it("a teammate sees the owner's saved settings and usage — shared org data, not a fresh account", async () => {

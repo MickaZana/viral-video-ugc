@@ -65,6 +65,9 @@ export interface AgencyClientStore {
   /** Atomically leases due clients by advancing nextRunAt before work begins.
    * This prevents two scheduler instances from executing the same weekly run. */
   claimDue(now?: Date): AgencyClient[];
+  /** Hard-deletes every client belonging to an org (org deletion — archive keeps the
+   *  record around, deletion removes it entirely). Returns how many were removed. */
+  deleteOrg(orgId: string): number;
 }
 
 export function createAgencyClientStore(dbPath: string): AgencyClientStore {
@@ -152,6 +155,16 @@ export function createAgencyClientStore(dbPath: string): AgencyClientStore {
           client.updatedAt = now.toISOString();
         }
         return claimed;
+      });
+    },
+
+    deleteOrg(orgId) {
+      return mutate((clients) => {
+        const before = clients.length;
+        for (let i = clients.length - 1; i >= 0; i--) {
+          if (clients[i].orgId === orgId) clients.splice(i, 1);
+        }
+        return before - clients.length;
       });
     }
   };

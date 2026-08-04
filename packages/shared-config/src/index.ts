@@ -1,4 +1,4 @@
-import "dotenv/config";
+import { config as loadDotenv } from "dotenv";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -11,6 +11,27 @@ import { z } from "zod";
  * script launched them.
  */
 const REPO_ROOT = process.env.INIT_CWD ?? process.cwd();
+
+// Load .env from the repo root, NOT process.cwd() — previously `import "dotenv/config"`
+// resolved .env relative to cwd, which pnpm sets to each package's own directory, so a
+// `pnpm --filter <pkg> run ...` process (e.g. the orchestrator CLI) silently never saw
+// the repo-root .env while a process launched from the repo root did. For a repo whose
+// whole point is that every process shares one config (DATABASE_URL -> SUPABASE_DATABASE_URL
+// determines whether the review-queue uses Postgres or the JSON file), that split made the
+// pipeline and the dashboard pick different storage backends depending on how each was
+// launched. Anchoring here (same REPO_ROOT as VVUGC_RUNS_DIR/VVUGC_DB_PATH defaults) makes
+// env resolution and path defaults agree for every package.
+//
+// Skipped under Vitest: tests set their own process.env explicitly (see e.g.
+// review-queue's db.test.ts), and previously never saw the developer's repo-root .env
+// because the cwd-relative lookup missed it. Loading it now would inject real
+// credentials (STRIPE_SECRET_KEY, META_APP_ID, SUPABASE_DATABASE_URL...) into suites
+// that assert on their absence — that's a behavior change no test asked for. Guarding on
+// VITEST (set by Vitest in both the runner and workers) keeps test env hermetic and
+// deterministic while the app itself gets the unified .env it needs.
+if (!process.env.VITEST) {
+  loadDotenv({ path: join(REPO_ROOT, ".env"), quiet: true });
+}
 
 const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -146,7 +167,15 @@ const EnvSchema = z.object({
    * if you've deliberately chained more. Never set to `true`/unbounded — that
    * trusts X-Forwarded-For as far back as a client cares to spoof it.
    */
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0)
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+  /**
+   * Retention window (days) for the dashboard's append-only log streams
+   * (audit.ndjson + security-events.ndjson — see apps/review-dashboard/src/
+   * retention.ts). Older lines are dropped on a bounded schedule; the default of
+   * 90 days is long enough to reconstruct what happened in any incident that
+   * matters while keeping the files from growing without bound.
+   */
+  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(90)
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -167,7 +196,7 @@ export function loadEnv(): Env {
 
 /** Keys of Env whose value is an optional secret/string — everything requireEnvVar
  *  can sensibly be asked for. Excludes non-string config like TRUST_PROXY_HOPS. */
-type StringEnvKey = Exclude<keyof Env, "TRUST_PROXY_HOPS">;
+type StringEnvKey = Exclude<keyof Env, "TRUST_PROXY_HOPS" | "SECURITY_LOG_RETENTION_DAYS">;
 
 /**
  * Adapters call this at the point a vendor call is actually made, not at

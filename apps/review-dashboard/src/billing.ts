@@ -11,7 +11,7 @@ import {
   getTier,
   type PlanStore
 } from "@vvugc/shared-billing";
-import { createAccountStore, aggregateUsage, resolveOrgId } from "@vvugc/shared-auth";
+import { createAccountStore, aggregateUsage, resolveOrgId, roleHasPermission } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
 import { runsUsedThisMonth } from "./quota.js";
@@ -141,8 +141,8 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
       }
       const account = accountStore.findById(req.accountId!);
       if (!account) return res.status(401).json({ error: "not authenticated" });
-      if (account.role !== "owner") {
-        return res.status(403).json({ error: "only the org owner can manage billing" });
+      if (!roleHasPermission(account.role, "billing.manage")) {
+        return res.status(403).json({ error: "requires the billing.manage permission" });
       }
 
       const origin = `${req.protocol}://${req.get("host")}`;

@@ -147,6 +147,17 @@ export function createSocialConnectionStore(dbPath: string, encryptionSecret: st
         records.splice(index, 1);
         return true;
       });
+    },
+    /** Hard-deletes every connection record for an org (org deletion) — the
+     *  encrypted tokens at rest are removed along with the metadata. */
+    deleteOrg(orgId: string): number {
+      return mutate((records) => {
+        const before = records.length;
+        for (let i = records.length - 1; i >= 0; i--) {
+          if (records[i].orgId === orgId) records.splice(i, 1);
+        }
+        return before - records.length;
+      });
     }
   };
 }

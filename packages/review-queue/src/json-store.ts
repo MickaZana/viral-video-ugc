@@ -113,6 +113,21 @@ export function createJsonStore(dbPath: string): ReviewQueueStore {
 
     replaceReviewItem(item) {
       withLock(dbPath, (items) => items.map((existing) => (existing.id === item.id ? item : existing)));
+    },
+
+    deleteByOrg(orgId) {
+      let removed = 0;
+      withLock(dbPath, (items) => {
+        const kept = items.filter((item) => {
+          if (item.orgId === orgId) {
+            removed++;
+            return false;
+          }
+          return true;
+        });
+        return kept;
+      });
+      return removed;
     }
   };
 }

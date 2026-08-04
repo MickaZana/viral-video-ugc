@@ -51,6 +51,10 @@ export interface SessionStore {
   /** Returns the session only if it exists and hasn't expired — expired sessions are treated as absent, not surfaced. */
   verify(token: string): Session | undefined;
   revoke(token: string): void;
+  /** Revokes every session belonging to an account — used when a security-sensitive change
+   *  (password change, role change, account removal) should force all other logins to
+   *  re-authenticate. */
+  revokeAllForAccount(accountId: string): void;
 }
 
 export function createSessionStore(dbPath: string): SessionStore {
@@ -86,6 +90,18 @@ export function createSessionStore(dbPath: string): SessionStore {
         writeAllUnlocked(
           dbPath,
           readAllUnlocked(dbPath).filter((s) => s.token !== token)
+        );
+      } finally {
+        releaseLock(dbPath);
+      }
+    },
+
+    revokeAllForAccount(accountId) {
+      acquireLock(dbPath);
+      try {
+        writeAllUnlocked(
+          dbPath,
+          readAllUnlocked(dbPath).filter((s) => s.accountId !== accountId)
         );
       } finally {
         releaseLock(dbPath);

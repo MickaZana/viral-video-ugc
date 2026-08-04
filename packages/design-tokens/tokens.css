@@ -7,42 +7,40 @@
  * product. Edit here, both surfaces update (served at /tokens.css by each app).
  */
 :root {
-  --bg: #08090c;
-  --bg-raised: #101218;
-  --bg-card: #15171f;
-  --border: #24262f;
-  --text: #f3f4f6;
-  --text-dim: #9ca3af;
-  --accent: #7c5cff;
-  --accent-2: #22d3ee;
-  --good: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --radius: 14px;
-  --radius-sm: 8px;
+  --bg: #ffffff;
+  --bg-raised: #f4f4f4;
+  --bg-card: #ffffff;
+  --border: #d6d6d6;
+  --text: #111111;
+  --text-dim: #666666;
+  --accent: #111111;
+  --accent-2: #444444;
+  --good: #111111;
+  --warn: #555555;
+  --bad: #000000;
+  --radius: 10px;
+  --radius-sm: 6px;
   --max-width: 1140px;
   font-size: 16px;
 }
 
-/* Light theme override — opt-in via `data-theme="light"` on <html>, set by pages
-   that offer a theme toggle (e.g. /account). Dark (the :root defaults above)
-   stays the product default everywhere else. */
-:root[data-theme="light"] {
-  --bg: #ffffff;
-  --bg-raised: #f3f4f6;
-  --bg-card: #ffffff;
-  --border: #e2e4e9;
-  --text: #111318;
-  --text-dim: #5b6472;
-  --accent: #6a45f5;
-  --accent-2: #0891b2;
-  --good: #059669;
-  --warn: #b45309;
-  --bad: #dc2626;
+/* Dark mode is an explicit choice; the default is the simple black-and-white UI. */
+:root[data-theme="dark"] {
+  --bg: #0b0b0b;
+  --bg-raised: #171717;
+  --bg-card: #111111;
+  --border: #333333;
+  --text: #f5f5f5;
+  --text-dim: #a3a3a3;
+  --accent: #ffffff;
+  --accent-2: #d4d4d4;
+  --good: #ffffff;
+  --warn: #d4d4d4;
+  --bad: #ffffff;
 }
-:root[data-theme="light"] .card { box-shadow: 0 1px 2px rgba(16, 18, 24, 0.06); }
-:root[data-theme="light"] .btn-primary { color: #ffffff; }
-:root[data-theme="light"] ::selection { background: var(--accent); color: #ffffff; }
+:root:not([data-theme="dark"]) .card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+:root:not([data-theme="dark"]) .btn-primary { color: #ffffff; }
+:root:not([data-theme="dark"]) ::selection { background: #111111; color: #ffffff; }
 
 * { box-sizing: border-box; }
 
@@ -108,7 +106,7 @@ select:focus-visible,
   font-family: inherit;
 }
 .btn:disabled { cursor: not-allowed; opacity: 0.45; }
-.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #08090c; }
+.btn-primary { background: var(--accent); color: var(--bg); }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-ghost { background: transparent; border-color: var(--border); color: var(--text); }
 .btn-ghost:hover:not(:disabled) { border-color: var(--text-dim); }
@@ -158,9 +156,9 @@ select:focus-visible,
   letter-spacing: 0.03em;
 }
 .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.pill-pending { color: var(--warn); background: rgba(251, 191, 36, 0.12); }
-.pill-approved { color: var(--good); background: rgba(52, 211, 153, 0.12); }
-.pill-rejected { color: var(--bad); background: rgba(248, 113, 113, 0.12); }
+.pill-pending { color: var(--text); background: var(--bg-raised); }
+.pill-approved { color: var(--text); background: var(--bg-raised); }
+.pill-rejected { color: var(--text); background: var(--bg-raised); }
 
 .input, select.input {
   background: var(--bg-raised);

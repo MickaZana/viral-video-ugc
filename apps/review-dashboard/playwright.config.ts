@@ -26,6 +26,18 @@ if (!process.env.VVUGC_DB_PATH) {
   process.env.VVUGC_RUNS_DIR = join(e2eDir, "runs");
 }
 
+// The repo-root .env carries real database credentials (SUPABASE_DATABASE_URL is
+// mapped to DATABASE_URL by shared-config's loadEnv), and dotenv never overrides a
+// variable that's already set. The webServer block below already pins DATABASE_URL
+// to "" — but globalSetup and any in-process store access inside a worker
+// (operator-journey.spec.ts calls runCycle() in the test process) run in the
+// Playwright root/worker processes, which inherit .env unless we clear the keys
+// here too. Without this, seeds and dry-run output land in the developer's real
+// Postgres while the server serves the temp JSON store — the exact split-brain the
+// webServer env was already guarding against, just one process boundary over.
+process.env.DATABASE_URL = "";
+process.env.SUPABASE_DATABASE_URL = "";
+
 const PORT = 4319;
 const DASHBOARD_USERNAME = "e2e-user";
 const DASHBOARD_PASSWORD = "e2e-password";

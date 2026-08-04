@@ -125,6 +125,15 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
         return recovered;
       });
     },
+    async deleteOrg(orgId) {
+      return mutate((jobs) => {
+        const before = jobs.length;
+        for (let i = jobs.length - 1; i >= 0; i--) {
+          if (jobs[i].orgId === orgId) jobs.splice(i, 1);
+        }
+        return before - jobs.length;
+      });
+    },
     async claim(workerId, leaseMs = 60_000) {
       return mutate((jobs) => {
         const job = jobs.find((entry) => entry.status === "queued" && Date.parse(entry.availableAt) <= Date.now());
@@ -197,7 +206,8 @@ export function createPipelineJobStore(path: string, options: { forceJson?: bool
     cancel: async (...args) => (await backend()).cancel(...args),
     acknowledgeCancelled: async (...args) => (await backend()).acknowledgeCancelled(...args),
     replay: async (...args) => (await backend()).replay(...args),
-    recoverExpiredLeases: async (...args) => (await backend()).recoverExpiredLeases(...args)
+    recoverExpiredLeases: async (...args) => (await backend()).recoverExpiredLeases(...args),
+    deleteOrg: async (...args) => (await backend()).deleteOrg(...args)
   };
 }
 
