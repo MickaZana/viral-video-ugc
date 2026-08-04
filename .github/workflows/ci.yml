@@ -32,6 +32,13 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Run the whole gate (lint, build, unit tests, both e2e suites) against both
+    # supported Node versions — a change that only type-checks on the dev
+    # machine's Node shouldn't be able to slip past CI green. pnpm's cache key
+    # includes the node version, so the two matrix arms cache independently.
+    strategy:
+      matrix:
+        node-version: [20, 22]
     # Backs postgres-store.test.ts (packages/review-queue) — the opt-in Postgres
     # backend for the review-queue store, used when DATABASE_URL is set (required
     # once the dashboard and orchestrator run on separate machines/processes; see
@@ -61,7 +68,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
