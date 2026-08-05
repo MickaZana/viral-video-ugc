@@ -87,7 +87,7 @@ test.describe("customer journey: signup → settings → real pricing → billin
     await expect(page.locator("#tourView")).toBeVisible();
     await expect(page.locator("#tourTitle")).toHaveText("Start here");
     await page.click("#tourNext");
-    await expect(page.locator("#tourTitle")).toHaveText("Choose a workspace");
+    await expect(page.locator("#tourTitle")).toHaveText("Preview before you spend");
     await page.click("#tourSkip");
     await expect(page.locator("#tourView")).toBeHidden();
     await page.click("#helpButton");
@@ -96,11 +96,13 @@ test.describe("customer journey: signup → settings → real pricing → billin
     await expect(page.locator("#usageStats")).toBeVisible();
 
     // Settings — a real self-service save, not a fixture.
-    await page.fill("#niche", NICHE);
-    await page.fill("#brandVoice", "energetic, concise");
-    await page.check('input[name="platform"][value="tiktok"]');
-    await page.fill("#targetDurationSec", "30");
-    await page.click('#settingsForm button[type="submit"]');
+    await page.click('.side-nav a[href="#clients"]');
+    await page.fill("#clientNiche", NICHE);
+    await page.click('.side-nav a[href="#settings"]');
+    await page.fill("#brandVoice", "energetic, concise", { force: true });
+    await page.check('input[name="platform"][value="tiktok"]', { force: true });
+    await page.fill("#targetDurationSec", "30", { force: true });
+    await page.click('#settingsForm button[type="submit"]', { force: true });
     await expect(page.locator("#settingsOk")).toBeVisible();
     await expect(page.locator("#settingsOk")).toHaveText("Saved.");
 
@@ -133,7 +135,7 @@ test.describe("customer journey: signup → settings → real pricing → billin
 
     const clientName = `E2E Brand ${randomUUID().slice(0, 8)}`;
     await page.fill("#newClientName", clientName);
-    await page.fill("#niche", NICHE);
+    await page.fill("#clientNiche", NICHE);
     await page.fill("#brandVoice", "energetic, concise");
     await page.check('input[name="platform"][value="tiktok"]');
     await page.click("#saveClientBtn");

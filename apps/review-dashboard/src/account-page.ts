@@ -92,6 +92,7 @@ window.fetch = function(input, init) {
   .tour-bubble h3 { margin: 0 0 .35rem; font-size: 1rem; }
   .tour-bubble p { margin: 0 0 .8rem; color: var(--text-dim); font-size: .82rem; line-height: 1.45; }
   .tour-target { position: relative; z-index: 15; outline: 3px solid #c084fc; outline-offset: 5px; border-radius: 12px; }
+  .workspace-section[hidden] { display: none !important; }
   @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; display:flex; overflow:auto; gap:.2rem; align-items:center; } .side-brand,.side-section { display:none; } .side-nav a,.side-nav button { width:auto; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; } .context-panel { position:static; } }
   @media (max-width: 600px) { body { padding: 1rem .75rem 3rem; } .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2rem; } }
 </style>
@@ -209,6 +210,7 @@ window.fetch = function(input, init) {
       <label for="clientSelect" class="visually-hidden">Active client</label>
       <select id="clientSelect" class="input" style="flex: 1;"><option value="">No client selected</option></select>
       <input id="newClientName" class="input" style="flex: 1;" placeholder="Client / brand name" aria-label="New client or brand name" />
+      <input id="clientNiche" class="input" style="flex: 1;" placeholder="Client niche (e.g. fitness)" aria-label="Client niche" />
       <button class="btn btn-primary" id="saveClientBtn" type="button">Create workspace</button>
     </div>
     <div class="row" style="margin-top: 0.75rem;">
@@ -226,7 +228,7 @@ window.fetch = function(input, init) {
         <label for="niche">Niche</label>
         <input type="text" id="niche" class="input" placeholder="e.g. fitness" required />
       </div>
-      <div class="field">
+      <div class="field global-niche-field" hidden>
         <label for="brandVoice">Brand voice</label>
         <input type="text" id="brandVoice" class="input" placeholder="e.g. neutral, energetic, concise" required />
       </div>
@@ -417,8 +419,8 @@ const tourNext = document.getElementById('tourNext');
 let tourStep = 0;
 const tourSteps = [
   { target: 'heroCreateBtn', title: 'Start here', text: 'Click this button to make a video. We will guide you through the choices.' },
-  { target: 'clientSelect', title: 'Choose a workspace', text: 'This is where you choose the brand or client the video is for.' },
-  { target: 'contextRunBtn', title: 'Preview before you spend', text: 'This runs a safe preview. You can review the result before connecting paid tools.' }
+  { target: 'contextRunBtn', title: 'Preview before you spend', text: 'This runs a safe preview. You can review the result before connecting paid tools.' },
+  { target: 'helpButton', title: 'Help is always here', text: 'Use this button whenever you want the short guided tour again.' }
 ];
 function clearTourTarget() { document.querySelectorAll('.tour-target').forEach((el) => el.classList.remove('tour-target')); }
 function renderTourStep() {
@@ -460,11 +462,22 @@ function collectOnboardingStep() {
   if (onboardingStep === 1) onboardingData.workspace = document.querySelector('input[name="onboardingWorkspace"]:checked')?.value || '';
   if (onboardingStep === 2) { onboardingData.niche = document.getElementById('onboardingNiche')?.value.trim() || ''; onboardingData.platforms = [...document.querySelectorAll('input[name="onboardingPlatform"]:checked')].map((el) => el.value); }
 }
-document.getElementById('onboardingNext').addEventListener('click', () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); onboardingView.hidden = true; if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; } document.getElementById('home').scrollIntoView({ behavior: 'smooth' }); openTour(); });
+document.getElementById('onboardingNext').addEventListener('click', async () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; try { await fetch('/accounts/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: onboardingData.workspace || 'My first workspace', niche: onboardingData.niche, brandVoice: 'clear and engaging', platforms: onboardingData.platforms.length ? onboardingData.platforms : ['tiktok'], locale: 'en', targetDurationSec: 25, videoVendor: 'gemini', cadence: 'manual', active: true }) }); await loadClients(); } catch { /* The user can create the workspace later from Clients. */ } } onboardingView.hidden = true; document.getElementById('home').scrollIntoView({ behavior: 'smooth' }); openTour(); });
 document.getElementById('onboardingSkip').addEventListener('click', () => { localStorage.setItem('vvugc-onboarding', 'skipped'); onboardingView.hidden = true; });
-document.getElementById('heroCreateBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
+function showPanel(panel) {
+  document.querySelectorAll('#appView .workspace-section').forEach((el) => { el.setAttribute('hidden', ''); });
+  const ids = panel === 'settings' ? ['settings', 'security', 'data', 'team'] : panel === 'home' ? [] : [panel];
+  ids.forEach((id) => { const el = document.querySelector('#appView .workspace-section[data-panel="' + id + '"]'); if (el) el.removeAttribute('hidden'); });
+  if (panel === 'settings') {
+    ['settingsForm', 'securityCard', 'deleteForm', 'memberList'].forEach((childId) => { const child = document.getElementById(childId); const card = child?.closest('.card'); if (card) card.removeAttribute('hidden'); });
+  }
+  document.querySelectorAll('.side-nav a').forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + panel));
+  if (panel !== 'home') document.getElementById(panel)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+document.getElementById('heroCreateBtn').addEventListener('click', () => { showPanel('create'); closeTour(); });
 document.getElementById('contextRunBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
 document.getElementById('contextUpgradeBtn').addEventListener('click', () => document.getElementById('billing').scrollIntoView({ behavior: 'smooth' }));
+document.querySelectorAll('.side-nav a').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); showPanel(link.getAttribute('href').slice(1)); }));
 
 function escapeHtml(value) {
   return String(value)
@@ -759,6 +772,7 @@ async function loadSettings() {
 function applyClient(client) {
   if (!client) return;
   document.getElementById('newClientName').value = client.name;
+  document.getElementById('clientNiche').value = client.niche || '';
   document.getElementById('niche').value = client.niche;
   document.getElementById('brandVoice').value = client.brandVoice;
   document.getElementById('brandKitJson').value = client.brandKit ? JSON.stringify(client.brandKit, null, 2) : '';
@@ -828,6 +842,8 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
   hide('clientsError');
   const name = document.getElementById('newClientName').value.trim();
   if (!name) return showError('clientsError', 'Enter a client or brand name.');
+  const clientNiche = document.getElementById('clientNiche').value.trim();
+  if (!clientNiche) return showError('clientsError', 'Add this client’s niche so we can create the right videos.');
   const platforms = [...document.querySelectorAll('input[name="platform"]:checked')].map((cb) => cb.value);
   let brandKit;
   try {
@@ -837,7 +853,7 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
   }
   const body = {
     name,
-    niche: document.getElementById('niche').value,
+    niche: clientNiche,
     brandVoice: document.getElementById('brandVoice').value,
     brandKit,
     locale: document.getElementById('locale').value,
@@ -860,6 +876,7 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
   document.getElementById('clientSelect').value = data.client.id;
   await loadCustomerReviews();
 });
+document.getElementById('clientNiche').addEventListener('input', (event) => { document.getElementById('niche').value = event.target.value; });
 
 async function loadCustomerReviews() {
   hide('reviewsError');
@@ -919,6 +936,7 @@ document.getElementById('settingsForm').addEventListener('submit', async (e) => 
     }
     document.getElementById('settingsOk').textContent = 'Saved.';
     document.getElementById('settingsOk').hidden = false;
+    localStorage.setItem('vvugc-account-setup-complete', 'true');
   } catch (err) {
     showError('settingsError', err.message);
   }
@@ -927,6 +945,10 @@ document.getElementById('settingsForm').addEventListener('submit', async (e) => 
 document.getElementById('runNowBtn').addEventListener('click', async () => {
   hide('runError');
   hide('runOk');
+  if (localStorage.getItem('vvugc-first-video-complete') && !localStorage.getItem('vvugc-account-setup-complete')) {
+    showPanel('settings');
+    return showError('runError', 'Your first video is ready. Finish setting up your workspace before creating another.');
+  }
   const btn = document.getElementById('runNowBtn');
   const live = document.getElementById('liveRunCheckbox').checked;
   btn.disabled = true;
@@ -944,6 +966,7 @@ document.getElementById('runNowBtn').addEventListener('click', async () => {
     const result = await res.json();
     document.getElementById('runOk').textContent = \`Run complete — \${result.reviewItemsCreated} video(s) queued for review.\`;
     document.getElementById('runOk').hidden = false;
+    localStorage.setItem('vvugc-first-video-complete', 'true');
     await loadUsage();
     await loadCustomerReviews();
   } catch (err) {
@@ -1093,15 +1116,20 @@ async function boot() {
     document.getElementById('helpButton').hidden = false;
     // Give the navigation anchors real targets without duplicating the existing
     // API-backed panels. This keeps old deep links and tests functional.
-    document.querySelectorAll('#appView .card').forEach((card) => {
-      const heading = card.querySelector('h2')?.textContent?.toLowerCase() || '';
-      if (heading.startsWith('billing')) card.id = 'billing';
-      else if (heading.startsWith('clients')) card.id = 'clients';
-      else if (heading.startsWith('settings')) card.id = 'settings';
-      else if (heading.startsWith('client review')) card.id = 'review';
-      else if (heading.startsWith('run')) card.id = 'create';
-      else if (heading.startsWith('usage')) card.id = 'discover';
-    });
+     document.querySelectorAll('#appView .card').forEach((card) => {
+       const heading = card.querySelector('h2')?.textContent?.toLowerCase() || '';
+       if (heading.startsWith('billing')) card.id = 'billing';
+       else if (heading.startsWith('clients')) card.id = 'clients';
+       else if (heading.startsWith('settings')) card.id = 'settings';
+       else if (heading.startsWith('security')) card.id = 'security';
+       else if (heading.startsWith('data &')) card.id = 'data';
+       else if (heading.startsWith('team')) card.id = 'team';
+       else if (heading.startsWith('client review')) card.id = 'review';
+       else if (heading.startsWith('run')) card.id = 'create';
+       else if (heading.startsWith('usage')) card.id = 'discover';
+       if (['billing', 'clients', 'settings', 'security', 'data', 'team', 'review', 'create'].includes(card.id)) { card.classList.add('workspace-section'); card.dataset.panel = card.id; }
+     });
+     showPanel('home');
     if (new URLSearchParams(window.location.search).get('oauth') === 'google-connected') {
       const notice = document.getElementById('authNotice');
       notice.textContent = 'YouTube connected. Your agency workspace is ready for the next approved run.';

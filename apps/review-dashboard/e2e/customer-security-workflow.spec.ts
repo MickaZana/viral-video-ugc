@@ -126,7 +126,7 @@ test("full customer security workflow: dry run, approve, MFA, export, and org de
   const accountId = me.account.id as string;
 
   // ── Save settings, then create a client (a run requires one) ───────────────
-  await page.fill("#niche", NICHE);
+  await page.fill("#clientNiche", NICHE);
   await page.fill("#brandVoice", "clear, energetic");
   await page.check('input[name="platform"][value="tiktok"]');
   await page.check('input[name="platform"][value="youtube_shorts"]');
