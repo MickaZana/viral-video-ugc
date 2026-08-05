@@ -196,13 +196,13 @@ window.fetch = function(input, init) {
 
   <div class="card">
     <h2 style="font-size: 1.05rem;">Clients</h2>
-    <p style="font-size: 0.85rem; color: var(--text-dim);">Each client has independent brand, platform, language, and schedule settings.</p>
+    <p style="font-size: 0.85rem; color: var(--text-dim);">Create a brand workspace so every video uses the right audience and style.</p>
     <p class="msg msg-error" id="clientsError" hidden></p>
     <div class="row">
       <label for="clientSelect" class="visually-hidden">Active client</label>
       <select id="clientSelect" class="input" style="flex: 1;"><option value="">No client selected</option></select>
       <input id="newClientName" class="input" style="flex: 1;" placeholder="Client / brand name" aria-label="New client or brand name" />
-      <button class="btn btn-primary" id="saveClientBtn" type="button">Save as client</button>
+      <button class="btn btn-primary" id="saveClientBtn" type="button">Create workspace</button>
     </div>
     <div class="row" style="margin-top: 0.75rem;">
       <button class="btn" id="connectYouTubeBtn" type="button">Connect YouTube</button>
@@ -224,7 +224,7 @@ window.fetch = function(input, init) {
         <input type="text" id="brandVoice" class="input" placeholder="e.g. neutral, energetic, concise" required />
       </div>
       <div class="field">
-        <label for="brandKitJson">Brand Kit (JSON)</label>
+        <label for="brandKitJson">Advanced brand rules <span style="color:var(--text-dim);">(optional)</span></label>
         <textarea id="brandKitJson" class="input" rows="5" placeholder='{"captionStyle":"bold","defaultCta":"Follow for more"}'></textarea>
         <small style="color: var(--text-dim);">Optional: caption style, colors, logo URL, CTA, and banned claims.</small>
       </div>
@@ -246,7 +246,7 @@ window.fetch = function(input, init) {
         <input type="number" id="targetDurationSec" class="input" min="15" max="60" value="25" required />
       </div>
       <div class="field">
-        <label for="videoVendor">Video vendor</label>
+        <label for="videoVendor">Video engine <span style="color:var(--text-dim);">(advanced)</span></label>
         <select id="videoVendor" class="input">
           <option value="higgsfield">Higgsfield</option>
           <option value="kling">Kling</option>
@@ -257,7 +257,7 @@ window.fetch = function(input, init) {
         </select>
       </div>
       <div class="field">
-        <label for="voiceVendor">Voiceover (optional)</label>
+        <label for="voiceVendor">Voiceover <span style="color:var(--text-dim);">(optional)</span></label>
         <select id="voiceVendor" class="input">
           <option value="">None</option>
           <option value="elevenlabs">ElevenLabs</option>
@@ -265,7 +265,7 @@ window.fetch = function(input, init) {
         </select>
       </div>
       <div class="field">
-        <label for="cadence">Cadence</label>
+        <label for="cadence">Publishing schedule <span style="color:var(--text-dim);">(optional)</span></label>
         <select id="cadence" class="input">
           <option value="manual">Manual (I'll click "Run now")</option>
           <option value="weekly">Weekly (scheduled)</option>
@@ -465,8 +465,11 @@ applyTheme(currentTheme());
 themeToggleBtn.addEventListener('click', () => applyTheme(currentTheme() === 'light' ? 'dark' : 'light'));
 
 function showError(id, message) {
+  const friendly = String(message || '').toLowerCase().includes('failed to fetch')
+    ? 'We could not reach the workspace right now. Check that the app is running, then try again.'
+    : message;
   const el = document.getElementById(id);
-  el.textContent = message;
+  el.textContent = friendly;
   el.hidden = false;
 }
 function hide(id) { document.getElementById(id).hidden = true; }
