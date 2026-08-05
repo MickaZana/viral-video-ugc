@@ -141,7 +141,7 @@ window.fetch = function(input, init) {
     <a href="#discover">◉ <span>Discover</span></a>
     <a href="#review">✓ <span>Review queue</span></a>
     <div class="side-section">Manage</div>
-    <a href="#clients">▦ <span>Clients</span></a>
+    <a href="#clients">▦ <span>Brands</span></a>
     <a href="#billing">$ <span>Billing</span></a>
     <a href="#settings">⚙ <span>Settings</span></a>
   </nav>
@@ -203,7 +203,7 @@ window.fetch = function(input, init) {
   </div>
 
   <div class="card">
-    <h2 style="font-size: 1.05rem;">Clients</h2>
+    <h2 style="font-size: 1.05rem;">Brands</h2>
     <p style="font-size: 0.85rem; color: var(--text-dim);">Create a brand workspace so every video uses the right audience and style.</p>
     <p class="msg msg-error" id="clientsError" hidden></p>
     <div class="row">
@@ -363,7 +363,7 @@ window.fetch = function(input, init) {
   </div>
   </section>
   <aside class="context-panel" aria-label="Workspace context">
-    <div class="card"><p class="dashboard-kicker">Active client</p><h2 id="contextClientName" style="margin:.35rem 0;">Choose a client</h2><p id="contextClientDetail" style="color:var(--text-dim);font-size:.82rem;">Your niche, platforms, and brand voice will appear here.</p><a class="btn" href="#clients">Manage clients</a></div>
+    <div class="card"><p class="dashboard-kicker">Current brand</p><h2 id="contextClientName" style="margin:.35rem 0;">Your workspace</h2><p id="contextClientDetail" style="color:var(--text-dim);font-size:.82rem;">Your brand context will appear here.</p><a class="btn" href="#clients">Manage brands</a></div>
     <div class="card"><p class="dashboard-kicker">Next best action</p><h2 style="margin:.35rem 0;font-size:1.1rem;">Make your first run</h2><p style="color:var(--text-dim);font-size:.82rem;">Start with a dry run to preview the workflow without spending vendor credits.</p><button class="btn btn-primary" id="contextRunBtn" type="button">Run preview</button></div>
     <div class="card"><p class="dashboard-kicker">Free plan</p><h2 id="contextUsage" style="margin:.35rem 0;font-size:1.5rem;">0 / 5</h2><p style="color:var(--text-dim);font-size:.82rem;">Videos used this week · watermark included</p><button class="btn" type="button" id="contextUpgradeBtn">See upgrade options</button></div>
   </aside>
@@ -789,6 +789,15 @@ async function loadClients() {
   if (!res.ok) return;
   const data = await res.json();
   agencyClients = data.clients.filter((client) => client.active);
+  if (!agencyClients.length) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('vvugc-onboarding') || '{}');
+      if (saved.niche) {
+        const starter = await fetch('/accounts/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: saved.workspace || 'My first brand', niche: saved.niche, brandVoice: 'clear and engaging', platforms: saved.platforms?.length ? saved.platforms : ['tiktok'], locale: 'en', targetDurationSec: 25, videoVendor: 'gemini', cadence: 'manual', active: true }) });
+        if (starter.ok) return loadClients();
+      }
+    } catch { /* A brand can still be added from the Brands panel. */ }
+  }
   const select = document.getElementById('clientSelect');
   const selected = select.value;
   select.innerHTML = '<option value="">No client selected</option>' + agencyClients
