@@ -85,6 +85,13 @@ window.fetch = function(input, init) {
   .onboarding-progress span { display:block; height:100%; background: linear-gradient(90deg,#a855f7,#ec4899); transition: width .25s ease; }
   .onboarding-option { display:flex; align-items:center; gap:.7rem; padding:.9rem 1rem; border:1px solid var(--border); border-radius:13px; margin:.55rem 0; cursor:pointer; }
   .onboarding-option:has(input:checked) { border-color:#a855f7; background:rgba(168,85,247,.12); }
+  .help-button { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 8; border-radius: 999px; box-shadow: 0 10px 28px rgba(0,0,0,.2); }
+  .tour-backdrop { position: fixed; inset: 0; z-index: 14; pointer-events: none; }
+  .tour-bubble { position: absolute; width: min(290px, calc(100vw - 2rem)); padding: 1rem; border: 1px solid rgba(168,85,247,.45); border-radius: 16px; background: var(--surface); box-shadow: 0 18px 55px rgba(0,0,0,.3); pointer-events: auto; }
+  .tour-bubble::before { content: ''; position:absolute; top:-8px; left: 24px; width:14px; height:14px; transform:rotate(45deg); background:var(--surface); border-left:1px solid rgba(168,85,247,.45); border-top:1px solid rgba(168,85,247,.45); }
+  .tour-bubble h3 { margin: 0 0 .35rem; font-size: 1rem; }
+  .tour-bubble p { margin: 0 0 .8rem; color: var(--text-dim); font-size: .82rem; line-height: 1.45; }
+  .tour-target { position: relative; z-index: 15; outline: 3px solid #c084fc; outline-offset: 5px; border-radius: 12px; }
   @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; display:flex; overflow:auto; gap:.2rem; align-items:center; } .side-brand,.side-section { display:none; } .side-nav a,.side-nav button { width:auto; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; } .context-panel { position:static; } }
   @media (max-width: 600px) { body { padding: 1rem .75rem 3rem; } .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2rem; } }
 </style>
@@ -363,6 +370,15 @@ window.fetch = function(input, init) {
   </div>
 </div>
 
+<button class="btn btn-primary help-button" id="helpButton" type="button" aria-label="Open guided help" hidden>? Help</button>
+<div id="tourView" class="tour-backdrop" hidden>
+  <div id="tourBubble" class="tour-bubble" role="dialog" aria-live="polite" aria-labelledby="tourTitle">
+    <h3 id="tourTitle">Create your first video</h3>
+    <p id="tourText">This starts a safe preview using your free video allowance.</p>
+    <div class="row" style="justify-content:space-between;"><button class="btn" id="tourSkip" type="button">Skip tour</button><button class="btn btn-primary" id="tourNext" type="button">Show me →</button></div>
+  </div>
+</div>
+
 <div id="onboardingView" class="onboarding-backdrop" hidden>
   <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
     <div class="onboarding-progress"><span id="onboardingProgress"></span></div>
@@ -393,6 +409,37 @@ const onboardingProgress = document.getElementById('onboardingProgress');
 const onboardingStepLabel = document.getElementById('onboardingStepLabel');
 let onboardingStep = 0;
 const onboardingData = { name: '', workspace: '', niche: '', platforms: [] };
+const tourView = document.getElementById('tourView');
+const tourBubble = document.getElementById('tourBubble');
+const tourTitle = document.getElementById('tourTitle');
+const tourText = document.getElementById('tourText');
+const tourNext = document.getElementById('tourNext');
+let tourStep = 0;
+const tourSteps = [
+  { target: 'heroCreateBtn', title: 'Start here', text: 'Click this button to make a video. We will guide you through the choices.' },
+  { target: 'clientSelect', title: 'Choose a workspace', text: 'This is where you choose the brand or client the video is for.' },
+  { target: 'contextRunBtn', title: 'Preview before you spend', text: 'This runs a safe preview. You can review the result before connecting paid tools.' }
+];
+function clearTourTarget() { document.querySelectorAll('.tour-target').forEach((el) => el.classList.remove('tour-target')); }
+function renderTourStep() {
+  clearTourTarget();
+  const step = tourSteps[tourStep];
+  const target = document.getElementById(step.target);
+  if (!target) return;
+  target.classList.add('tour-target');
+  const rect = target.getBoundingClientRect();
+  tourTitle.textContent = step.title;
+  tourText.textContent = step.text;
+  tourNext.textContent = tourStep === tourSteps.length - 1 ? 'Finish →' : 'Next →';
+  tourBubble.style.left = Math.min(Math.max(rect.left, 16), window.innerWidth - 320) + 'px';
+  tourBubble.style.top = Math.min(rect.bottom + 18, window.innerHeight - 180) + 'px';
+}
+function openTour() { tourStep = 0; tourView.hidden = false; renderTourStep(); }
+function closeTour() { clearTourTarget(); tourView.hidden = true; localStorage.setItem('vvugc-tour-complete', 'true'); }
+document.getElementById('helpButton').addEventListener('click', openTour);
+document.getElementById('tourSkip').addEventListener('click', closeTour);
+tourNext.addEventListener('click', () => { if (tourStep === tourSteps.length - 1) return closeTour(); tourStep++; renderTourStep(); });
+window.addEventListener('resize', () => { if (!tourView.hidden) renderTourStep(); });
 const onboardingSteps = [
   { title: 'What should we call you?', subtitle: 'This keeps your workspace personal.', render: () => '<div class="field"><label for="onboardingName">Your name</label><input class="input" id="onboardingName" placeholder="e.g. Michael" autocomplete="given-name" /></div>' },
   { title: 'What are you creating for?', subtitle: 'We’ll shape the workspace around your goal.', render: () => '<label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="My business" /> My business</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="My personal brand" /> My personal brand</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="Clients" /> Clients</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="An app or product" /> An app or product</label>' },
@@ -405,7 +452,7 @@ function renderOnboardingStep() {
   onboardingStepLabel.textContent = (onboardingStep + 1) + ' of ' + onboardingSteps.length;
   onboardingProgress.style.width = (((onboardingStep + 1) / onboardingSteps.length) * 100) + '%';
   onboardingBody.innerHTML = step.render();
-  document.getElementById('onboardingNext').textContent = onboardingStep === onboardingSteps.length - 1 ? 'Open workspace →' : 'Continue →';
+  document.getElementById('onboardingNext').textContent = onboardingStep === onboardingSteps.length - 1 ? 'Create your first video →' : 'Continue →';
 }
 function openOnboarding() { onboardingStep = 0; renderOnboardingStep(); onboardingView.hidden = false; }
 function collectOnboardingStep() {
@@ -413,7 +460,7 @@ function collectOnboardingStep() {
   if (onboardingStep === 1) onboardingData.workspace = document.querySelector('input[name="onboardingWorkspace"]:checked')?.value || '';
   if (onboardingStep === 2) { onboardingData.niche = document.getElementById('onboardingNiche')?.value.trim() || ''; onboardingData.platforms = [...document.querySelectorAll('input[name="onboardingPlatform"]:checked')].map((el) => el.value); }
 }
-document.getElementById('onboardingNext').addEventListener('click', () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); onboardingView.hidden = true; if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; } });
+document.getElementById('onboardingNext').addEventListener('click', () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); onboardingView.hidden = true; if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; } document.getElementById('home').scrollIntoView({ behavior: 'smooth' }); openTour(); });
 document.getElementById('onboardingSkip').addEventListener('click', () => { localStorage.setItem('vvugc-onboarding', 'skipped'); onboardingView.hidden = true; });
 document.getElementById('heroCreateBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
 document.getElementById('contextRunBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
@@ -539,6 +586,7 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   await fetch('/accounts/logout', { method: 'POST' });
   appView.hidden = true;
   authView.hidden = false;
+  document.getElementById('helpButton').hidden = true;
 });
 
 async function loadUsage() {
@@ -1042,6 +1090,7 @@ async function boot() {
       : 'Deleting your account removes you from this organization. This cannot be undone.';
     authView.hidden = true;
     appView.hidden = false;
+    document.getElementById('helpButton').hidden = false;
     // Give the navigation anchors real targets without duplicating the existing
     // API-backed panels. This keeps old deep links and tests functional.
     document.querySelectorAll('#appView .card').forEach((card) => {
@@ -1067,6 +1116,7 @@ async function boot() {
   } else {
     authView.hidden = false;
     appView.hidden = true;
+    document.getElementById('helpButton').hidden = true;
   }
 }
 boot();

@@ -84,6 +84,15 @@ test.describe("customer journey: signup → settings → real pricing → billin
     await page.check('input[name="onboardingPlatform"][value="tiktok"]');
     await page.click("#onboardingNext");
     await expect(page.locator("#onboardingView")).toBeHidden();
+    await expect(page.locator("#tourView")).toBeVisible();
+    await expect(page.locator("#tourTitle")).toHaveText("Start here");
+    await page.click("#tourNext");
+    await expect(page.locator("#tourTitle")).toHaveText("Choose a workspace");
+    await page.click("#tourSkip");
+    await expect(page.locator("#tourView")).toBeHidden();
+    await page.click("#helpButton");
+    await expect(page.locator("#tourView")).toBeVisible();
+    await page.click("#tourSkip");
     await expect(page.locator("#usageStats")).toBeVisible();
 
     // Settings — a real self-service save, not a fixture.
