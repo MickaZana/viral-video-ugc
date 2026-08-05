@@ -35,7 +35,7 @@ window.fetch = function(input, init) {
 <link rel="stylesheet" href="/tokens.css" />
 <style>
   .theme-toggle { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
-  body { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem 4rem; background: radial-gradient(circle at 90% 0%, rgba(52, 211, 153, 0.08), transparent 30rem); }
+  body { max-width: none; margin: 0; padding: 0; background: #f7f8fb; }
   h1 { font-size: clamp(1.65rem, 3vw, 2.25rem); margin-bottom: 0.15em; letter-spacing: -0.03em; }
   h2 { letter-spacing: -0.02em; }
   .card { padding: 1.35rem; margin-bottom: 1.25rem; border-color: rgba(148, 163, 184, 0.2); box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12); }
@@ -62,22 +62,24 @@ window.fetch = function(input, init) {
   .chart-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
   /* Product shell: the existing API-backed panels sit inside a workspace rather
      than presenting as an undifferentiated settings page. */
-  #appView { max-width: 1440px; margin: 0 auto; }
-  .app-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
-  .side-nav { position: sticky; top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 18px; background: rgba(15,23,42,.72); box-shadow: 0 18px 50px rgba(0,0,0,.14); }
-  .side-brand { font-weight: 900; letter-spacing: -.04em; font-size: 1.05rem; margin: .25rem .5rem 1.25rem; }
-  .side-nav a, .side-nav button { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: .6rem; padding: .65rem .7rem; margin: .2rem 0; border: 0; border-radius: 10px; color: var(--text-dim); background: transparent; text-decoration: none; text-align: left; cursor: pointer; font: inherit; }
-  .side-nav a:hover, .side-nav a.active, .side-nav button:hover { color: var(--text); background: rgba(52,211,153,.12); }
-  .side-section { margin: 1rem .5rem .45rem; color: var(--text-dim); text-transform: uppercase; font-size: .64rem; letter-spacing: .12em; font-weight: 800; }
-  .workspace-main { min-width: 0; }
-  .workspace-topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+  #appView { min-height: 100vh; }
+  .app-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
+  .side-nav { position: sticky; top: 0; height: 100vh; box-sizing: border-box; padding: 1.35rem 1rem; border-right: 1px solid #e4e7ee; background: #fff; display: flex; flex-direction: column; }
+  .side-brand { font-weight: 900; letter-spacing: -.05em; font-size: 1.2rem; margin: .25rem .65rem 2rem; color: #151826; }
+  .side-nav a, .side-nav button { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: .75rem; padding: .72rem .8rem; margin: .18rem 0; border: 0; border-radius: 10px; color: #6c7282; background: transparent; text-decoration: none; text-align: left; cursor: pointer; font: inherit; }
+  .side-nav a:hover, .side-nav a.active, .side-nav button:hover { color: #151826; background: #f0efff; }
+  .side-nav a.active { font-weight: 750; box-shadow: inset 3px 0 #7157ef; }
+  .side-section { margin: 1rem .65rem .45rem; color: #9aa0af; text-transform: uppercase; font-size: .62rem; letter-spacing: .12em; font-weight: 800; }
+  .side-nav .side-bottom { margin-top: auto; }
+  .workspace-main { min-width: 0; background: #f7f8fb; }
+  .workspace-topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1.2rem 2.25rem; border-bottom: 1px solid #e7e9ef; background: rgba(255,255,255,.86); }
   .workspace-topbar .eyebrow { color: var(--text-dim); font-size: .78rem; }
-  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 245px; gap: 1rem; align-items: start; }
+  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 1.25rem; align-items: start; padding: 2rem 2.25rem 4rem; max-width: 1320px; }
   .context-panel { position: sticky; top: 1rem; }
   .context-panel .card { padding: 1rem; }
-  .hero-card { padding: 1.6rem; background: radial-gradient(circle at 100% 0%, rgba(168,85,247,.25), transparent 35%), linear-gradient(135deg, rgba(52,211,153,.16), rgba(15,23,42,.22)); }
-  .hero-card h1 { max-width: 650px; font-size: clamp(2rem, 4vw, 3.4rem); }
-  .hero-card p { color: var(--text-dim); max-width: 580px; }
+  .hero-card { padding: clamp(2rem, 5vw, 4.5rem); min-height: 390px; display: flex; flex-direction: column; justify-content: center; background: radial-gradient(circle at 95% 5%, rgba(143,115,255,.18), transparent 28rem), #fff; border: 1px solid #e7e9ef; box-shadow: 0 18px 45px rgba(32,36,58,.06); }
+  .hero-card h1 { max-width: 720px; font-size: clamp(2.25rem, 5vw, 4.4rem); line-height: 1.02; color: #151826; }
+  .hero-card p { color: #73798a; max-width: 580px; font-size: 1.05rem; }
   .usage-pill { border: 1px solid rgba(52,211,153,.35); background: rgba(52,211,153,.08); border-radius: 999px; padding: .45rem .7rem; font-size: .75rem; color: var(--text); }
   .onboarding-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1rem; background: rgba(2,6,23,.72); backdrop-filter: blur(8px); }
   .onboarding-card { width: min(620px, 100%); padding: clamp(1.5rem, 4vw, 3rem); border: 1px solid rgba(168,85,247,.38); border-radius: 24px; background: var(--surface); box-shadow: 0 30px 100px rgba(0,0,0,.35); }
@@ -93,8 +95,14 @@ window.fetch = function(input, init) {
   .tour-bubble p { margin: 0 0 .8rem; color: var(--text-dim); font-size: .82rem; line-height: 1.45; }
   .tour-target { position: relative; z-index: 15; outline: 3px solid #c084fc; outline-offset: 5px; border-radius: 12px; }
   .workspace-section[hidden] { display: none !important; }
-  @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; display:flex; overflow:auto; gap:.2rem; align-items:center; } .side-brand,.side-section { display:none; } .side-nav a,.side-nav button { width:auto; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; } .context-panel { position:static; } }
-  @media (max-width: 600px) { body { padding: 1rem .75rem 3rem; } .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2rem; } }
+  .context-panel .card { background: #fff; border: 1px solid #e7e9ef; box-shadow: 0 12px 30px rgba(32,36,58,.05); }
+  .context-panel .card:first-child .btn { display: none; }
+  .context-panel .card:nth-child(2) { background: linear-gradient(145deg,#17172a,#30255b); color: #fff; }
+  .context-panel .card:nth-child(2) p { color: #c7c5dc !important; }
+  .context-panel .card:nth-child(3) { color: #44495b; }
+  [data-active-panel="home"] .context-panel .card:nth-child(2) h2 { font-size: 1.25rem !important; }
+  @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; height: auto; display:flex; overflow:auto; gap:.2rem; align-items:center; border-right:0; border-bottom:1px solid #e4e7ee; } .side-brand,.side-section { display:none; } .side-nav .side-bottom { margin-top: 0; } .side-nav a,.side-nav button { width:auto; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; padding: 1rem; } .context-panel { position:static; } .workspace-topbar { padding: 1rem; } }
+  @media (max-width: 600px) { .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2.4rem; } }
 </style>
 </head>
 <body>
@@ -135,24 +143,26 @@ window.fetch = function(input, init) {
   <div class="app-shell">
   <nav class="side-nav" aria-label="Workspace navigation">
     <div class="side-brand">Viral Video UGC</div>
-    <div class="side-section">Workspace</div>
+    <div class="side-section">Work</div>
     <a class="active" href="#home">⌂ <span>Home</span></a>
-    <a href="#create">✦ <span>Create video</span></a>
-    <a href="#discover">◉ <span>Discover</span></a>
-    <a href="#review">✓ <span>Review queue</span></a>
-    <div class="side-section">Manage</div>
+    <a href="#create">✦ <span>Create</span></a>
+    <a href="#discover">◉ <span>Find ideas</span></a>
+    <a href="#review">✓ <span>My videos</span></a>
+    <div class="side-section">Library</div>
     <a href="#clients">▦ <span>Brands</span></a>
-    <a href="#billing">$ <span>Billing</span></a>
-    <a href="#settings">⚙ <span>Settings</span></a>
+    <div class="side-bottom">
+      <button type="button" id="helpNavBtn">? <span>Help</span></button>
+      <a href="#settings">⚙ <span>Settings</span></a>
+    </div>
   </nav>
   <main class="workspace-main">
   <div class="workspace-topbar">
     <div>
-      <span class="eyebrow">Workspace / Home</span>
-      <h1 style="margin:.15rem 0 0;">Your content command center</h1>
+      <span class="eyebrow">Your workspace</span>
+      <h1 style="margin:.15rem 0 0;">Make something people watch</h1>
     </div>
     <div class="row">
-      <span class="usage-pill" id="freePlanPill">Free plan · 5 videos/week</span>
+      <span class="usage-pill" id="freePlanPill">5 free videos this week</span>
       <button class="btn theme-toggle" id="themeToggleBtn" type="button" aria-pressed="false">Light mode</button>
       <button class="btn" id="logoutBtn" type="button">Log out</button>
     </div>
@@ -161,10 +171,10 @@ window.fetch = function(input, init) {
   <div class="workspace-grid">
   <section>
   <div class="card hero-card" id="home">
-    <p class="dashboard-kicker">Your next win is waiting</p>
-    <h1>Turn one viral idea into a video people want to watch.</h1>
-    <p>Choose a reference, remix the hook for your brand, and send the finished short to review.</p>
-    <div class="row"><button class="btn btn-primary" type="button" id="heroCreateBtn">Create your first video →</button><a class="btn" href="#review">View review queue</a></div>
+    <p class="dashboard-kicker">Create</p>
+    <h1>Turn an idea into a short video.</h1>
+    <p>Pick a video style, add your idea, and we’ll prepare a version for you to review.</p>
+    <div class="row"><button class="btn btn-primary" type="button" id="heroCreateBtn">Create a video →</button><a class="btn" href="#review">See my videos</a></div>
   </div>
 
   <div class="card">
@@ -346,9 +356,9 @@ window.fetch = function(input, init) {
     <p class="msg msg-error" id="runError" hidden></p>
     <p class="msg msg-ok" id="runOk" hidden></p>
     <div class="row">
-      <button class="btn btn-primary" id="runNowBtn" type="button">Run now (dry-run)</button>
+      <button class="btn btn-primary" id="runNowBtn" type="button">Create video</button>
       <label style="font-size: 0.82rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.4rem;">
-        <input type="checkbox" id="liveRunCheckbox" /> Run live (uses real vendor credits, if configured)
+        <input type="checkbox" id="liveRunCheckbox" hidden />
       </label>
     </div>
   </div>
@@ -364,8 +374,8 @@ window.fetch = function(input, init) {
   </section>
   <aside class="context-panel" aria-label="Workspace context">
     <div class="card"><p class="dashboard-kicker">Current brand</p><h2 id="contextClientName" style="margin:.35rem 0;">Your workspace</h2><p id="contextClientDetail" style="color:var(--text-dim);font-size:.82rem;">Your brand context will appear here.</p><a class="btn" href="#clients">Manage brands</a></div>
-    <div class="card"><p class="dashboard-kicker">Next best action</p><h2 style="margin:.35rem 0;font-size:1.1rem;">Make your first run</h2><p style="color:var(--text-dim);font-size:.82rem;">Start with a dry run to preview the workflow without spending vendor credits.</p><button class="btn btn-primary" id="contextRunBtn" type="button">Run preview</button></div>
-    <div class="card"><p class="dashboard-kicker">Free plan</p><h2 id="contextUsage" style="margin:.35rem 0;font-size:1.5rem;">0 / 5</h2><p style="color:var(--text-dim);font-size:.82rem;">Videos used this week · watermark included</p><button class="btn" type="button" id="contextUpgradeBtn">See upgrade options</button></div>
+    <div class="card"><p class="dashboard-kicker">Next step</p><h2 style="margin:.35rem 0;font-size:1.1rem;">Make your first video</h2><p style="color:var(--text-dim);font-size:.82rem;">Start with one simple idea. You can change everything before publishing.</p><button class="btn btn-primary" id="contextRunBtn" type="button">Start creating</button></div>
+    <div class="card"><p class="dashboard-kicker">This week</p><h2 id="contextUsage" style="margin:.35rem 0;font-size:1.5rem;">0 / 5</h2><p style="color:var(--text-dim);font-size:.82rem;">Free videos available. Watermark included.</p><button class="btn" type="button" id="contextUpgradeBtn">More options</button></div>
   </aside>
   </div>
   </main>
@@ -419,7 +429,7 @@ const tourNext = document.getElementById('tourNext');
 let tourStep = 0;
 const tourSteps = [
   { target: 'heroCreateBtn', title: 'Start here', text: 'Click this button to make a video. We will guide you through the choices.' },
-  { target: 'contextRunBtn', title: 'Preview before you spend', text: 'This runs a safe preview. You can review the result before connecting paid tools.' },
+  { target: 'contextRunBtn', title: 'Start creating', text: 'This opens the creation flow. Your video is prepared for review before anything is published.' },
   { target: 'helpButton', title: 'Help is always here', text: 'Use this button whenever you want the short guided tour again.' }
 ];
 function clearTourTarget() { document.querySelectorAll('.tour-target').forEach((el) => el.classList.remove('tour-target')); }
@@ -465,6 +475,7 @@ function collectOnboardingStep() {
 document.getElementById('onboardingNext').addEventListener('click', async () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; try { await fetch('/accounts/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: onboardingData.workspace || 'My first workspace', niche: onboardingData.niche, brandVoice: 'clear and engaging', platforms: onboardingData.platforms.length ? onboardingData.platforms : ['tiktok'], locale: 'en', targetDurationSec: 25, videoVendor: 'gemini', cadence: 'manual', active: true }) }); await loadClients(); } catch { /* The user can create the workspace later from Clients. */ } } onboardingView.hidden = true; document.getElementById('home').scrollIntoView({ behavior: 'smooth' }); openTour(); });
 document.getElementById('onboardingSkip').addEventListener('click', () => { localStorage.setItem('vvugc-onboarding', 'skipped'); onboardingView.hidden = true; });
 function showPanel(panel) {
+  appView.dataset.activePanel = panel;
   document.querySelectorAll('#appView .workspace-section').forEach((el) => { el.setAttribute('hidden', ''); });
   const ids = panel === 'settings' ? ['settings', 'security', 'data', 'team'] : panel === 'home' ? [] : [panel];
   ids.forEach((id) => { const el = document.querySelector('#appView .workspace-section[data-panel="' + id + '"]'); if (el) el.removeAttribute('hidden'); });
@@ -477,6 +488,7 @@ function showPanel(panel) {
 document.getElementById('heroCreateBtn').addEventListener('click', () => { showPanel('create'); closeTour(); });
 document.getElementById('contextRunBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
 document.getElementById('contextUpgradeBtn').addEventListener('click', () => document.getElementById('billing').scrollIntoView({ behavior: 'smooth' }));
+document.getElementById('helpNavBtn').addEventListener('click', openTour);
 document.querySelectorAll('.side-nav a').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); showPanel(link.getAttribute('href').slice(1)); }));
 
 function escapeHtml(value) {
@@ -1128,7 +1140,7 @@ async function boot() {
      document.querySelectorAll('#appView .card').forEach((card) => {
        const heading = card.querySelector('h2')?.textContent?.toLowerCase() || '';
        if (heading.startsWith('billing')) card.id = 'billing';
-       else if (heading.startsWith('clients')) card.id = 'clients';
+       else if (heading.startsWith('clients') || heading.startsWith('brands')) card.id = 'clients';
        else if (heading.startsWith('settings')) card.id = 'settings';
        else if (heading.startsWith('security')) card.id = 'security';
        else if (heading.startsWith('data &')) card.id = 'data';
@@ -1136,7 +1148,7 @@ async function boot() {
        else if (heading.startsWith('client review')) card.id = 'review';
        else if (heading.startsWith('run')) card.id = 'create';
        else if (heading.startsWith('usage')) card.id = 'discover';
-       if (['billing', 'clients', 'settings', 'security', 'data', 'team', 'review', 'create'].includes(card.id)) { card.classList.add('workspace-section'); card.dataset.panel = card.id; }
+       if (['billing', 'clients', 'settings', 'security', 'data', 'team', 'review', 'create', 'discover'].includes(card.id)) { card.classList.add('workspace-section'); card.dataset.panel = card.id; }
      });
      showPanel('home');
     if (new URLSearchParams(window.location.search).get('oauth') === 'google-connected') {
