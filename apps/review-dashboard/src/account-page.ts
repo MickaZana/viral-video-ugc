@@ -105,6 +105,9 @@ window.fetch = function(input, init) {
   .context-panel .card:nth-child(3) { color: #44495b; }
   [data-active-panel="home"] .context-panel { display: none; }
   [data-active-panel="home"] .workspace-grid { grid-template-columns: minmax(0, 980px); justify-content: center; }
+  [data-active-panel="create"] .context-panel { display: none; }
+  [data-active-panel="create"] .workspace-grid { grid-template-columns: minmax(0, 980px); justify-content: center; }
+  [data-active-panel="create"] #create { background: #17171b; border-color: #2d2d35; }
   [data-active-panel="home"] .context-panel .card:nth-child(2) h2 { font-size: 1.25rem !important; }
   @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; height: auto; display:flex; overflow:auto; gap:.2rem; align-items:center; border-right:0; border-bottom:1px solid #25252b; } .side-brand,.side-section { display:none; } .side-nav .side-bottom { margin-top: 0; } .side-nav a,.side-nav button { width:48px; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; padding: 1rem; } .context-panel { position:static; } .workspace-topbar { padding: 1rem; } }
   @media (max-width: 600px) { .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2.4rem; } }
@@ -357,7 +360,18 @@ window.fetch = function(input, init) {
   </div>
 
   <div class="card">
-    <h2 style="font-size: 1.05rem;">Run</h2>
+    <div class="row" style="justify-content: space-between; margin-bottom: 1rem;">
+      <div><p class="dashboard-kicker">Create</p><h2 style="font-size: 1.45rem; margin: .2rem 0 0;">Create your video</h2></div>
+      <span class="usage-pill">Uses your active brand settings</span>
+    </div>
+    <div class="card" style="background:#101013; border-color:#303038; margin-bottom:1rem; min-height:180px; display:grid; place-items:center; text-align:center;">
+      <div><div style="font-size:2.5rem; margin-bottom:.5rem;">✦</div><strong id="createBrandPreview">Your brand video</strong><p style="color:var(--text-dim); margin:.35rem 0 0;">Your generated video will appear here for review.</p></div>
+    </div>
+    <div class="row" style="gap:1.25rem; margin-bottom:1rem;">
+      <span style="color:var(--text); font-weight:700; border-bottom:2px solid #8b6cff; padding-bottom:.55rem;">AI video</span>
+      <span style="color:var(--text-dim);">Review before publishing</span>
+    </div>
+    <p style="color:var(--text-dim); font-size:.88rem;">We’ll use your selected brand, niche, platform, and video style to create the next review item.</p>
     <p class="msg msg-error" id="runError" hidden></p>
     <p class="msg msg-ok" id="runOk" hidden></p>
     <div class="row">
@@ -481,6 +495,8 @@ document.getElementById('onboardingNext').addEventListener('click', async () => 
 document.getElementById('onboardingSkip').addEventListener('click', () => { localStorage.setItem('vvugc-onboarding', 'skipped'); onboardingView.hidden = true; });
 function showPanel(panel) {
   appView.dataset.activePanel = panel;
+  const home = document.getElementById('home');
+  if (home) home.hidden = panel !== 'home';
   document.querySelectorAll('#appView .workspace-section').forEach((el) => { el.setAttribute('hidden', ''); });
   const ids = panel === 'settings' ? ['settings', 'security', 'data', 'team'] : panel === 'home' ? [] : [panel];
   ids.forEach((id) => { const el = document.querySelector('#appView .workspace-section[data-panel="' + id + '"]'); if (el) el.removeAttribute('hidden'); });
@@ -798,6 +814,8 @@ function applyClient(client) {
   document.getElementById('videoVendor').value = client.videoVendor;
   document.getElementById('voiceVendor').value = client.voiceVendor || '';
   document.getElementById('cadence').value = client.cadence;
+  const createBrandPreview = document.getElementById('createBrandPreview');
+  if (createBrandPreview) createBrandPreview.textContent = client.name + ' video';
   document.querySelectorAll('input[name="platform"]').forEach((cb) => { cb.checked = client.platforms.includes(cb.value); });
 }
 
@@ -1151,7 +1169,7 @@ async function boot() {
        else if (heading.startsWith('data &')) card.id = 'data';
        else if (heading.startsWith('team')) card.id = 'team';
        else if (heading.startsWith('client review')) card.id = 'review';
-       else if (heading.startsWith('run')) card.id = 'create';
+       else if (heading.startsWith('run') || heading.startsWith('create your video')) card.id = 'create';
        else if (heading.startsWith('usage')) card.id = 'discover';
        if (['billing', 'clients', 'settings', 'security', 'data', 'team', 'review', 'create', 'discover'].includes(card.id)) { card.classList.add('workspace-section'); card.dataset.panel = card.id; }
      });
