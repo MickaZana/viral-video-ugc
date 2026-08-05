@@ -16,3 +16,6 @@ test-results/
 blob-report/
 apps/marketing-site/.demo-video-work/
 apps/marketing-site/.scripts-typecheck-out/
+apps/review-dashboard/runs/*
+!apps/review-dashboard/runs/.gitkeep
+

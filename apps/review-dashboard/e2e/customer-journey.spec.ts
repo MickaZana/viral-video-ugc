@@ -73,6 +73,18 @@ test.describe("customer journey: signup → settings → real pricing → billin
     await page.fill("#authOrgName", "E2E Customer Org");
     await page.click("#authSubmit");
     await expect(page.locator("#appView")).toBeVisible();
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.locator(".workspace-topbar h1")).toHaveText("Your content command center");
+    await expect(page.locator("#onboardingView")).toBeVisible();
+    await page.fill("#onboardingName", "E2E Customer");
+    await page.click("#onboardingNext");
+    await page.check('input[name="onboardingWorkspace"][value="My business"]');
+    await page.click("#onboardingNext");
+    await page.fill("#onboardingNiche", NICHE);
+    await page.check('input[name="onboardingPlatform"][value="tiktok"]');
+    await page.click("#onboardingNext");
+    await expect(page.locator("#onboardingView")).toBeHidden();
+    await expect(page.locator("#usageStats")).toBeVisible();
 
     // Settings — a real self-service save, not a fixture.
     await page.fill("#niche", NICHE);
@@ -100,6 +112,30 @@ test.describe("customer journey: signup → settings → real pricing → billin
 
     const me = await page.request.get("/accounts/me");
     accountId = (await me.json()).account.orgId;
+  });
+
+  test("workspace navigation creates a client and keeps the context panel synchronized", async () => {
+    const page = ownerPage;
+    await page.goto("/account");
+    await expect(page.locator("#appView")).toBeVisible();
+    await expect(page.locator('.side-nav a[href="#clients"]')).toBeVisible();
+    await expect(page.locator('.side-nav a[href="#create"]')).toBeVisible();
+    await expect(page.locator('.side-nav a[href="#review"]')).toBeVisible();
+
+    const clientName = `E2E Brand ${randomUUID().slice(0, 8)}`;
+    await page.fill("#newClientName", clientName);
+    await page.fill("#niche", NICHE);
+    await page.fill("#brandVoice", "energetic, concise");
+    await page.check('input[name="platform"][value="tiktok"]');
+    await page.click("#saveClientBtn");
+    await expect(page.locator("#clientSelect")).toContainText(clientName);
+    await expect(page.locator("#contextClientName")).toHaveText(clientName);
+    await expect(page.locator("#contextClientDetail")).toContainText(NICHE);
+
+    await page.click('.side-nav a[href="#billing"]');
+    await expect(page.locator("#billing")).toBeInViewport();
+    await page.click('.side-nav a[href="#review"]');
+    await expect(page.locator("#review")).toBeInViewport();
   });
 
   test("a simulated Stripe checkout.session.completed webhook activates the Starter plan for real, and the billing panel reflects it", async () => {

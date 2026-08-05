@@ -11,7 +11,7 @@ export function renderAccountPage(scriptNonce = "development-nonce"): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Viral Video UGC — Your Account</title>
+<title>Viral Video UGC — Agency Dashboard</title>
 <script nonce="${scriptNonce}">
 let csrfToken = '';
 const nativeFetch = window.fetch.bind(window);
@@ -35,9 +35,14 @@ window.fetch = function(input, init) {
 <link rel="stylesheet" href="/tokens.css" />
 <style>
   .theme-toggle { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
-  body { max-width: 720px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
-  h1 { font-size: 1.5rem; margin-bottom: 0.25em; }
-  .card { padding: 1.25rem; margin-bottom: 1.25rem; }
+  body { max-width: 1120px; margin: 0 auto; padding: 2rem 1.5rem 4rem; background: radial-gradient(circle at 90% 0%, rgba(52, 211, 153, 0.08), transparent 30rem); }
+  h1 { font-size: clamp(1.65rem, 3vw, 2.25rem); margin-bottom: 0.15em; letter-spacing: -0.03em; }
+  h2 { letter-spacing: -0.02em; }
+  .card { padding: 1.35rem; margin-bottom: 1.25rem; border-color: rgba(148, 163, 184, 0.2); box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12); }
+  #appView > .card:first-of-type { background: linear-gradient(135deg, rgba(52, 211, 153, 0.12), rgba(15, 23, 42, 0.22)); }
+  #appView > .card:not(:first-of-type) { background: rgba(15, 23, 42, 0.32); }
+  .dashboard-kicker { color: var(--accent); font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.13em; margin: 0; }
+  .dashboard-subtitle { color: var(--text-dim); margin: 0; max-width: 42rem; }
   .field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
   .field label { font-size: 0.82rem; color: var(--text-dim); }
   .field input, .field select, .field textarea { width: 100%; box-sizing: border-box; }
@@ -55,11 +60,39 @@ window.fetch = function(input, init) {
   .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
   .chart-bars { display: flex; align-items: flex-end; gap: 3px; height: 60px; margin-top: 0.5rem; }
   .chart-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
+  /* Product shell: the existing API-backed panels sit inside a workspace rather
+     than presenting as an undifferentiated settings page. */
+  #appView { max-width: 1440px; margin: 0 auto; }
+  .app-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  .side-nav { position: sticky; top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 18px; background: rgba(15,23,42,.72); box-shadow: 0 18px 50px rgba(0,0,0,.14); }
+  .side-brand { font-weight: 900; letter-spacing: -.04em; font-size: 1.05rem; margin: .25rem .5rem 1.25rem; }
+  .side-nav a, .side-nav button { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: .6rem; padding: .65rem .7rem; margin: .2rem 0; border: 0; border-radius: 10px; color: var(--text-dim); background: transparent; text-decoration: none; text-align: left; cursor: pointer; font: inherit; }
+  .side-nav a:hover, .side-nav a.active, .side-nav button:hover { color: var(--text); background: rgba(52,211,153,.12); }
+  .side-section { margin: 1rem .5rem .45rem; color: var(--text-dim); text-transform: uppercase; font-size: .64rem; letter-spacing: .12em; font-weight: 800; }
+  .workspace-main { min-width: 0; }
+  .workspace-topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+  .workspace-topbar .eyebrow { color: var(--text-dim); font-size: .78rem; }
+  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 245px; gap: 1rem; align-items: start; }
+  .context-panel { position: sticky; top: 1rem; }
+  .context-panel .card { padding: 1rem; }
+  .hero-card { padding: 1.6rem; background: radial-gradient(circle at 100% 0%, rgba(168,85,247,.25), transparent 35%), linear-gradient(135deg, rgba(52,211,153,.16), rgba(15,23,42,.22)); }
+  .hero-card h1 { max-width: 650px; font-size: clamp(2rem, 4vw, 3.4rem); }
+  .hero-card p { color: var(--text-dim); max-width: 580px; }
+  .usage-pill { border: 1px solid rgba(52,211,153,.35); background: rgba(52,211,153,.08); border-radius: 999px; padding: .45rem .7rem; font-size: .75rem; color: var(--text); }
+  .onboarding-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1rem; background: rgba(2,6,23,.72); backdrop-filter: blur(8px); }
+  .onboarding-card { width: min(620px, 100%); padding: clamp(1.5rem, 4vw, 3rem); border: 1px solid rgba(168,85,247,.38); border-radius: 24px; background: var(--surface); box-shadow: 0 30px 100px rgba(0,0,0,.35); }
+  .onboarding-progress { height: 5px; border-radius: 99px; background: var(--border); overflow: hidden; margin-bottom: 2rem; }
+  .onboarding-progress span { display:block; height:100%; background: linear-gradient(90deg,#a855f7,#ec4899); transition: width .25s ease; }
+  .onboarding-option { display:flex; align-items:center; gap:.7rem; padding:.9rem 1rem; border:1px solid var(--border); border-radius:13px; margin:.55rem 0; cursor:pointer; }
+  .onboarding-option:has(input:checked) { border-color:#a855f7; background:rgba(168,85,247,.12); }
+  @media (max-width: 900px) { .app-shell { grid-template-columns: 1fr; } .side-nav { position: static; display:flex; overflow:auto; gap:.2rem; align-items:center; } .side-brand,.side-section { display:none; } .side-nav a,.side-nav button { width:auto; white-space:nowrap; } .workspace-grid { grid-template-columns: 1fr; } .context-panel { position:static; } }
+  @media (max-width: 600px) { body { padding: 1rem .75rem 3rem; } .workspace-topbar { align-items:flex-start; flex-direction:column; } .hero-card h1 { font-size:2rem; } }
 </style>
 </head>
 <body>
 
 <div id="authView">
+  <span class="visually-hidden">Your Account</span>
   <h1>Sign in</h1>
   <div class="card" id="authCard">
     <div class="tabs">
@@ -91,13 +124,39 @@ window.fetch = function(input, init) {
 </div>
 
 <div id="appView" hidden>
-  <div class="row" style="justify-content: space-between;">
-    <h1>Your account</h1>
+  <div class="app-shell">
+  <nav class="side-nav" aria-label="Workspace navigation">
+    <div class="side-brand">Viral Video UGC</div>
+    <div class="side-section">Workspace</div>
+    <a class="active" href="#home">⌂ <span>Home</span></a>
+    <a href="#create">✦ <span>Create video</span></a>
+    <a href="#discover">◉ <span>Discover</span></a>
+    <a href="#review">✓ <span>Review queue</span></a>
+    <div class="side-section">Manage</div>
+    <a href="#clients">▦ <span>Clients</span></a>
+    <a href="#billing">$ <span>Billing</span></a>
+    <a href="#settings">⚙ <span>Settings</span></a>
+  </nav>
+  <main class="workspace-main">
+  <div class="workspace-topbar">
+    <div>
+      <span class="eyebrow">Workspace / Home</span>
+      <h1 style="margin:.15rem 0 0;">Your content command center</h1>
+    </div>
     <div class="row">
-      <a class="btn" href="/">Home dashboard</a>
+      <span class="usage-pill" id="freePlanPill">Free plan · 5 videos/week</span>
       <button class="btn theme-toggle" id="themeToggleBtn" type="button" aria-pressed="false">Light mode</button>
       <button class="btn" id="logoutBtn" type="button">Log out</button>
     </div>
+  </div>
+
+  <div class="workspace-grid">
+  <section>
+  <div class="card hero-card" id="home">
+    <p class="dashboard-kicker">Your next win is waiting</p>
+    <h1>Turn one viral idea into a video people want to watch.</h1>
+    <p>Choose a reference, remix the hook for your brand, and send the finished short to review.</p>
+    <div class="row"><button class="btn btn-primary" type="button" id="heroCreateBtn">Create your first video →</button><a class="btn" href="#review">View review queue</a></div>
   </div>
 
   <div class="card">
@@ -163,6 +222,11 @@ window.fetch = function(input, init) {
       <div class="field">
         <label for="brandVoice">Brand voice</label>
         <input type="text" id="brandVoice" class="input" placeholder="e.g. neutral, energetic, concise" required />
+      </div>
+      <div class="field">
+        <label for="brandKitJson">Brand Kit (JSON)</label>
+        <textarea id="brandKitJson" class="input" rows="5" placeholder='{"captionStyle":"bold","defaultCta":"Follow for more"}'></textarea>
+        <small style="color: var(--text-dim);">Optional: caption style, colors, logo URL, CTA, and banned claims.</small>
       </div>
       <div class="field">
         <label>Platforms</label>
@@ -280,13 +344,33 @@ window.fetch = function(input, init) {
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="customer-home">
     <div class="row" style="justify-content: space-between;">
       <h2 style="font-size: 1.05rem;">Client review queue</h2>
       <button class="btn" id="refreshReviewsBtn" type="button">Refresh</button>
     </div>
     <p class="msg msg-error" id="reviewsError" hidden></p>
     <div id="customerReviewList"><p style="color: var(--text-dim);">Select a client to see its videos.</p></div>
+  </div>
+  </section>
+  <aside class="context-panel" aria-label="Workspace context">
+    <div class="card"><p class="dashboard-kicker">Active client</p><h2 id="contextClientName" style="margin:.35rem 0;">Choose a client</h2><p id="contextClientDetail" style="color:var(--text-dim);font-size:.82rem;">Your niche, platforms, and brand voice will appear here.</p><a class="btn" href="#clients">Manage clients</a></div>
+    <div class="card"><p class="dashboard-kicker">Next best action</p><h2 style="margin:.35rem 0;font-size:1.1rem;">Make your first run</h2><p style="color:var(--text-dim);font-size:.82rem;">Start with a dry run to preview the workflow without spending vendor credits.</p><button class="btn btn-primary" id="contextRunBtn" type="button">Run preview</button></div>
+    <div class="card"><p class="dashboard-kicker">Free plan</p><h2 id="contextUsage" style="margin:.35rem 0;font-size:1.5rem;">0 / 5</h2><p style="color:var(--text-dim);font-size:.82rem;">Videos used this week · watermark included</p><button class="btn" type="button" id="contextUpgradeBtn">See upgrade options</button></div>
+  </aside>
+  </div>
+  </main>
+  </div>
+</div>
+
+<div id="onboardingView" class="onboarding-backdrop" hidden>
+  <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+    <div class="onboarding-progress"><span id="onboardingProgress"></span></div>
+    <p class="dashboard-kicker">Quick setup · <span id="onboardingStepLabel">1 of 3</span></p>
+    <h2 id="onboardingTitle">Let’s make your first viral video.</h2>
+    <p id="onboardingSubtitle" class="dashboard-subtitle">A few choices help us tailor your workspace.</p>
+    <div id="onboardingBody"></div>
+    <div class="row" style="justify-content:space-between;margin-top:1.5rem;"><button class="btn" id="onboardingSkip" type="button">Skip for now</button><button class="btn btn-primary" id="onboardingNext" type="button">Continue →</button></div>
   </div>
 </div>
 
@@ -298,6 +382,42 @@ let mode = inviteToken ? 'invite' : 'login';
 let agencyClients = [];
 let pendingMfaToken = '';
 let isOwner = false;
+
+// The onboarding is intentionally short and local-first: it never blocks account
+// creation, and the durable product settings are still saved through /accounts/*.
+const onboardingView = document.getElementById('onboardingView');
+const onboardingBody = document.getElementById('onboardingBody');
+const onboardingTitle = document.getElementById('onboardingTitle');
+const onboardingSubtitle = document.getElementById('onboardingSubtitle');
+const onboardingProgress = document.getElementById('onboardingProgress');
+const onboardingStepLabel = document.getElementById('onboardingStepLabel');
+let onboardingStep = 0;
+const onboardingData = { name: '', workspace: '', niche: '', platforms: [] };
+const onboardingSteps = [
+  { title: 'What should we call you?', subtitle: 'This keeps your workspace personal.', render: () => '<div class="field"><label for="onboardingName">Your name</label><input class="input" id="onboardingName" placeholder="e.g. Michael" autocomplete="given-name" /></div>' },
+  { title: 'What are you creating for?', subtitle: 'We’ll shape the workspace around your goal.', render: () => '<label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="My business" /> My business</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="My personal brand" /> My personal brand</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="Clients" /> Clients</label><label class="onboarding-option"><input type="radio" name="onboardingWorkspace" value="An app or product" /> An app or product</label>' },
+  { title: 'Choose your niche and platforms', subtitle: 'You can change these anytime in Settings.', render: () => '<div class="field"><label for="onboardingNiche">Niche</label><input class="input" id="onboardingNiche" placeholder="e.g. fitness, beauty, SaaS" /></div><div class="checkbox-row"><label><input type="checkbox" name="onboardingPlatform" value="tiktok" /> TikTok</label><label><input type="checkbox" name="onboardingPlatform" value="youtube_shorts" /> YouTube Shorts</label></div>' }
+];
+function renderOnboardingStep() {
+  const step = onboardingSteps[onboardingStep];
+  onboardingTitle.textContent = step.title;
+  onboardingSubtitle.textContent = step.subtitle;
+  onboardingStepLabel.textContent = (onboardingStep + 1) + ' of ' + onboardingSteps.length;
+  onboardingProgress.style.width = (((onboardingStep + 1) / onboardingSteps.length) * 100) + '%';
+  onboardingBody.innerHTML = step.render();
+  document.getElementById('onboardingNext').textContent = onboardingStep === onboardingSteps.length - 1 ? 'Open workspace →' : 'Continue →';
+}
+function openOnboarding() { onboardingStep = 0; renderOnboardingStep(); onboardingView.hidden = false; }
+function collectOnboardingStep() {
+  if (onboardingStep === 0) onboardingData.name = document.getElementById('onboardingName')?.value.trim() || '';
+  if (onboardingStep === 1) onboardingData.workspace = document.querySelector('input[name="onboardingWorkspace"]:checked')?.value || '';
+  if (onboardingStep === 2) { onboardingData.niche = document.getElementById('onboardingNiche')?.value.trim() || ''; onboardingData.platforms = [...document.querySelectorAll('input[name="onboardingPlatform"]:checked')].map((el) => el.value); }
+}
+document.getElementById('onboardingNext').addEventListener('click', () => { collectOnboardingStep(); if (onboardingStep < onboardingSteps.length - 1) { onboardingStep++; renderOnboardingStep(); return; } localStorage.setItem('vvugc-onboarding', JSON.stringify(onboardingData)); onboardingView.hidden = true; if (onboardingData.niche) { document.getElementById('niche').value = onboardingData.niche; } });
+document.getElementById('onboardingSkip').addEventListener('click', () => { localStorage.setItem('vvugc-onboarding', 'skipped'); onboardingView.hidden = true; });
+document.getElementById('heroCreateBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
+document.getElementById('contextRunBtn').addEventListener('click', () => document.getElementById('runNowBtn').click());
+document.getElementById('contextUpgradeBtn').addEventListener('click', () => document.getElementById('billing').scrollIntoView({ behavior: 'smooth' }));
 
 function escapeHtml(value) {
   return String(value)
@@ -425,6 +545,9 @@ async function loadUsage() {
   document.getElementById('statRuns').textContent = usage.totalRuns;
   document.getElementById('statItems').textContent = usage.totalReviewItemsCreated;
   document.getElementById('statSpend').textContent = '$' + usage.totalUsd.toFixed(2);
+  const used = Number(usage.totalRuns || 0);
+  document.getElementById('contextUsage').textContent = Math.min(used, 5) + ' / 5';
+  document.getElementById('freePlanPill').textContent = used < 5 ? 'Free plan · ' + (5 - used) + ' videos left' : 'Free plan · limit reached';
 
   // Simple bar chart: spend per run, oldest first, last 20 runs — no charting
   // library needed for "how has spend trended recently".
@@ -587,6 +710,7 @@ function applyClient(client) {
   document.getElementById('newClientName').value = client.name;
   document.getElementById('niche').value = client.niche;
   document.getElementById('brandVoice').value = client.brandVoice;
+  document.getElementById('brandKitJson').value = client.brandKit ? JSON.stringify(client.brandKit, null, 2) : '';
   document.getElementById('locale').value = client.locale || 'en';
   document.getElementById('targetDurationSec').value = client.targetDurationSec;
   document.getElementById('videoVendor').value = client.videoVendor;
@@ -609,10 +733,20 @@ async function loadClients() {
     select.value = agencyClients[0].id;
     applyClient(agencyClients[0]);
   }
+  const activeClient = agencyClients.find((client) => client.id === select.value);
+  if (activeClient) {
+    document.getElementById('contextClientName').textContent = activeClient.name;
+    document.getElementById('contextClientDetail').textContent = [activeClient.niche, (activeClient.platforms || []).join(' · ')].filter(Boolean).join(' · ') || 'Brand context ready';
+  }
 }
 
 document.getElementById('clientSelect').addEventListener('change', (event) => {
-  applyClient(agencyClients.find((client) => client.id === event.target.value));
+  const client = agencyClients.find((client) => client.id === event.target.value);
+  applyClient(client);
+  if (client) {
+    document.getElementById('contextClientName').textContent = client.name;
+    document.getElementById('contextClientDetail').textContent = [client.niche, (client.platforms || []).join(' · ')].filter(Boolean).join(' · ') || 'Brand context ready';
+  }
   loadCustomerReviews();
   loadSocialConnections();
 });
@@ -644,10 +778,17 @@ document.getElementById('saveClientBtn').addEventListener('click', async () => {
   const name = document.getElementById('newClientName').value.trim();
   if (!name) return showError('clientsError', 'Enter a client or brand name.');
   const platforms = [...document.querySelectorAll('input[name="platform"]:checked')].map((cb) => cb.value);
+  let brandKit;
+  try {
+    brandKit = document.getElementById('brandKitJson').value.trim() ? JSON.parse(document.getElementById('brandKitJson').value) : undefined;
+  } catch {
+    return showError('clientsError', 'Brand Kit must be valid JSON.');
+  }
   const body = {
     name,
     niche: document.getElementById('niche').value,
     brandVoice: document.getElementById('brandVoice').value,
+    brandKit,
     locale: document.getElementById('locale').value,
     platforms,
     targetDurationSec: Number(document.getElementById('targetDurationSec').value),
@@ -898,10 +1039,28 @@ async function boot() {
       : 'Deleting your account removes you from this organization. This cannot be undone.';
     authView.hidden = true;
     appView.hidden = false;
+    // Give the navigation anchors real targets without duplicating the existing
+    // API-backed panels. This keeps old deep links and tests functional.
+    document.querySelectorAll('#appView .card').forEach((card) => {
+      const heading = card.querySelector('h2')?.textContent?.toLowerCase() || '';
+      if (heading.startsWith('billing')) card.id = 'billing';
+      else if (heading.startsWith('clients')) card.id = 'clients';
+      else if (heading.startsWith('settings')) card.id = 'settings';
+      else if (heading.startsWith('client review')) card.id = 'review';
+      else if (heading.startsWith('run')) card.id = 'create';
+      else if (heading.startsWith('usage')) card.id = 'discover';
+    });
+    if (new URLSearchParams(window.location.search).get('oauth') === 'google-connected') {
+      const notice = document.getElementById('authNotice');
+      notice.textContent = 'YouTube connected. Your agency workspace is ready for the next approved run.';
+      notice.hidden = false;
+      window.history.replaceState({}, '', '/dashboard');
+    }
     await Promise.all([loadUsage(), loadSettings(), loadBilling(), loadTeam(), loadSecurityEvents()]);
     await loadClients();
     await loadCustomerReviews();
     await loadSocialConnections();
+    if (!localStorage.getItem('vvugc-onboarding')) openOnboarding();
   } else {
     authView.hidden = false;
     appView.hidden = true;

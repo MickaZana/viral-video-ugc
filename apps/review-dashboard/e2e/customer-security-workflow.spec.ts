@@ -34,6 +34,15 @@ async function signup(page: import("@playwright/test").Page, email: string, orgN
   await page.fill("#authOrgName", orgName);
   await page.click("#authSubmit");
   await expect(page.locator("#appView")).toBeVisible();
+  await expect(page.locator("#onboardingView")).toBeVisible();
+  await page.fill("#onboardingName", "Security E2E");
+  await page.click("#onboardingNext");
+  await page.check('input[name="onboardingWorkspace"][value="My business"]');
+  await page.click("#onboardingNext");
+  await page.fill("#onboardingNiche", "security-e2e");
+  await page.check('input[name="onboardingPlatform"][value="tiktok"]');
+  await page.click("#onboardingNext");
+  await expect(page.locator("#onboardingView")).toBeHidden();
 }
 
 // ── Minimal RFC 6238 TOTP (mirror of src/totp.ts, inlined for hermeticity) ────
