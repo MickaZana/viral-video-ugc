@@ -9,7 +9,14 @@ function basicAuthHeader(user: string, pass: string): string {
 }
 
 function fakeReqRes(authHeader?: string) {
-  const req = { headers: { authorization: authHeader } } as any;
+  const req = {
+    headers: { authorization: authHeader },
+    get(name: string) {
+      const lower = name.toLowerCase();
+      const found = Object.entries(req.headers).find(([k]) => k.toLowerCase() === lower);
+      return found ? found[1] : undefined;
+    }
+  } as any;
   const state = { status: undefined as number | undefined, body: undefined as unknown, headers: {} as Record<string, string> };
   const res = {
     set(key: string, value: string) {
@@ -43,6 +50,7 @@ describe("resolveCredentials", () => {
     delete process.env.DASHBOARD_PASSWORD;
     delete process.env.VVUGC_RUNS_DIR;
     if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+    delete process.env.NODE_ENV;
   });
 
   it("uses DASHBOARD_USERNAME/DASHBOARD_PASSWORD when both are set, without warning", () => {
@@ -64,7 +72,15 @@ describe("resolveCredentials", () => {
     expect(creds.username).toBe("admin");
     expect(creds.password.length).toBeGreaterThanOrEqual(20); // 18 random bytes, base64url-encoded
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatchObject({ username: "admin", password: creds.password });
+    expect(warn.mock.calls[0][0]).toMatchObject({ username: "admin", generated: true });
+    expect(warn.mock.calls[0][0]).not.toHaveProperty("password");
+  });
+
+  it("fails closed in production when explicit credentials are missing", () => {
+    process.env.NODE_ENV = "production";
+    expect(() => resolveCredentials({ warn: vi.fn() })).toThrow(
+      "DASHBOARD_USERNAME and DASHBOARD_PASSWORD are required in production"
+    );
   });
 
   it("generates a random credential when only one of the two is set (partial config is not treated as complete)", () => {

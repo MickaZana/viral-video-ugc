@@ -1,7 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { requireEnvVar } from "@vvugc/shared-config";
 import type { CostLedger } from "@vvugc/shared-cost";
 import type { AssembledVideo, RewrittenScript } from "@vvugc/shared-schema";
+import { generateWithFailover } from "./llm-failover.js";
 
 export interface QaResult {
   score: number;
@@ -33,9 +32,6 @@ export async function scoreVideo(
 ): Promise<QaResult> {
   if (opts.dryRun) return heuristicScore(assembled, script);
 
-  const apiKey = requireEnvVar("ANTHROPIC_API_KEY");
-  const client = new Anthropic({ apiKey });
-
   const userPrompt = `Platform: ${assembled.platform}
 Aspect ratio: ${assembled.aspectRatio}
 Duration: ${assembled.durationSec}s (target ${script.durationSec}s)
@@ -52,21 +48,17 @@ Trending phrases used: ${script.trendingPhrases.join(", ") || "none"}`;
   // human's review queue at all — so it keeps the balanced default model rather than the
   // cheaper or pricier ends of the mix. See CLAUDE.md's "Model selection" section.
   const model = "claude-sonnet-5";
-  const message = await client.messages.create({
-    model,
-    max_tokens: 512,
+  const { text } = await generateWithFailover({
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }]
+    userPrompt,
+    maxTokens: 512,
+    anthropicModel: model,
+    geminiModel: "gemini-2.5-pro",
+    stage: "qa_score",
+    costLedger: opts.costLedger
   });
 
-  opts.costLedger?.recordAnthropicUsage("qa_score", message.usage, model);
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude QA response contained no text block");
-  }
-
-  const parsed = JSON.parse(extractJson(textBlock.text));
+  const parsed = JSON.parse(extractJson(text));
   return { score: Math.max(0, Math.min(100, parsed.score)), flags: parsed.flags ?? [] };
 }
 

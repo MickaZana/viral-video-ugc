@@ -18,8 +18,9 @@ import { getPublishAdapter } from "@vvugc/mcp-publish";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { join } from "node:path";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { listRuns } from "./runs.js";
+import { listTrackedCreators } from "./creators.js";
 import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
@@ -29,6 +30,7 @@ import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
 import { pruneRetainedLogs } from "./retention.js";
+import { MODEL_CATALOG, groupModelsByResult } from "./models.js";
 import { createSocialConnectionStore } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
 import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
@@ -85,6 +87,17 @@ registerStripeWebhookRoute(app);
 
 app.use(express.json({ limit: "1mb" }));
 
+// The control-panel SPA (served from this same origin below, so its session-cookie
+// auth works without CORS) calls /api/* in dev and prod alike. Strip the prefix so
+// those requests reach the real route paths (/api/queue -> /queue, /api/accounts/login
+// -> /accounts/login). No-op for every non-/api request.
+app.use((req, _res, next) => {
+  if (req.url.startsWith("/api/") || req.url === "/api") {
+    req.url = req.url.replace(/^\/api/, "") || "/";
+  }
+  next();
+});
+
 app.use((req: Request & { scriptNonce?: string }, res, next) => {
   const scriptNonce = randomBytes(18).toString("base64");
   req.scriptNonce = scriptNonce;
@@ -92,7 +105,7 @@ app.use((req: Request & { scriptNonce?: string }, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Content-Security-Policy", `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-${scriptNonce}'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`);
+  res.setHeader("Content-Security-Policy", `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'nonce-${scriptNonce}'; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`);
   if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   next();
 });
@@ -192,7 +205,7 @@ const authRateLimiter = rateLimit({
 // they stay reachable. /accounts/me and /accounts/usage guard themselves via
 // requireSession (see accounts.ts). This is a separate, additive auth surface
 // from the dashboard's own operator Basic Auth; neither one weakens the other.
-const { requireSession } = registerAccountRoutes(app);
+const { requireSession, verifySessionRequest } = registerAccountRoutes(app, { logger });
 registerBillingRoutes(app, requireSession);
 
 // The self-service account page — public (session-cookie auth handled client-side),
@@ -203,7 +216,7 @@ registerBillingRoutes(app, requireSession);
 // the owner to send a teammate; without this second route it fell through past
 // /account to the operator Basic Auth gate below and 401'd for every invited
 // teammate, the same failure mode /tokens.css had before it was moved up here.
-app.get(["/account", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
+app.get(["/dashboard", "/account", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
   res.type("html").send(renderAccountPage(req.scriptNonce));
 });
 
@@ -222,10 +235,84 @@ app.get("/tokens.css", (_req, res) => {
   res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
 });
 
+// Read-only public preview endpoints for the marketing landing page's "live
+// preview" frame (control-panel's Landing.tsx). They mirror the same data the
+// authenticated tabs render, but deliberately expose only non-sensitive
+// aggregates (stats, tracked creators, run summaries) plus a bounded slice of
+// the review queue (scripts/scores/flags only — no raw transcripts or video
+// paths). They're registered here, BEFORE the auth gate, so anonymous visitors
+// can click around the landing page's preview; they return nothing a caller
+// couldn't already see summarized in the marketing copy.
+const PREVIEW_QUEUE_LIMIT = 12;
+app.get(
+  "/preview/stats",
+  asyncHandler(async (_req, res) => {
+    const items = await listReviewItems();
+    res.json({
+      pending: items.filter((i) => i.status === "pending").length,
+      approved: items.filter((i) => i.status === "approved").length,
+      rejected: items.filter((i) => i.status === "rejected").length,
+      estimatedCostUsd: listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0)
+    });
+  })
+);
+
+app.get("/preview/creators", (_req, res) => {
+  res.json({ creators: listTrackedCreators().slice(0, 8) });
+});
+
+app.get("/preview/runs", (_req, res) => {
+  res.json(listRuns().slice(0, 6));
+});
+
+app.get(
+  "/preview/queue",
+  asyncHandler(async (_req, res) => {
+    const items = await listReviewItems();
+    // Bounded slice of the queue, full item shape — the tabs render the whole
+    // ReviewItem (script, flags, clips, captions), so strip nothing here.
+    res.json(items.slice(0, PREVIEW_QUEUE_LIMIT));
+  })
+);
+
+// The control-panel SPA — the product workspace / landing (see the "better yorbi"
+// front-end). Served from this same origin so its session-cookie auth and CSRF
+// protection work exactly as they do in dev (Vite proxies /api to this backend).
+// Mounted at /app (the operator dashboard stays at /) and public: guests load the
+// landing, then sign in. The hashed Vite assets are served at /assets. Optional —
+// if the SPA hasn't been built in this checkout, /app simply 404s and the
+// dashboard's own operator UI is unaffected.
+const CONTROL_PANEL_DIST = fileURLToPath(new URL("../../control-panel/dist/", import.meta.url));
+if (existsSync(CONTROL_PANEL_DIST)) {
+  app.use("/assets", express.static(join(CONTROL_PANEL_DIST, "assets")));
+  const spaIndex = join(CONTROL_PANEL_DIST, "index.html");
+  const serveControlPanel = (_req: Request, res: Response) => {
+    res.type("html").sendFile(spaIndex);
+  };
+  // Prefix mount = SPA fallback: /app and every /app/<anything> path return the
+  // same index.html (the client is a single-page app; its hashed assets live
+  // under /assets, not /app). Express 5's path-to-regexp no longer allows a bare
+  // "*" wildcard, so a prefix-mount middleware is the correct shape here.
+  app.use("/app", serveControlPanel);
+}
+
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
+// Two valid ways to get past this gate:
+//   1. a valid account session cookie (the control-panel SPA logs in via /accounts/*)
+//   2. the operator's Basic Auth (DASHBOARD_USERNAME/DASHBOARD_PASSWORD)
+// A request that carries neither is rejected. This is what lets the control-panel
+// reach the data endpoints with a real user login rather than only operator creds.
 app.use(authRateLimiter);
-app.use(createBasicAuthMiddleware(credentials));
+app.use((req: Request & { accountId?: string; auditActor?: string }, res: Response, next: NextFunction) => {
+  const session = verifySessionRequest(req);
+  if (session) {
+    req.accountId = session.accountId;
+    req.auditActor = `account:${session.accountId}`;
+    return next();
+  }
+  return createBasicAuthMiddleware(credentials)(req, res, next);
+});
 
 app.post(
   "/scheduler/run-due",
@@ -272,6 +359,22 @@ app.get(
 
 app.get("/runs", (_req, res) => {
   res.json(listRuns());
+});
+
+// Model catalog for the Video Generator / model-choice flow: every model the
+// pipeline can invoke, grouped by desired result, with its per-consumption USD
+// price. Registered after the auth gate (it's not sensitive, but it belongs to
+// the logged-in app). The UI uses this to let a user pick a model based on the
+// result they want and show the estimated cost before running.
+app.get("/models", (_req, res) => {
+  res.json({ models: MODEL_CATALOG, grouped: groupModelsByResult() });
+});
+
+// Control-panel connection: tracked creators derived from real run manifests.
+// Registered after the Basic Auth gate (same as /queue and /runs) so this is
+// never exposed unauthenticated — the SPA sends the same operator credentials.
+app.get("/creators", (_req, res) => {
+  res.json({ creators: listTrackedCreators() });
 });
 
 // Bulk routes must be registered before the "/queue/:id/..." routes below — Express

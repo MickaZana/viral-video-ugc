@@ -71,10 +71,18 @@ export function resolveCredentials(logger: AuthLogger): DashboardCredentials {
     return { username: DASHBOARD_USERNAME, password: DASHBOARD_PASSWORD, generated: false };
   }
 
+  // Production must never fall back to a generated credential that could be
+  // exposed through startup output or a mounted runs directory. The caller's
+  // production validation also checks this, but failing here prevents any
+  // generated secret from being logged or persisted before that validation runs.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("DASHBOARD_USERNAME and DASHBOARD_PASSWORD are required in production");
+  }
+
   const username = "admin";
   const password = generatePassword();
   logger.warn(
-    { username, password },
+    { username, generated: true },
     "DASHBOARD_USERNAME/DASHBOARD_PASSWORD not set — generated a one-time login for this process " +
       "(logged once, here). Set both env vars for a stable login that survives restarts. This dashboard " +
       "approves/rejects content before it ships; never leave it reachable without credentials."
@@ -134,7 +142,16 @@ export function createBasicAuthMiddleware(credentials: DashboardCredentials): Re
       req.auditActor = `operator:${parsed.user}`;
       return next();
     }
-    res.set("WWW-Authenticate", 'Basic realm="Viral Video UGC Review Dashboard"');
+    // Only advertise the HTTP Basic challenge to non-AJAX requests (real browser
+    // navigations / curl without an explicit Accept), where the native browser
+    // login dialog is the expected, desirable UX. For AJAX/XHR requests (the
+    // control-panel SPA sends X-Requested-With: XMLHttpRequest on every call) we
+    // deliberately omit WWW-Authenticate so the browser never pops its own Basic
+    // Auth dialog on a fetch that's going to 401 — the SPA handles the error in
+    // its own UI instead.
+    if (req.get("X-Requested-With") !== "XMLHttpRequest") {
+      res.set("WWW-Authenticate", 'Basic realm="Viral Video UGC Review Dashboard"');
+    }
     res.status(401).json({ error: "authentication required" });
   };
 }

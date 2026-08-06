@@ -22,8 +22,8 @@ import {
   type AccountSettingsInput
 } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
-import { PlatformSchema, RunConfigSchema } from "@vvugc/shared-schema";
-import { runAcceptance, runCycle } from "@vvugc/orchestrator";
+import { BrandKitSchema, PlatformSchema, RunConfigSchema } from "@vvugc/shared-schema";
+import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
 import {
   getReviewItem,
   listReviewItems,
@@ -33,9 +33,11 @@ import {
 import { createPlanStore } from "@vvugc/shared-billing";
 import { z } from "zod";
 import { checkRunQuota } from "./quota.js";
+import { createOverageStore } from "./overage.js";
 import { deleteSecurityEventsForAccount, deleteSecurityEventsForOrg, listSecurityEvents, writeSecurityEvent } from "./security-events.js";
 import { createPipelineJobStore } from "./jobs.js";
 import { createMfaChallengeStore, createMfaStore } from "./mfa.js";
+import { createPasswordResetStore } from "./password-reset.js";
 import { generateTotpSecret, otpauthTotpUrl, verifyTotpCode } from "./totp.js";
 import { purgeOrgRuns } from "./runs.js";
 import {
@@ -132,6 +134,7 @@ const ClientInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   niche: z.string().trim().min(1).max(200),
   brandVoice: z.string().trim().min(1).max(500),
+  brandKit: BrandKitSchema.optional(),
   locale: z.string().trim().min(2).max(35).default("en"),
   platforms: z.array(PlatformSchema).min(1),
   targetDurationSec: z.number().int().min(15).max(60),
@@ -153,7 +156,10 @@ const ClientInputSchema = z.object({
  * session accountId — every member of an org (owner + invited teammates) shares
  * one set of each, which is the actual point of multi-seat access.
  */
-export function registerAccountRoutes(app: Express): { requireSession: RequestHandler } {
+export function registerAccountRoutes(
+  app: Express,
+  deps?: { logger?: { info: (...args: unknown[]) => void } }
+): { requireSession: RequestHandler; verifySessionRequest: (req: Request) => { accountId: string } | undefined } {
   const { VVUGC_RUNS_DIR } = loadEnv();
   const accountStore = createAccountStore(join(VVUGC_RUNS_DIR, "accounts.json"));
   const sessionStore = createSessionStore(join(VVUGC_RUNS_DIR, "sessions.json"));
@@ -161,12 +167,14 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
   const clientStore = createAgencyClientStore(join(VVUGC_RUNS_DIR, "agency-clients.json"));
   const inviteStore = createInviteStore(join(VVUGC_RUNS_DIR, "invites.json"));
   const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
+  const overageStore = createOverageStore(join(VVUGC_RUNS_DIR, "overage.json"));
   const tokenEncryptionKey = resolveSocialTokenEncryptionKey();
   const socialStore = createSocialConnectionStore(join(VVUGC_RUNS_DIR, "social-connections.json"), tokenEncryptionKey);
   const jobStore = createPipelineJobStore(join(VVUGC_RUNS_DIR, "pipeline-jobs.json"));
   const oauthNonceStore = createOAuthNonceStore(join(VVUGC_RUNS_DIR, "oauth-nonces.json"));
   const mfaStore = createMfaStore(join(VVUGC_RUNS_DIR, "mfa.json"));
   const mfaChallengeStore = createMfaChallengeStore(join(VVUGC_RUNS_DIR, "mfa-challenges.json"));
+  const passwordResetStore = createPasswordResetStore(join(VVUGC_RUNS_DIR, "password-resets.json"));
 
   // Triggering a run is a real (potentially paid, once live credentials are configured)
   // vendor call chain — same "every attempt counts" reasoning as regeneration/publishing.
@@ -205,6 +213,17 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
     req.accountId = session.accountId;
     req.auditActor = `account:${session.accountId}`;
     next();
+  };
+
+  /** Read-only session check for the dual-auth middleware in server.ts — returns the
+   *  accountId when the request carries a valid session cookie (no CSRF enforcement;
+   *  the caller decides whether a mutation needs it). Used so the control-panel data
+   *  endpoints can be reached with either a real account session OR the operator's
+   *  Basic Auth, without duplicating the session store wiring. */
+  const verifySessionRequest = (req: Request): { accountId: string } | undefined => {
+    const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+    const session = token ? sessionStore.verify(token) : undefined;
+    return session ? { accountId: session.accountId } : undefined;
   };
 
   /** Resolves the authenticated account, 401ing if the session's accountId somehow
@@ -484,7 +503,12 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt
       });
-      res.redirect("/account?oauth=google-connected");
+      // Return to the operator's home dashboard after the external consent flow.
+      // The account page remains available for connection management, while the
+      // completed OAuth flow should land where the user can review and approve work.
+      // The root route is the operator review queue and has separate Basic
+      // Auth. Customers should return to their application home instead.
+      res.redirect("/dashboard?oauth=google-connected");
     })
   );
 
@@ -512,6 +536,7 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
         clientId,
         niche: client.niche,
         brandVoice: client.brandVoice,
+        brandKit: client.brandKit,
         locale: client.locale,
         platforms: client.platforms,
         targetDurationSec: client.targetDurationSec,
@@ -546,8 +571,15 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
     // already exhausted would only waste a queue slot and then fail at execution anyway.
     const plan = planStore.get(orgId);
     const quota = checkRunQuota(plan, aggregateUsage(orgId, VVUGC_RUNS_DIR));
-    if (!quota.allowed) {
-      return res.status(402).json({ error: quota.reason });
+    // Hybrid billing: past the tier's included runs, allow the job and record a
+    // consumption-overage charge (the UI shows this before the user runs).
+    if (quota.overage && quota.overagePriceUsdPerRun !== undefined) {
+      overageStore.record({
+        orgId,
+        runId: String(req.body?.runId ?? randomUUID()),
+        priceUsdPerRun: quota.overagePriceUsdPerRun,
+        clientId
+      });
     }
 
     const idempotencyKey = typeof req.headers["idempotency-key"] === "string" ? req.headers["idempotency-key"] : randomUUID();
@@ -558,7 +590,8 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
       clientId,
       niche: client.niche,
       platforms: client.platforms,
-      brandVoice: client.brandVoice,
+        brandVoice: client.brandVoice,
+        brandKit: client.brandKit,
       locale: client.locale,
       targetDurationSec: client.targetDurationSec,
       videoVendor: client.videoVendor,
@@ -715,9 +748,9 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
       const plan = planStore.get(orgId);
       const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
       const quota = checkRunQuota(plan, usage);
-      if (!quota.allowed) {
-        return res.status(402).json({ error: quota.reason });
-      }
+      // Hybrid billing: past the tier's included runs, allow the run and record a
+      // consumption-overage charge rather than hard-blocking with a 402.
+      const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
 
       const config = RunConfigSchema.parse({
         runId: randomUUID(),
@@ -736,7 +769,111 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
       });
 
       const result = await runCycle(config, { onProgress: () => {} });
-      res.json(result);
+
+      if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
+        overageStore.record({
+          orgId,
+          runId: config.runId,
+          priceUsdPerRun: quota.overagePriceUsdPerRun,
+          estimatedVendorCostUsd: result.estimatedCostUsd ?? quota.overagePriceUsdPerRun,
+          clientId: client?.id
+        });
+      }
+      res.json({ ...result, overage: isOverage ? { priceUsdPerRun: quota.overagePriceUsdPerRun } : null });
+    })
+  );
+
+  // ── Remix from URL ─────────────────────────────────────────────────────────
+  // The "adapt a viral video to my niche" flow. The user pastes a TikTok / YouTube /
+  // Instagram (Reels) link; we fetch its transcript, adapt it to the org's niche, and
+  // (optionally) run the full pipeline on that single source. Two modes:
+  //   previewOnly: true  → just the adapted script (one cheap LLM text call), so the
+  //                        user can see the remix before committing to any video spend.
+  //   previewOnly: false → full pipeline (captions → video → QA → review queue) from
+  //                        that source, exactly one review item per target platform.
+  // Reuses the exact same quota/overage billing as /accounts/run.
+  app.post(
+    "/accounts/remix",
+    requireSession,
+    runRateLimiter,
+    asyncHandler<Record<string, string>>(async (req: AuthedRequest, res: Response) => {
+      const account = requirePermission("pipeline.run")(req, res);
+      if (!account) return;
+      const orgId = resolveOrgId(account);
+
+      const sourceUrl = req.body?.sourceUrl;
+      if (typeof sourceUrl !== "string" || !parseSourceUrl(sourceUrl)) {
+        return res.status(400).json({ error: "sourceUrl must be a TikTok, YouTube, or Instagram (Reels) link" });
+      }
+
+      const requestedClientId = typeof req.body?.clientId === "string" ? req.body.clientId : undefined;
+      const client = requestedClientId ? clientStore.getForOrg(orgId, requestedClientId) : undefined;
+      if (requestedClientId && !client) return res.status(404).json({ error: "client not found" });
+      if (client && !client.active) return res.status(409).json({ error: "client is archived" });
+      const legacySettings = settingsStore.get(orgId);
+      const settings = client ?? legacySettings;
+      if (!settings.niche) return res.status(400).json({ error: "create a client before running" });
+
+      const niche = (typeof req.body?.niche === "string" && req.body.niche.trim()) || settings.niche;
+      const brandVoice = (typeof req.body?.brandVoice === "string" && req.body.brandVoice.trim()) || settings.brandVoice;
+      const platforms = Array.isArray(req.body?.platforms) && req.body.platforms.length ? req.body.platforms : settings.platforms;
+      const targetDurationSec = typeof req.body?.targetDurationSec === "number" ? req.body.targetDurationSec : settings.targetDurationSec;
+      const locale = (typeof req.body?.locale === "string" && req.body.locale.trim()) || (client?.locale ?? "en");
+      const previewOnly = req.body?.previewOnly === true;
+
+      if (previewOnly) {
+        const { transcript, script } = await previewRemix({
+          sourceUrl,
+          niche,
+          brandVoice,
+          durationSec: targetDurationSec,
+          platforms,
+          locale,
+          outDir: join(VVUGC_RUNS_DIR, "remix-sources", randomUUID())
+        });
+        return res.json({ transcript, script, previewOnly: true });
+      }
+
+      // Full run — fetch the source transcript and embed it so runCycle starts from the
+      // user's pasted video rather than auto-discovery.
+      const tmpOutDir = join(VVUGC_RUNS_DIR, "remix-sources", randomUUID());
+      const { transcript } = await fetchRemixTranscript(sourceUrl, tmpOutDir, niche);
+
+      const plan = planStore.get(orgId);
+      const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
+      const quota = checkRunQuota(plan, usage);
+      const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
+
+      const config = RunConfigSchema.parse({
+        runId: randomUUID(),
+        niche,
+        platforms,
+        brandVoice,
+        targetDurationSec,
+        videoVendor: settings.videoVendor,
+        voiceVendor: settings.voiceVendor,
+        accountId: orgId,
+        orgId,
+        clientId: client?.id,
+        locale,
+        sourceUrl,
+        sourceTranscript: transcript,
+        dryRun: req.body?.dryRun !== false,
+        createdAt: new Date().toISOString()
+      });
+
+      const result = await runCycle(config, { onProgress: () => {} });
+
+      if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
+        overageStore.record({
+          orgId,
+          runId: config.runId,
+          priceUsdPerRun: quota.overagePriceUsdPerRun,
+          estimatedVendorCostUsd: result.estimatedCostUsd ?? quota.overagePriceUsdPerRun,
+          clientId: client?.id
+        });
+      }
+      res.json({ ...result, overage: isOverage ? { priceUsdPerRun: quota.overagePriceUsdPerRun } : null });
     })
   );
 
@@ -1115,5 +1252,69 @@ export function registerAccountRoutes(app: Express): { requireSession: RequestHa
     res.status(204).end();
   });
 
-  return { requireSession };
+  // Self-service password recovery. Because the app has no email provider wired
+  // up, the reset token is written to the server log (out-of-band — the operator
+  // hands it to the user), NOT returned in the response: a password-reset token
+  // must never be displayed in the app UI, where it could be shoulder-surfed or
+  // captured. The response never leaks whether an email exists: it always returns
+  // 200 with resetToken always null, so an attacker can't enumerate accounts.
+  app.post("/accounts/password/forgot", accountRateLimiter, (req: Request, res: Response) => {
+    const { email } = req.body ?? {};
+    if (typeof email !== "string" || !email.includes("@")) {
+      return res.status(400).json({ error: "a valid email is required" });
+    }
+    const account = accountStore.findByEmail(email);
+    if (!account) {
+      // Uniform response whether or not the account exists (see note above).
+      return res.json({ resetToken: null });
+    }
+    const reset = passwordResetStore.create(account.email);
+    writeSecurityEvent({
+      type: "password.reset_requested",
+      actorAccountId: account.id,
+      orgId: account.orgId,
+      email: account.email,
+      ip: clientIp(req)
+    });
+    // Deliver the token out-of-band. In production this is an email; with no
+    // email provider the operator reads it from the server log to pass along.
+    deps?.logger?.info(
+      { email: account.email, resetToken: reset.token, expiresAt: reset.expiresAt },
+      "password reset token issued — hand to the user out-of-band, do not display in the UI"
+    );
+    res.json({ resetToken: null, expiresAt: reset.expiresAt });
+  });
+
+  app.post("/accounts/password/reset", accountRateLimiter, (req: Request, res: Response) => {
+    const { token, newPassword } = req.body ?? {};
+    if (typeof token !== "string" || !token) {
+      return res.status(400).json({ error: "token is required" });
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 8) {
+      return res.status(400).json({ error: "password must be at least 8 characters" });
+    }
+    const reset = passwordResetStore.consume(token);
+    if (!reset) {
+      return res.status(400).json({ error: "reset token is invalid or has expired" });
+    }
+    const account = accountStore.findByEmail(reset.email);
+    if (!account) {
+      // Token was valid but its account is gone — treat as consumed already.
+      return res.status(400).json({ error: "reset token is invalid or has expired" });
+    }
+    accountStore.updatePassword(account.id, newPassword);
+    sessionStore.revokeAllForAccount(account.id);
+    writeSecurityEvent({
+      type: "password.reset",
+      actorAccountId: account.id,
+      orgId: account.orgId,
+      email: account.email,
+      ip: clientIp(req),
+      detail: "all sessions revoked"
+    });
+    res.setHeader("Set-Cookie", clearSessionCookieHeader());
+    res.status(204).end();
+  });
+
+  return { requireSession, verifySessionRequest };
 }

@@ -62,14 +62,15 @@ afterEach(() => {
 });
 
 describe("client scheduler enqueue-time quota", () => {
-  it("skips a due weekly client whose plan has hit its monthly run limit, recording it as failed", async () => {
+  it("enqueues a due weekly client past its monthly run limit as consumption overage rather than skipping it", async () => {
     seedWeeklyClientDueNow();
     createPlanStore(join(runsDir, "account-plans.json")).upsert(ORG, { tierId: "starter", status: "active" });
     for (let i = 0; i < 4; i++) seedRunManifest(`seeded-${i}`); // Starter limit is 4
 
     const result = await runDueClientSchedules();
-    expect(result.enqueued).toHaveLength(0);
-    expect(result.failed).toEqual([{ clientId: "client-1", error: expect.stringMatching(/monthly run limit reached/) }]);
+    expect(result.failed).toHaveLength(0);
+    expect(result.enqueued).toHaveLength(1);
+    expect(result.enqueued[0].status).toBe("queued");
   });
 
   it("enqueues a due weekly client when its plan is under the limit", async () => {

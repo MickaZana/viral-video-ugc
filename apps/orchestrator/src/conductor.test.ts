@@ -88,6 +88,36 @@ describe("runCycle", () => {
     expect(result.reviewItemsCreated).toBe(1);
   });
 
+  it("remix-from-URL: an embedded sourceTranscript skips discovery and adapts exactly that one source across every platform", async () => {
+    // Even in dry-run, a supplied source transcript is used verbatim (not mockTranscript),
+    // because the whole point is to remix the user's pasted video — not a placeholder.
+    const config = baseConfig({
+      platforms: ["tiktok", "youtube_shorts"],
+      maxCandidates: 1,
+      sourceUrl: "https://youtu.be/dQw4w9WgXcQ",
+      sourceTranscript: {
+        videoId: "dQw4w9WgXcQ",
+        source: "platform_captions",
+        text: "Wait for this. The old way of onboarding is broken. You spend weeks on setup.",
+        segments: [
+          { startSec: 0, endSec: 2, text: "Wait for this." },
+          { startSec: 2, endSec: 8, text: "The old way of onboarding is broken." },
+          { startSec: 8, endSec: 15, text: "You spend weeks on setup." }
+        ]
+      }
+    });
+    const result = await runCycle(config);
+
+    // One source video, remixed once, queued once per target platform.
+    expect(result.candidatesFound).toBe(1);
+    expect(result.reviewItemsCreated).toBe(config.platforms.length);
+
+    const queue = JSON.parse(readFileSync(testDbPath, "utf-8"));
+    // The source transcript text flows through to the review item, proving the remix
+    // started from the user's pasted video rather than auto-discovered candidates.
+    expect(queue.every((item: { sourceTranscriptText: string }) => item.sourceTranscriptText === config.sourceTranscript!.text)).toBe(true);
+  });
+
   it("live mode, all discovery sources blocked: completes gracefully with zero results instead of crashing", async () => {
     // tiktok/meta discovery throw "not wired up" without API credentials configured —
     // the conductor's per-platform try/catch should absorb that, not propagate it.

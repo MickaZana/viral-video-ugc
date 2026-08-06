@@ -169,6 +169,9 @@ export interface AccountStore {
   /** Returns the account only if the password verifies — never returns a hash to check separately. */
   authenticate(email: string, password: string): Account | undefined;
   findById(id: string): Account | undefined;
+  /** Email lookup used by the password-recovery flow (normalized the same way as
+   *  authenticate/signUp so casing doesn't matter). Returns undefined when absent. */
+  findByEmail(email: string): Account | undefined;
   listByOrg(orgId: string): Account[];
   /** Re-hashes and persists a new password. Returns false if the account doesn't exist. */
   updatePassword(accountId: string, newPassword: string): boolean;
@@ -258,6 +261,11 @@ export function createAccountStore(dbPath: string): AccountStore {
 
     findById(id) {
       return readAllUnlocked(dbPath).find((a) => a.id === id);
+    },
+
+    findByEmail(email) {
+      const normalized = normalize(email);
+      return readAllUnlocked(dbPath).find((a) => normalize(a.email) === normalized);
     },
 
     listByOrg(orgId) {

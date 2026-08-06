@@ -15,6 +15,7 @@ import { createAccountStore, aggregateUsage, resolveOrgId, roleHasPermission } f
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
 import { runsUsedThisMonth } from "./quota.js";
+import { createOverageStore } from "./overage.js";
 
 /**
  * Stripe's subscription.status vocabulary is wider than our own PlanStatus —
@@ -113,6 +114,7 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
   const { VVUGC_RUNS_DIR } = loadEnv();
   const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
   const accountStore = createAccountStore(join(VVUGC_RUNS_DIR, "accounts.json"));
+  const overageStore = createOverageStore(join(VVUGC_RUNS_DIR, "overage.json"));
 
   app.get("/accounts/billing", requireSession, (req: AuthedRequest, res: Response) => {
     const account = accountStore.findById(req.accountId!);
@@ -122,11 +124,25 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
     const plan = planStore.get(orgId);
     const tier = plan.tierId ? getTier(plan.tierId) : undefined;
     const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const runsUsed = runsUsedThisMonth(usage);
+    const overageCount = overageStore.countForMonth(orgId, thisMonth);
+    const overageTotalUsd = overageStore.totalForMonth(orgId, thisMonth);
+    const limit = tier?.monthlyRunLimit;
+    const overageRuns = limit !== undefined && runsUsed > limit ? runsUsed - limit : 0;
     res.json({
       tiers: PRICING_TIERS,
       plan,
-      runsUsedThisMonth: runsUsedThisMonth(usage),
-      monthlyRunLimit: tier?.monthlyRunLimit
+      runsUsedThisMonth: runsUsed,
+      monthlyRunLimit: limit,
+      // Consumption-overage info: runs beyond the included allowance are billed
+      // at the tier's per-run rate (hybrid billing — no hard quota stop).
+      overage: {
+        priceUsdPerRun: tier?.overagePriceUsdPerRun ?? 0,
+        overageRunsThisMonth: overageRuns,
+        chargedThisMonth: overageCount,
+        totalUsdThisMonth: overageTotalUsd
+      }
     });
   });
 

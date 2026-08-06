@@ -1,7 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Platform } from "@vvugc/shared-schema";
+import type { BrandKit, Platform } from "@vvugc/shared-schema";
 
 export interface AgencyClient {
   id: string;
@@ -9,6 +9,7 @@ export interface AgencyClient {
   name: string;
   niche: string;
   brandVoice: string;
+  brandKit?: BrandKit;
   locale: string;
   platforms: Platform[];
   targetDurationSec: number;

@@ -1,7 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { requireEnvVar } from "@vvugc/shared-config";
 import type { CostLedger } from "@vvugc/shared-cost";
-import { RewrittenScriptSchema, type Platform, type RewrittenScript, type Transcript } from "@vvugc/shared-schema";
+import { RewrittenScriptSchema, type BrandKit, type Platform, type RewrittenScript, type Transcript } from "@vvugc/shared-schema";
+import { generateWithFailover, type LlmProvider } from "./llm-failover.js";
 
 const SYSTEM_PROMPT = `You are a viral short-form video script strategist. Given a transcript of an
 already-viral video, rewrite it into a NEW original script for a different creator that keeps the
@@ -28,6 +27,7 @@ export async function rewriteScript(
   opts: {
     niche: string;
     brandVoice: string;
+    brandKit?: BrandKit;
     durationSec: number;
     platforms: Platform[];
     /** BCP-47-ish tag (e.g. "en", "es", "pt-BR") — defaults to English. The source
@@ -42,11 +42,9 @@ export async function rewriteScript(
   const locale = opts.locale ?? "en";
   if (opts.dryRun) return mockRewrittenScript(transcript, { ...opts, locale });
 
-  const apiKey = requireEnvVar("ANTHROPIC_API_KEY");
-  const client = new Anthropic({ apiKey });
-
   const userPrompt = `Niche: ${opts.niche}
 Brand voice: ${opts.brandVoice}
+Brand kit rules: ${opts.brandKit ? JSON.stringify(opts.brandKit) : "none configured"}
 Target duration: ${opts.durationSec} seconds
 Target platforms: ${opts.platforms.join(", ")}
 Write the script in this language (BCP-47 tag): ${locale}. Trending phrases should be
@@ -61,21 +59,17 @@ ${transcript.text}
   // output quality has the most leverage over whether a finished video is worth generating at
   // all — so it gets the premium model. See CLAUDE.md's "Model selection" section.
   const model = "claude-fable-5";
-  const message = await client.messages.create({
-    model,
-    max_tokens: 1024,
+  const { text, provider } = await generateWithFailover({
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }]
+    userPrompt,
+    maxTokens: 1024,
+    anthropicModel: model,
+    geminiModel: "gemini-2.5-pro",
+    stage: "script_rewrite",
+    costLedger: opts.costLedger
   });
 
-  opts.costLedger?.recordAnthropicUsage("script_rewrite", message.usage, model);
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude script-rewrite response contained no text block");
-  }
-
-  const parsed = JSON.parse(extractJson(textBlock.text));
+  const parsed = JSON.parse(extractJson(text));
   return RewrittenScriptSchema.parse({
     videoId: transcript.videoId,
     hook: parsed.hook,

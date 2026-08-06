@@ -18,4 +18,9 @@ apps/marketing-site/.demo-video-work/
 apps/marketing-site/.scripts-typecheck-out/
 apps/review-dashboard/runs/*
 !apps/review-dashboard/runs/.gitkeep
+# Acceptance-run artifacts (remix-live) carry accountId/orgId/clientId and cost
+# ledgers — generated, environment-specific, and must never be committed. Mirrors
+# the root `runs/*` and review-dashboard runs ignore rules above.
+apps/orchestrator/runs/*
+!apps/orchestrator/runs/.gitkeep
 
