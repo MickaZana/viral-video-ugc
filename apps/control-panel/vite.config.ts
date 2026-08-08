@@ -22,6 +22,13 @@ export default defineConfig({
         changeOrigin: false,
         // Rewrite /api/... -> /... so the backend sees its real route paths.
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      // The shared design-tokens stylesheet (/tokens.css) is served by the same
+      // backend — proxy it in dev the same way so `vite dev` renders the same
+      // workspace tokens the built app loads at runtime.
+      '/tokens.css': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:4310',
+        changeOrigin: false
       }
     }
   },
