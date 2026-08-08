@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Platform, TrackedCreator } from '../lib/types'
+import type { TrackedCreator } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar, TrendIcon, formatCompact, formatRelative } from '../components/primitives'

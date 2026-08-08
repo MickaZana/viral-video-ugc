@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ModelKind, ModelOption, ModelsResponse } from '../lib/types'
+import type { ModelKind, ModelsResponse } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'

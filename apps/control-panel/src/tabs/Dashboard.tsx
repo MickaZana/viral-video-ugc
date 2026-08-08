@@ -1,4 +1,4 @@
-import type { ReviewItem, RunSummary, TrackedCreator } from '../lib/types'
+import type { TrackedCreator } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar, StatCard, TrendIcon, formatCompact, formatRelative } from '../components/primitives'
@@ -17,14 +17,10 @@ export function Dashboard({ onOpenHistory }: { onOpenHistory?: () => void } = {}
   const creatorList = creators.data ?? []
   const runList = runs.data ?? []
 
-  // Total remakes / published count from the real review queue.
-  const published = items.filter((i) => i.status === 'approved' || i.publishedAt).length
   // Average virality score across real queued items.
   const avgScore = items.length
     ? Math.round(items.reduce((s, i) => s + i.score, 0) / items.length)
     : 0
-  // Total est. spend across real runs.
-  const totalCost = runList.reduce((s, r) => s + (r.estimatedCostUsd ?? 0), 0)
   // Sum of source views across tracked creators (real discovery metrics).
   const totalSourceViews = creatorList.reduce((s, c) => s + c.views, 0)
 
@@ -145,5 +141,3 @@ export function creatorScore(c: TrackedCreator): number {
   const velocityBoost = c.velocityScore > 0 ? Math.min(20, Math.log10(c.velocityScore + 1) * 3) : 0
   return Math.max(0, Math.min(100, Math.round(v * 14 + velocityBoost)))
 }
-
-export function unused(_: ReviewItem | RunSummary): void {}

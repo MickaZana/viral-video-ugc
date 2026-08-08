@@ -1,6 +1,6 @@
 import type { CostLedger } from "@vvugc/shared-cost";
 import { RewrittenScriptSchema, type BrandKit, type Platform, type RewrittenScript, type Transcript } from "@vvugc/shared-schema";
-import { generateWithFailover, type LlmProvider } from "./llm-failover.js";
+import { generateWithFailover } from "./llm-failover.js";
 
 const SYSTEM_PROMPT = `You are a viral short-form video script strategist. Given a transcript of an
 already-viral video, rewrite it into a NEW original script for a different creator that keeps the
@@ -59,7 +59,7 @@ ${transcript.text}
   // output quality has the most leverage over whether a finished video is worth generating at
   // all — so it gets the premium model. See CLAUDE.md's "Model selection" section.
   const model = "claude-fable-5";
-  const { text, provider } = await generateWithFailover({
+  const { text } = await generateWithFailover({
     system: SYSTEM_PROMPT,
     userPrompt,
     maxTokens: 1024,
