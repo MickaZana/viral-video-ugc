@@ -227,6 +227,13 @@ export const api = {
   },
   reject(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/reject`, { method: 'POST' })
+  },
+  /** Same-origin URL for a review item's finished video — consumed directly by a
+   *  <video> element (History tab), not through this JSON client, because the
+   *  response is binary MP4. The backend serves it at /api/media/:id behind the
+   *  same session/Basic-Auth gate as every other data route. */
+  mediaUrl(id: string): string {
+    return `${API_BASE}/media/${encodeURIComponent(id)}`
   }
 }
 

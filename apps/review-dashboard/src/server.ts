@@ -17,8 +17,8 @@ import { regenerateScene, regenerateScript } from "@vvugc/orchestrator";
 import { getPublishAdapter } from "@vvugc/mcp-publish";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { join } from "node:path";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { listRuns } from "./runs.js";
 import { listTrackedCreators } from "./creators.js";
 import { renderDashboardPage } from "./render.js";
@@ -407,6 +407,39 @@ app.get(
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
     res.json(item);
+  })
+);
+
+// Video playback for the control-panel History tab — an authenticated endpoint
+// (registered after the auth gate above) that streams a finished video file for
+// a review item. This is deliberately NOT the /public/assets/:token route:
+// that one is an unauthenticated, signed, single-use URL for vendor fetches
+// (Meta's Content Publishing API), whereas this one serves the video only to a
+// logged-in caller of this dashboard. Same hardening as public-assets.ts —
+// only files under VVUGC_RUNS_DIR are ever served, and anything that fails
+// validation (unknown item, empty path, traversal, missing file) gets an
+// indistinguishable 404 rather than an error that confirms why it failed.
+app.get(
+  "/media/:itemId",
+  asyncHandler<{ itemId: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.itemId);
+    if (!item || typeof item.videoPath !== "string" || !item.videoPath) {
+      return res.status(404).json({ error: "not found" });
+    }
+    const absPath = resolve(item.videoPath);
+    const runsRoot = resolve(loadEnv().VVUGC_RUNS_DIR);
+    if (absPath !== runsRoot && !absPath.startsWith(runsRoot + sep)) {
+      return res.status(404).json({ error: "not found" });
+    }
+    if (!existsSync(absPath)) {
+      return res.status(404).json({ error: "not found" });
+    }
+    const stat = statSync(absPath);
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Length", String(stat.size));
+    res.sendFile(absPath, (err) => {
+      if (err && !res.headersSent) res.status(500).end();
+    });
   })
 );
 

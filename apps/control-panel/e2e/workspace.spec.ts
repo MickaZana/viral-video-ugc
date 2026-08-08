@@ -63,6 +63,14 @@ test("history shows the approved video, all rewritten scripts, and the workflow 
   await expect(page.getByText("Wait, nobody told you this?")).toBeVisible();
   await expect(page.getByText("1 ready")).toBeVisible();
 
+  // It's a real, playable video served by the backend's authenticated /media
+  // route — not a decorative play icon. readyState > 0 means the browser fetched
+  // and decoded at least the file's metadata over HTTP.
+  const video = page.locator("video");
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute("src", /\/api\/media\/e2e-approved-video/);
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThan(0);
+
   // Script Demos: all three seeded review items.
   await page.getByRole("button", { name: /SCRIPT DEMOS/ }).click();
   await expect(page.getByText("3 rewritten")).toBeVisible();

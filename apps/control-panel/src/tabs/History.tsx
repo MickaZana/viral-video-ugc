@@ -85,7 +85,19 @@ function VideoDemos({ items }: { items: ReviewItem[] }) {
       <div className="divide-y divide-[var(--color-raised)]">
         {items.map((v) => (
           <div key={v.id} className="px-5 py-4 flex flex-wrap items-center gap-4">
-            <span className="text-sm text-[var(--color-red)] shrink-0">▶</span>
+            {v.videoPath ? (
+              <video
+                className="h-20 w-36 shrink-0 rounded-sm bg-black object-contain"
+                controls
+                preload="metadata"
+                src={api.mediaUrl(v.id)}
+                aria-label={`Play rendered video for ${v.script.hook}`}
+              />
+            ) : (
+              <span className="text-sm text-[var(--color-muted-4)] shrink-0 w-9 text-center" aria-hidden="true">
+                ·
+              </span>
+            )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-mono text-[var(--color-text)]">{v.script.hook}</p>
               <p className="text-[10px] font-mono text-[var(--color-muted-4)] mt-0.5">
