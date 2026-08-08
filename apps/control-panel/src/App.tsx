@@ -319,12 +319,16 @@ function AuthScreen({ onAuthed, onBack }: { onAuthed: (acc: PublicAccount) => vo
     setBusy(true)
     const fd = new FormData(e.currentTarget)
     try {
-      const res = await api.signup({
+      await api.signup({
         email: String(fd.get('email') || ''),
         password: String(fd.get('password') || ''),
         orgName: String(fd.get('orgName') || '') || undefined
       })
-      await finishSession(res.account)
+      // Signup (unlike login) does not return a CSRF token in its response. Fetch
+      // it via /accounts/me so the first state-changing request after signing up
+      // carries a valid token instead of being rejected as "invalid CSRF token".
+      const me = await api.me()
+      await finishSession(me.account, me.csrfToken)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

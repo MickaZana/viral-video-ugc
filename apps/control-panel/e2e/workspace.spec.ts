@@ -97,3 +97,25 @@ test("a reload with a live session restores the workspace without re-login", asy
   await page.reload();
   await expect(page.getByRole("button", { name: "DASHBOARD" })).toBeVisible();
 });
+
+test("video generator creates a client and runs a real dry-run pipeline", async ({ page }) => {
+  await signup(page);
+  await page.getByRole("button", { name: "VIDEO GENERATOR" }).click();
+
+  // Fresh orgs have no clients — the honest empty state shows a real create form.
+  await expect(page.getByText(/No client yet/)).toBeVisible();
+  await page.getByLabel("Client name").fill("E2E Brand");
+  await page.getByLabel("Niche").fill("fitness");
+  await page.getByRole("checkbox", { name: "TikTok" }).check();
+  await page.getByRole("checkbox", { name: "YouTube Shorts" }).check();
+  await page.getByRole("button", { name: "CREATE CLIENT" }).click();
+
+  // The client now exists and the run section is live.
+  await expect(page.getByRole("button", { name: "RUN DRY-RUN" })).toBeVisible();
+
+  // Run the real pipeline against the backend (dry-run: no vendor spend).
+  await page.getByRole("button", { name: "RUN DRY-RUN" }).click();
+  await expect(page.getByText(/RUN COMPLETE/)).toBeVisible({ timeout: 60_000 });
+  // The pipeline actually queued review items — a real manifest + cost ledger exist.
+  await expect(page.getByText("Queued for review", { exact: true })).toBeVisible();
+});

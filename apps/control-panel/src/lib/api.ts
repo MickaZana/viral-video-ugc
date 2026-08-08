@@ -9,12 +9,16 @@
  */
 
 import type {
+  AgencyClient,
   BillingResponse,
+  ClientsResponse,
+  CreateClientInput,
   CreatorsResponse,
   ModelsResponse,
   RemixPreviewResponse,
   RemixRequest,
   ReviewItem,
+  RunResponse,
   RunSummary,
   Stats,
   TrackedCreator
@@ -166,6 +170,31 @@ export const api = {
   },
   remix(body: RemixRequest): Promise<RunSummary & { overage?: { priceUsdPerRun: number } | null }> {
     return request('/accounts/remix', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+
+  // ---- Agency clients & pipeline runs ----
+  clients(): Promise<ClientsResponse> {
+    return request<ClientsResponse>('/accounts/clients')
+  },
+  createClient(body: CreateClientInput): Promise<{ client: AgencyClient }> {
+    return request<{ client: AgencyClient }>('/accounts/clients', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  updateClient(id: string, body: CreateClientInput): Promise<{ client: AgencyClient }> {
+    return request<{ client: AgencyClient }>(`/accounts/clients/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    })
+  },
+  /** Runs the real pipeline for the org's client. Dry-run (safe, no vendor spend)
+   *  is the backend default; pass dryRun:false to attempt a live run. */
+  run(body: { clientId: string; dryRun: boolean }): Promise<RunResponse> {
+    return request<RunResponse>('/accounts/run', {
       method: 'POST',
       body: JSON.stringify(body)
     })

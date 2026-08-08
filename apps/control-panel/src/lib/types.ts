@@ -183,3 +183,71 @@ export type RemixRequest = {
   dryRun?: boolean
 }
 
+// ---- Agency clients & pipeline runs ----
+// A client is the entity that owns a run's configuration (niche, platforms,
+// vendors). It is exactly what the backend's POST /accounts/run builds the
+// RunConfig from — see @vvugc/shared-auth's AgencyClient and the review
+// dashboard's ClientInputSchema. Nothing here is fabricated.
+
+export type VideoVendor = 'higgsfield' | 'kling' | 'runway' | 'pika' | 'gemini' | 'replicate'
+export type VoiceVendor = 'elevenlabs' | 'grok'
+export type ClientCadence = 'weekly' | 'manual'
+
+export interface AgencyClient {
+  id: string
+  orgId: string
+  name: string
+  niche: string
+  brandVoice: string
+  brandKit?: unknown
+  locale: string
+  platforms: Platform[]
+  targetDurationSec: number
+  videoVendor: VideoVendor
+  voiceVendor?: VoiceVendor
+  cadence: ClientCadence
+  active: boolean
+  nextRunAt?: string
+  lastScheduledRunAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ClientsResponse {
+  clients: AgencyClient[]
+}
+
+/** Body for POST /accounts/clients and PUT /accounts/clients/:id. */
+export interface CreateClientInput {
+  name: string
+  niche: string
+  brandVoice: string
+  brandKit?: unknown
+  locale?: string
+  platforms: Platform[]
+  targetDurationSec: number
+  videoVendor: VideoVendor
+  voiceVendor?: VoiceVendor
+  cadence: ClientCadence
+  active?: boolean
+}
+
+/** Response from POST /accounts/run — the pipeline's RunResult plus the org's
+ *  overage state (null when the run is inside the plan's included runs). */
+export interface RunResponse {
+  runId: string
+  accountId?: string
+  orgId?: string
+  clientId?: string
+  niche: string
+  candidatesFound: number
+  reviewItemsCreated: number
+  manifestPath: string
+  completedAt: string
+  costLedgerPath?: string
+  estimatedCostUsd?: number
+  candidatesFailed?: number
+  platformsFailed?: number
+  overage: { priceUsdPerRun: number } | null
+}
+
