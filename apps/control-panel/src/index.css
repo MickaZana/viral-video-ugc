@@ -12,12 +12,15 @@
   --color-input: #2a2a2a;
   --color-text: #f0f0f0;
   --color-on-accent: #080808;
-  --color-muted: #666666;
-  --color-muted-2: #555555;
-  --color-muted-3: #444444;
-  --color-muted-4: #888888;
-  --color-muted-5: #777777;
-  --color-muted-6: #aaaaaa;
+  /* Muted ramp brightened so every tone clears WCAG AA (4.5:1) on the darkest
+     surfaces (#080808 bg / #0a0a0a nav / #111111 surface / #1a1a1a raised).
+     Hierarchy preserved: muted-3 (dimmest) < muted-2 < muted < muted-5 < muted-4 < muted-6. */
+  --color-muted: #999999;
+  --color-muted-2: #8f8f8f;
+  --color-muted-3: #858585;
+  --color-muted-4: #adadad;
+  --color-muted-5: #a3a3a3;
+  --color-muted-6: #bdbdbd;
   --color-faint: #333333;
   --color-lime: #c8ff00;
   --color-lime-dim: #8ab300;

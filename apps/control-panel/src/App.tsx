@@ -145,7 +145,7 @@ export function App() {
       <header className="border-b border-[var(--color-raised)] px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <Logo onClick={() => setTab('dashboard')} />
-          <span className="text-[10px] font-mono text-[var(--color-faint)] uppercase tracking-widest hidden sm:block">
+          <span className="text-[10px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest hidden sm:block">
             AI-Powered Viral Engine
           </span>
         </div>
@@ -216,7 +216,7 @@ export function App() {
           </div>
           <div className="px-4 pb-4 hidden sm:block">
             <div className="border border-[var(--color-raised)] p-3">
-              <p className="text-[9px] font-mono text-[var(--color-faint)] uppercase tracking-widest">Session</p>
+              <p className="text-[9px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">Session</p>
               <p className="text-[11px] font-mono text-[var(--color-lime)] mt-1 truncate">{account.role.toUpperCase()}</p>
             </div>
           </div>

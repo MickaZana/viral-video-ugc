@@ -84,10 +84,11 @@ jobs:
 
       - run: pnpm -r run test
 
-      # Playwright e2e — real-browser interaction tests for the two web apps
+      # Playwright e2e — real-browser interaction tests for the three web apps
       # (filters/bulk-select/confirm-dialogs on the dashboard; nav toggle/video
-      # play-pause/waitlist form on the marketing site). Not part of `pnpm -r run
-      # test` since it needs a browser binary installed first.
+      # play-pause/waitlist form on the marketing site; signup/nav/theme/history/
+      # axe-a11y on the control panel). Not part of `pnpm -r run test` since it
+      # needs a browser binary installed first.
       - run: npx playwright install --with-deps chromium
         working-directory: apps/review-dashboard
 
@@ -97,6 +98,9 @@ jobs:
       - run: pnpm test:e2e
         working-directory: apps/marketing-site
 
+      - run: pnpm test:e2e
+        working-directory: apps/control-panel
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -104,6 +108,7 @@ jobs:
           path: |
             apps/review-dashboard/playwright-report/
             apps/marketing-site/playwright-report/
+            apps/control-panel/playwright-report/
           retention-days: 7
 
   # Publishes versioned, runnable Docker images on every push to main or staging —

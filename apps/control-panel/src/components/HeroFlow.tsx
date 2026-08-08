@@ -138,6 +138,7 @@ export function HeroFlow() {
               <div className="relative">
                 <input
                   readOnly
+                  aria-label="Source video URL"
                   value={sub < 0.5 ? URL_TEXT.slice(0, Math.floor((sub / 0.5) * URL_TEXT.length)) : URL_TEXT}
                   className="w-full bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-lime)] font-mono text-xs sm:text-sm p-3 pr-8"
                 />

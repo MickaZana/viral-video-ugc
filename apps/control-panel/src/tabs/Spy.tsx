@@ -58,7 +58,7 @@ export function Spy() {
                 borderLeft: selected && platformKey(selected) === platformKey(c) ? '2px solid var(--color-lime)' : '2px solid transparent'
               }}
             >
-              <div className="w-8 h-8 rounded-none bg-[var(--color-faint)] flex items-center justify-center text-[10px] font-mono text-[var(--color-muted-2)] uppercase shrink-0">
+              <div className="w-8 h-8 rounded-none bg-[var(--color-faint)] flex items-center justify-center text-[10px] font-mono text-[var(--color-muted-4)] uppercase shrink-0">
                 {initials(c.label)}
               </div>
               <div className="flex-1 min-w-0">

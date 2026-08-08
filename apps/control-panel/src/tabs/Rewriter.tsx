@@ -187,7 +187,7 @@ export function Rewriter() {
           ) : loading ? (
             <span className="blink text-[var(--color-lime)]">█</span>
           ) : (
-            <span className="text-[var(--color-faint)]">Output will appear here after rewrite...</span>
+            <span className="text-[var(--color-muted-3)]">Output will appear here after rewrite...</span>
           )}
         </div>
       </div>
