@@ -133,6 +133,12 @@ test("billing checkout hits the real endpoint and surfaces its error honestly", 
   await page.getByRole("button", { name: "BILLING" }).click();
   await expect(page.getByRole("heading", { name: "BILLING", exact: true })).toBeVisible();
 
+  // Tier cards must show the backend's real per-month prices — a field-name
+  // mismatch between the SPA type and the API shape used to render "$undefined"
+  // here, so assert a real dollar amount renders on every card.
+  await expect(page.getByText(/^\$\d+/m).first()).toBeVisible();
+  await expect(page.getByText(/\$undefined/)).toHaveCount(0);
+
   // A fresh org has no plan, so every tier shows a real CHECKOUT button — no
   // dead links. The test server runs with Stripe unconfigured, so clicking one
   // exercises the genuine POST /accounts/billing/checkout path and the backend's

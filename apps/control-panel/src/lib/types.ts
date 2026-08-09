@@ -111,7 +111,9 @@ export interface CreatorsResponse {
 export interface PricingTier {
   id: string
   name: string
-  priceUsd: number
+  /** Matches the backend's tier shape (priceUsdPerMonth), which sends the raw
+   *  PRICING_TIERS from @vvugc/shared-billing. */
+  priceUsdPerMonth: number
   monthlyRunLimit: number
   overagePriceUsdPerRun: number
 }

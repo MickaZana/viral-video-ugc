@@ -118,7 +118,7 @@ export function Billing() {
                   {isCurrent && <span className="text-[9px] font-mono text-[var(--color-on-accent)] bg-[var(--color-lime)] px-1.5 py-0.5">CURRENT</span>}
                 </div>
                 <p className="text-2xl font-black" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-lime)' }}>
-                  ${t.priceUsd}<span className="text-[11px] font-mono text-[var(--color-muted-2)]">/mo</span>
+                  ${t.priceUsdPerMonth}<span className="text-[11px] font-mono text-[var(--color-muted-2)]">/mo</span>
                 </p>
                 <p className="text-[11px] font-mono text-[var(--color-muted-4)]">{t.monthlyRunLimit} runs included</p>
                 <p className="text-[11px] font-mono text-[var(--color-muted-2)]">${t.overagePriceUsdPerRun.toFixed(2)} per run over</p>
