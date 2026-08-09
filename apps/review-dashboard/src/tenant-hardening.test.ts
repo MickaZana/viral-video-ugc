@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlanStore } from "@vvugc/shared-billing";
+import { createOverageStore } from "./overage.js";
 
 const TEST_USER = "test-user";
 const TEST_PASS = "test-pass";
@@ -282,7 +283,7 @@ describe("tenant hardening: fine-grained roles, enqueue-time quota, session revo
   });
 
   describe("enqueue-time quota", () => {
-    it("POST /accounts/jobs is blocked with 402 once the plan's monthly limit is reached", async () => {
+    it("POST /accounts/jobs past the plan's monthly limit enqueues as consumption overage rather than blocking with 402", async () => {
       await startServer();
       const owner = await signUpAndGetAccount("paid@agency.com");
       await createClient(owner.cookie);
@@ -296,9 +297,13 @@ describe("tenant hardening: fine-grained roles, enqueue-time quota, session revo
         headers: { Cookie: owner.cookie, "Content-Type": "application/json" },
         body: JSON.stringify({ clientId: (await (await fetch(`${baseUrl}/accounts/clients`, { headers: { Cookie: owner.cookie } })).json()).clients[0].id })
       });
-      expect(res.status).toBe(402);
-      const body = await res.json();
-      expect(body.error).toMatch(/monthly run limit reached/);
+      expect(res.status).toBe(202);
+      const { job } = await res.json();
+      expect(job.status).toBe("queued");
+
+      // The consumption-overage charge is persisted for billing.
+      const overageStore = createOverageStore(join(runsDir, "overage.json"));
+      expect(overageStore.countForMonth(owner.orgId, new Date().toISOString().slice(0, 7))).toBe(1);
     });
 
     it("POST /accounts/jobs enqueues when the plan is under its limit", async () => {

@@ -16,8 +16,71 @@ import { scoreOriginality } from "@vvugc/shared-originality";
 import { rewriteScript } from "./agents/script-agent.js";
 import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
+import { candidateFromSource, fetchRemixTranscript, parseSourceUrl } from "./remix-source.js";
 
 const logger = pino({ name: "vvugc-conductor" });
+
+export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate";
+
+/** Ordered chain (primary first, then fallbacks), deduplicated. */
+export function resolveVideoVendorChain(
+  primary: VideoVendorId,
+  fallbacks?: VideoVendorId[]
+): VideoVendorId[] {
+  // If no explicit fallbacks were configured, use a cost/quality-sensible default.
+  // Best practice for a fallback orchestrator: prefer vendors whose adapters are
+  // direct-REST (low blast radius when one is flaky), and keep the MCP-gated
+  // Higgsfield as the user's explicit primary rather than an implicit fallback
+  // (it needs a live MCP session that may not exist on a bare run).
+  const defaultFallbacks: VideoVendorId[] = ["gemini", "replicate"];
+  const chain = [primary, ...(fallbacks?.length ? fallbacks : defaultFallbacks)];
+  return [...new Set(chain)];
+}
+
+/**
+ * Generates a single clip across the primary vendor and its fallback chain.
+ * Each vendor attempt is its own call; on failure we move to the next vendor in
+ * the chain. Only when every vendor in the chain has failed do we throw — at
+ * which point the caller skips that platform (same non-fatal-per-unit approach
+ * as every other stage). Returns the produced clip with `vendor` set to the
+ * vendor that actually generated it, so cost/QA attribution stays accurate.
+ */
+export async function generateClipWithFallback(
+  chain: VideoVendorId[],
+  request: {
+    scriptSegmentIndex: number;
+    prompt: string;
+    durationSec: number;
+    aspectRatio: "9:16" | "1:1" | "16:9";
+  },
+  opts: { outDir: string; dryRun: boolean; callMcpTool?: McpToolCaller },
+  onAttempt?: (vendor: VideoVendorId, failed?: string) => void
+): Promise<RawClip> {
+  const failures: Array<{ vendor: VideoVendorId; error: string }> = [];
+  for (const vendor of chain) {
+    try {
+      onAttempt?.(vendor);
+      const adapter = getVideoGenAdapter(vendor, opts);
+      const clip = await adapter.generate(request);
+      // Adapter already stamps vendor, but pin it defensively so downstream cost
+      // accounting uses the vendor that actually ran, not the configured primary.
+      return { ...clip, vendor };
+    } catch (err) {
+      const message = String(err);
+      failures.push({ vendor, error: message });
+      onAttempt?.(vendor, message);
+      logger.warn(
+        { vendor, err: message },
+        `video vendor failed — trying next fallback in chain (${chain.length - chain.indexOf(vendor) - 1} left)`
+      );
+    }
+  }
+  // Aggregate every vendor's failure so ops sees the whole chain's errors at once,
+  // not just the last one (the usual complaint when debugging a fully-down stack).
+  throw new Error(
+    `all ${chain.length} video vendor(s) failed: ` + failures.map((f) => `${f.vendor} (${f.error})`).join("; ")
+  );
+}
 
 export interface RunCycleOptions {
   /** Only present when the conductor is itself running inside a Claude Agent SDK
@@ -48,16 +111,43 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
   // Stage 1: Discovery — per platform, non-fatal on individual platform failure
   // (e.g. TikTok/Meta adapters not yet approved) so partial coverage still runs.
+  //
+  // Remix-from-URL bypasses discovery entirely: the user handed us one source
+  // video to adapt, so the "candidate set" is exactly that one source, and its
+  // transcript is either pre-resolved (config.sourceTranscript — captured by the
+  // remix endpoint so it can preview before spending on video) or fetched here.
   const allCandidates: CandidateVideo[] = [];
-  for (const platform of config.platforms) {
-    try {
-      const found = config.dryRun
-        ? mockCandidates(platform, config.niche, config.maxCandidates)
-        : await discoverPlatform(platform, config.niche, config.maxCandidates);
-      allCandidates.push(...found);
-    } catch (err) {
-      logger.warn({ platform, err: String(err) }, "discovery skipped for platform");
-      onProgress(`  ${platform}: discovery failed, skipping this platform (${String(err)})`);
+  const sourceTranscript =
+    config.sourceTranscript ??
+    (config.sourceUrl
+      ? (await fetchRemixTranscript(config.sourceUrl, join(runDir, "remix-source"), config.niche))
+          .transcript
+      : undefined);
+
+  if (sourceTranscript) {
+    if (config.sourceUrl) {
+      const parsed = parseSourceUrl(config.sourceUrl);
+      if (parsed) {
+        onProgress(`Remixing source video (${parsed.platform}) — transcript fetched...`);
+        allCandidates.push(candidateFromSource(config.sourceUrl, parsed, config.niche));
+      }
+    } else {
+      // No URL provenance (transcript embedded directly) — synthesize a candidate
+      // id from the transcript itself so downstream code stays candidate-shaped.
+      const parsed = parseSourceUrl(config.sourceTranscript?.text ?? "") ?? { platform: config.platforms[0], videoId: sourceTranscript.videoId };
+      allCandidates.push(candidateFromSource(`remix://${sourceTranscript.videoId}`, parsed, config.niche));
+    }
+  } else {
+    for (const platform of config.platforms) {
+      try {
+        const found = config.dryRun
+          ? mockCandidates(platform, config.niche, config.maxCandidates)
+          : await discoverPlatform(platform, config.niche, config.maxCandidates);
+        allCandidates.push(...found);
+      } catch (err) {
+        logger.warn({ platform, err: String(err) }, "discovery skipped for platform");
+        onProgress(`  ${platform}: discovery failed, skipping this platform (${String(err)})`);
+      }
     }
   }
 
@@ -86,14 +176,16 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     const tag = `[${index + 1}/${chosen.length}]`;
     try {
       onProgress(`${tag} Transcribing "${candidate.title ?? candidate.id}"...`);
-      const transcript = config.dryRun
-        ? mockTranscript(candidate)
-        : await transcribeCandidate(candidate, join(runDir, "audio"));
+      const transcript = sourceTranscript ??
+        (config.dryRun
+          ? mockTranscript(candidate)
+          : await transcribeCandidate(candidate, join(runDir, "audio")));
 
       onProgress(`${tag} Rewriting script...`);
       const script = await rewriteScript(transcript, {
         niche: config.niche,
         brandVoice: config.brandVoice,
+        brandKit: config.brandKit,
         durationSec: config.targetDurationSec,
         platforms: config.platforms,
         locale: config.locale,
@@ -151,6 +243,13 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           const segments = [script.hook, ...script.points, script.cta];
           const clipsDir = join(runDir, "clips");
           const clips: RawClip[] = [];
+          // Resolve the vendor chain once per candidate (primary + fallbacks) and
+          // reuse it for every clip — a given candidate keeps a consistent vendor
+          // unless that vendor fails, in which case the next clip retries the chain.
+          const vendorChain = resolveVideoVendorChain(
+            config.videoVendor,
+            config.videoVendorFallbacks as VideoVendorId[] | undefined
+          );
 
           for (let i = 0; i < segments.length; i++) {
             // Each clip is its own vendor API call and can take real wall-clock time
@@ -158,20 +257,30 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             // once per platform, so a multi-point script's progress stays visible
             // instead of going quiet again for however long clip 2 of 5 takes.
             onProgress(`${tag} Generating video (${platform}) — clip ${i + 1}/${segments.length}...`);
-            const adapter = getVideoGenAdapter(config.videoVendor, {
-              outDir: clipsDir,
-              dryRun: config.dryRun,
-              callMcpTool: opts.callMcpTool
-            });
-            const clip = await adapter.generate({
-              scriptSegmentIndex: i,
-              prompt: segments[i],
-              durationSec: Math.round(script.durationSec / segments.length),
-              aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
-            });
+            const clip = await generateClipWithFallback(
+              vendorChain,
+              {
+                scriptSegmentIndex: i,
+                prompt: segments[i],
+                durationSec: Math.round(script.durationSec / segments.length),
+                aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
+              },
+              { outDir: clipsDir, dryRun: config.dryRun, callMcpTool: opts.callMcpTool },
+              (vendor, failed) =>
+                onProgress(
+                  failed
+                    ? `${tag}   clip ${i + 1}: ${vendor} failed, trying fallback (${failed})`
+                    : `${tag}   clip ${i + 1}: using ${vendor}`
+                )
+            );
             clips.push(clip);
           }
-          if (!config.dryRun) costLedger.record("video_gen", config.videoVendor, "clip", segments.length);
+          // Meter the vendor that actually produced each clip, not just the primary.
+          const producedVendors = new Set(clips.map((c) => c.vendor));
+          for (const v of producedVendors) {
+            const count = clips.filter((c) => c.vendor === v).length;
+            if (!config.dryRun) costLedger.record("video_gen", v, "clip", count);
+          }
 
           onProgress(`${tag} Assembling video (${platform})...`);
           const assembled = await assembleVideo({

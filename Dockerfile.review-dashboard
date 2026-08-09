@@ -17,6 +17,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/review-dashboard/package.json apps/review-dashboard/package.json
 COPY apps/orchestrator/package.json apps/orchestrator/package.json
 COPY apps/marketing-site/package.json apps/marketing-site/package.json
+COPY apps/control-panel/package.json apps/control-panel/package.json
 COPY packages/shared-schema/package.json packages/shared-schema/package.json
 COPY packages/shared-config/package.json packages/shared-config/package.json
 COPY packages/shared-cost/package.json packages/shared-cost/package.json

@@ -11,14 +11,20 @@ export interface PricingTier {
    *  starting point, not a final decision, and revisit once real usage data exists. */
   priceUsdPerMonth: number;
   monthlyRunLimit: number;
+  /** Billed per run above the monthlyRunLimit. This is the "consumption overage"
+   *  model: the subscription includes a run allowance, and heavy users pay per run
+   *  beyond it instead of being hard-blocked. Derived from the pipeline's real
+   *  per-run vendor cost (roughly $1.50–3.50 for Claude tokens + a video vendor)
+   *  plus a margin — a placeholder to revisit once real cost-ledger data exists. */
+  overagePriceUsdPerRun: number;
   /** Which env var holds the *real* Stripe Price ID for this tier — see .env.example. */
   stripePriceIdEnvVar: string;
 }
 
 export const PRICING_TIERS: PricingTier[] = [
-  { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
-  { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },
-  { id: "agency", name: "Agency", priceUsdPerMonth: 249, monthlyRunLimit: 60, stripePriceIdEnvVar: "STRIPE_PRICE_ID_AGENCY" }
+  { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, overagePriceUsdPerRun: 6, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
+  { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, overagePriceUsdPerRun: 5, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },
+  { id: "agency", name: "Agency", priceUsdPerMonth: 249, monthlyRunLimit: 60, overagePriceUsdPerRun: 4, stripePriceIdEnvVar: "STRIPE_PRICE_ID_AGENCY" }
 ];
 
 export function getTier(id: string): PricingTier | undefined {

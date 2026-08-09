@@ -34,6 +34,15 @@ async function signup(page: import("@playwright/test").Page, email: string, orgN
   await page.fill("#authOrgName", orgName);
   await page.click("#authSubmit");
   await expect(page.locator("#appView")).toBeVisible();
+  await expect(page.locator("#onboardingView")).toBeVisible();
+  await page.fill("#onboardingName", "Security E2E");
+  await page.click("#onboardingNext");
+  await page.check('input[name="onboardingWorkspace"][value="My business"]');
+  await page.click("#onboardingNext");
+  await page.fill("#onboardingNiche", "security-e2e");
+  await page.check('input[name="onboardingPlatform"][value="tiktok"]');
+  await page.click("#onboardingNext");
+  await expect(page.locator("#onboardingView")).toBeHidden();
 }
 
 // ── Minimal RFC 6238 TOTP (mirror of src/totp.ts, inlined for hermeticity) ────
@@ -117,7 +126,7 @@ test("full customer security workflow: dry run, approve, MFA, export, and org de
   const accountId = me.account.id as string;
 
   // ── Save settings, then create a client (a run requires one) ───────────────
-  await page.fill("#niche", NICHE);
+  await page.fill("#clientNiche", NICHE);
   await page.fill("#brandVoice", "clear, energetic");
   await page.check('input[name="platform"][value="tiktok"]');
   await page.check('input[name="platform"][value="youtube_shorts"]');

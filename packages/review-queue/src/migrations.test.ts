@@ -29,12 +29,13 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
     const { rows } = await pool.query("SELECT id FROM schema_migrations ORDER BY applied_at");
     expect(rows.map((r) => r.id)).toEqual(MIGRATIONS.map((m) => m.id));
 
-    // The real effect of 0001_create_review_items — not just the tracking row.
+    // The real effect of 0001_create_review_items + 0002_add_tenant_scope — not
+    // just the tracking row. Keep this column list in sync with MIGRATIONS.
     const tableCheck = await pool.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'review_items' ORDER BY column_name"
     );
     expect(tableCheck.rows.map((r) => r.column_name).sort()).toEqual(
-      ["created_at", "data", "id", "niche", "platform", "status"].sort()
+      ["client_id", "created_at", "data", "id", "niche", "org_id", "platform", "status"].sort()
     );
   });
 
@@ -48,16 +49,28 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
 
   it("only applies migrations not yet recorded — a pre-seeded tracking row is treated as already done", async () => {
     await pool.query("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())");
-    await pool.query("INSERT INTO schema_migrations (id) VALUES ($1)", [MIGRATIONS[0].id]);
+    // Seed EVERY migration id — later migrations depend on tables earlier ones
+    // create (0002 ALTERs review_items, 0003 creates pipeline_jobs), so seeding
+    // only the first would make a real later migration fail against a missing
+    // table instead of testing the skip behavior this test is about.
+    for (const m of MIGRATIONS) {
+      await pool.query("INSERT INTO schema_migrations (id) VALUES ($1)", [m.id]);
+    }
 
-    // review_items was never actually created, but the tracking table claims it was —
-    // runMigrations should trust that record and not attempt 0001 again.
+    // None of the real tables were ever created, but the tracking table claims
+    // every migration ran — runMigrations must trust that record and re-run nothing.
     await runMigrations(pool);
 
-    const tableExists = await pool.query(
-      "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'review_items')"
-    );
-    expect(tableExists.rows[0].exists).toBe(false);
+    const { rows } = await pool.query("SELECT id FROM schema_migrations");
+    expect(rows).toHaveLength(MIGRATIONS.length);
+
+    for (const table of ["review_items", "pipeline_jobs"]) {
+      const tableExists = await pool.query(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
+        [table]
+      );
+      expect(tableExists.rows[0].exists).toBe(false);
+    }
   });
 
   it("rolls back and does not record a migration as applied if it fails partway through", async () => {

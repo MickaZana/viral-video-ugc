@@ -3,11 +3,36 @@ import { z } from "zod";
 export const PlatformSchema = z.enum(["tiktok", "youtube_shorts", "instagram_reels", "facebook"]);
 export type Platform = z.infer<typeof PlatformSchema>;
 
+export const BrandKitSchema = z.object({
+  logoUrl: z.string().url().optional(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  captionStyle: z.enum(["clean", "bold", "minimal"]).default("bold"),
+  defaultCta: z.string().trim().max(160).optional(),
+  forbiddenClaims: z.array(z.string().trim().min(1).max(160)).max(20).default([])
+});
+export type BrandKit = z.infer<typeof BrandKitSchema>;
+
+export const TranscriptSegmentSchema = z.object({
+  startSec: z.number().nonnegative(),
+  endSec: z.number().nonnegative(),
+  text: z.string()
+});
+
+export const TranscriptSchema = z.object({
+  videoId: z.string(),
+  source: z.enum(["platform_captions", "whisper", "claude_audio"]),
+  text: z.string().min(1),
+  segments: z.array(TranscriptSegmentSchema).default([])
+});
+export type Transcript = z.infer<typeof TranscriptSchema>;
+
 export const RunConfigSchema = z.object({
   runId: z.string(),
   niche: z.string().min(1),
   platforms: z.array(PlatformSchema).min(1),
   brandVoice: z.string().default("neutral, energetic, concise"),
+  brandKit: BrandKitSchema.optional(),
   /** BCP-47-ish language tag (e.g. "en", "es", "pt-BR") the script should be written in —
    *  threaded straight into script-agent.ts's prompt. Captions/originality-scoring need no
    *  separate locale handling: captions time whatever text the script already has, and
@@ -16,6 +41,16 @@ export const RunConfigSchema = z.object({
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
   videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]).default("higgsfield"),
+  /** Ordered fallback chain for video generation. If the primary `videoVendor`
+   *  fails on a clip, the conductor tries the next vendor in this list (and so on)
+   *  before giving up on that platform. The actual vendor that produced each clip
+   *  is recorded on the RawClip. When omitted, the conductor falls back to a
+   *  cost/quality-sensible default chain (higgsfield → gemini → replicate), which
+   *  can be overridden globally via VIDEO_VENDOR_FALLBACKS. */
+  videoVendorFallbacks: z
+    .array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]))
+    .max(5)
+    .optional(),
   /** Narration synced to burned-in captions (see packages/mcp-voiceover) — opt-in,
    *  omitted means the current silent/vendor-native-audio behavior is unchanged. */
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
@@ -29,6 +64,14 @@ export const RunConfigSchema = z.object({
    * CLI runs; every customer-triggered run must provide both. */
   orgId: z.string().optional(),
   clientId: z.string().optional(),
+  /** Remix-from-URL ingress: when set, the conductor skips discovery and uses the
+   *  transcript of this single source video as the only candidate — the "adapt a
+   *  viral video to my niche" flow. `sourceUrl` (raw link the caller pasted) is
+   *  kept for provenance on the run; `sourceTranscript` is the resolved captions
+   *  (either captured up-front by the remix endpoint, or fetched in-conductor).
+   *  Both optional so plain discovery-driven runs are unchanged. */
+  sourceUrl: z.string().url().optional(),
+  sourceTranscript: TranscriptSchema.optional(),
   createdAt: z.string().datetime()
 });
 export type RunConfig = z.infer<typeof RunConfigSchema>;
@@ -52,20 +95,6 @@ export const CandidateVideoSchema = z.object({
   niche: z.string()
 });
 export type CandidateVideo = z.infer<typeof CandidateVideoSchema>;
-
-export const TranscriptSegmentSchema = z.object({
-  startSec: z.number().nonnegative(),
-  endSec: z.number().nonnegative(),
-  text: z.string()
-});
-
-export const TranscriptSchema = z.object({
-  videoId: z.string(),
-  source: z.enum(["platform_captions", "whisper", "claude_audio"]),
-  text: z.string().min(1),
-  segments: z.array(TranscriptSegmentSchema).default([])
-});
-export type Transcript = z.infer<typeof TranscriptSchema>;
 
 export const RewrittenScriptSchema = z.object({
   videoId: z.string(),

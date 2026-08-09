@@ -206,6 +206,31 @@ describe("review-dashboard HTTP API", () => {
     expect(html).toContain('id="queue-list"');
   });
 
+  it("GET /app serves the control-panel SPA without operator auth (when built)", async () => {
+    await startServer();
+    // Only meaningful when the control-panel has been built (true in CI and after
+    // `pnpm build`); if the dist is absent the route intentionally 404s and this
+    // check is skipped rather than failing the suite.
+    const res = await fetch(`${baseUrl}/app`);
+    if (res.status === 404) return;
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("UGU PROGRAM");
+    expect(html).toContain('<div id="root">');
+  });
+
+  it("GET /api/* is rewritten to the backend's real routes", async () => {
+    await startServer();
+    // /api/healthz must reach the real public /healthz handler (the prefix is
+    // stripped before routing) — proves the control-panel's /api calls work
+    // same-origin in production.
+    const res = await fetch(`${baseUrl}/api/healthz`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("ok");
+  });
+
   it("GET /metrics serves Prometheus text format without credentials, and records prior requests", async () => {
     await startServer();
     await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER }); // generate at least one recorded request first

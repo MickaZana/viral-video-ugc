@@ -20,9 +20,9 @@ on:
         required: true
         default: "tiktok,youtube_shorts"
       dryRun:
-        description: "Dry-run (no API keys required, no real spend)"
+        description: "Dry-run (no API keys required, no real spend) — set false only to run live against real vendor accounts"
         type: boolean
-        default: false
+        default: true
 
 jobs:
   run-pipeline:
@@ -54,8 +54,14 @@ jobs:
         run: |
           NICHE="${{ inputs.niche || 'fitness' }}"
           PLATFORMS="${{ inputs.platforms || 'tiktok,youtube_shorts' }}"
-          DRY_RUN_FLAG=""
-          if [ "${{ inputs.dryRun }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
+          # Dry-run is the SAFE default for both paths: a scheduled run fires
+          # with NO workflow inputs (inputs.dryRun is empty), so it must be
+          # dry-run by default or the weekly automation silently spends real
+          # vendor credits — the exact opposite of this workflow's stated
+          # "no API keys required, no real spend" posture. Only an explicit
+          # workflow_dispatch with dryRun:false opts into a live run.
+          DRY_RUN_FLAG="--dry-run"
+          if [ "${{ inputs.dryRun }}" = "false" ]; then DRY_RUN_FLAG=""; fi
           # A run that completes without throwing but produces zero review items is a
           # silent failure otherwise indistinguishable from a normal empty run — this
           # makes the job (and so this scheduled workflow) fail loudly instead, so

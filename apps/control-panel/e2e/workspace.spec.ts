@@ -1,0 +1,150 @@
+import { expect, test, type Page } from "@playwright/test";
+
+// Exercises the control-panel SPA against the real review-dashboard backend:
+// signup through the actual /accounts/* API, the full workspace shell, every
+// tab rendering real data, theme toggle, and sign-out. No mocks — the browser
+// talks to the same server a real user would.
+
+// The account store persists for the whole run (one temp store per invocation),
+// so every signup needs a unique email — a shared one would 409 on the second
+// test.
+let signupCounter = 0;
+async function signup(page: Page): Promise<void> {
+  const email = `e2e-${Date.now()}-${signupCounter++}@example.com`;
+  await page.goto("/app");
+  // Landing → auth screen via the header CTA.
+  await page.getByRole("button", { name: "Get Started", exact: true }).first().click();
+  await page.getByRole("button", { name: "SIGN UP" }).click();
+  await page.locator("#email").fill(email);
+  await page.locator("#orgName").fill("E2E Org");
+  await page.locator("#password").fill("hunter22");
+  await page.getByRole("button", { name: "Create Account" }).click();
+}
+
+test("a guest sees the landing page, not the workspace", async ({ page }) => {
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: /Spy The Format/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign Out" })).toHaveCount(0);
+});
+
+test("signup opens the workspace with all seven tabs, each rendering real data", async ({ page }) => {
+  await signup(page);
+
+  // Workspace shell is up. (Nav button accessible names include their icon
+  // glyphs, e.g. "▤ HISTORY", so match on substring, not exact.)
+  await expect(page.getByRole("button", { name: "DASHBOARD" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DASHBOARD", exact: true })).toBeVisible();
+
+  const tabs = ["DASHBOARD", "CREATOR SPY", "SCRIPT REWRITER", "REMIX FROM URL", "VIDEO GENERATOR", "HISTORY", "BILLING"] as const;
+  for (const tab of tabs) {
+    await page.getByRole("button", { name: tab }).click();
+    await expect(page.getByRole("heading", { name: tab, exact: true })).toBeVisible();
+    // No tab should end up showing a fetch failure.
+    await expect(page.locator("text=Load error")).toHaveCount(0);
+  }
+});
+
+test("dashboard renders the seeded queue and run data", async ({ page }) => {
+  await signup(page);
+
+  // Workflow run panel reflects the seeded manifest (1 run).
+  await expect(page.getByText(/1 run\(s\) recorded/)).toBeVisible();
+  // Activity log surfaces the seeded pending item's hook.
+  await expect(page.getByText(/New review item — "This warm-up is killing your gains"/)).toBeVisible();
+});
+
+test("history shows the approved video, all rewritten scripts, and the workflow run", async ({ page }) => {
+  await signup(page);
+  // The Dashboard tab renders an "Open History ↗" button, so anchor on the nav
+  // button's icon glyph to disambiguate.
+  await page.getByRole("button", { name: /▤ HISTORY/ }).click();
+
+  // Video Demos: the single approved item.
+  await expect(page.getByText("Wait, nobody told you this?")).toBeVisible();
+  await expect(page.getByText("1 ready")).toBeVisible();
+
+  // It's a real, playable video served by the backend's authenticated /media
+  // route — not a decorative play icon. readyState > 0 means the browser fetched
+  // and decoded at least the file's metadata over HTTP.
+  const video = page.locator("video");
+  await expect(video).toBeVisible();
+  await expect(video).toHaveAttribute("src", /\/api\/media\/e2e-approved-video/);
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThan(0);
+
+  // Script Demos: all three seeded review items.
+  await page.getByRole("button", { name: /SCRIPT DEMOS/ }).click();
+  await expect(page.getByText("3 rewritten")).toBeVisible();
+  await expect(page.getByText("This warm-up is killing your gains")).toBeVisible();
+
+  // Workflow Demos: the seeded run.
+  await page.getByRole("button", { name: /WORKFLOW DEMOS/ }).click();
+  await expect(page.getByText("1 runs")).toBeVisible();
+  await expect(page.getByText(/6 candidates/)).toBeVisible();
+});
+
+test("theme toggle flips the document between dark and light", async ({ page }) => {
+  await signup(page);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.locator('button[title="Toggle between dark and white theme"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.locator('button[title="Toggle between dark and white theme"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("sign out clears the session and returns to the auth screen", async ({ page }) => {
+  await signup(page);
+  await page.getByRole("button", { name: "Sign Out" }).click();
+  // The app returns to the sign-in screen (the guest view stays on auth after a
+  // logout) — the workspace shell must be gone and the email field present.
+  await expect(page.locator("#email")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign Out" })).toHaveCount(0);
+});
+
+test("a reload with a live session restores the workspace without re-login", async ({ page }) => {
+  await signup(page);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "DASHBOARD" })).toBeVisible();
+});
+
+test("video generator creates a client and runs a real dry-run pipeline", async ({ page }) => {
+  await signup(page);
+  await page.getByRole("button", { name: "VIDEO GENERATOR" }).click();
+
+  // Fresh orgs have no clients — the honest empty state shows a real create form.
+  await expect(page.getByText(/No client yet/)).toBeVisible();
+  await page.getByLabel("Client name").fill("E2E Brand");
+  await page.getByLabel("Niche").fill("fitness");
+  await page.getByRole("checkbox", { name: "TikTok" }).check();
+  await page.getByRole("checkbox", { name: "YouTube Shorts" }).check();
+  await page.getByRole("button", { name: "CREATE CLIENT" }).click();
+
+  // The client now exists and the run section is live.
+  await expect(page.getByRole("button", { name: "RUN DRY-RUN" })).toBeVisible();
+
+  // Run the real pipeline against the backend (dry-run: no vendor spend).
+  await page.getByRole("button", { name: "RUN DRY-RUN" }).click();
+  await expect(page.getByText(/RUN COMPLETE/)).toBeVisible({ timeout: 60_000 });
+  // The pipeline actually queued review items — a real manifest + cost ledger exist.
+  await expect(page.getByText("Queued for review", { exact: true })).toBeVisible();
+});
+
+test("billing checkout hits the real endpoint and surfaces its error honestly", async ({ page }) => {
+  await signup(page);
+  await page.getByRole("button", { name: "BILLING" }).click();
+  await expect(page.getByRole("heading", { name: "BILLING", exact: true })).toBeVisible();
+
+  // Tier cards must show the backend's real per-month prices — a field-name
+  // mismatch between the SPA type and the API shape used to render "$undefined"
+  // here, so assert a real dollar amount renders on every card.
+  await expect(page.getByText(/^\$\d+/m).first()).toBeVisible();
+  await expect(page.getByText(/\$undefined/)).toHaveCount(0);
+
+  // A fresh org has no plan, so every tier shows a real CHECKOUT button — no
+  // dead links. The test server runs with Stripe unconfigured, so clicking one
+  // exercises the genuine POST /accounts/billing/checkout path and the backend's
+  // 422 must be shown verbatim rather than a fake success or silent dead click.
+  const checkout = page.getByRole("button", { name: "CHECKOUT", exact: true }).first();
+  await expect(checkout).toBeVisible();
+  await checkout.click();
+  await expect(page.getByText(/Checkout error: .*STRIPE_PRICE_ID_(STARTER|GROWTH|AGENCY)/)).toBeVisible();
+});

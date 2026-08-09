@@ -13,6 +13,7 @@ import { aggregateUsage } from "@vvugc/shared-auth";
 import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
 import { checkRunQuota } from "./quota.js";
+import { createOverageStore } from "./overage.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -224,11 +225,19 @@ export async function processNextPipelineJob(
     const { VVUGC_RUNS_DIR } = loadEnv();
     const plan = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json")).get(job.orgId);
     const quota = checkRunQuota(plan, aggregateUsage(job.orgId, VVUGC_RUNS_DIR));
-    if (!quota.allowed) {
-      await store.fail(job.id, workerId, `Quota check failed immediately before execution: ${quota.reason}`, false);
-      return store.get(job.orgId, job.id);
-    }
+    // Hybrid billing: a run past the tier's included allowance is allowed and
+    // recorded as consumption overage, not blocked.
+    const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
     const result = await runCycle(job.config, { onProgress: () => {} });
+    if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
+      createOverageStore(join(VVUGC_RUNS_DIR, "overage.json")).record({
+        orgId: job.orgId,
+        runId: job.config.runId,
+        priceUsdPerRun: quota.overagePriceUsdPerRun,
+        estimatedVendorCostUsd: result.estimatedCostUsd ?? quota.overagePriceUsdPerRun,
+        clientId: job.config.clientId
+      });
+    }
     const current = await store.get(job.orgId, job.id);
     if (current?.cancelRequested) await store.acknowledgeCancelled(job.id, workerId);
     else await store.complete(job.id, workerId, result);

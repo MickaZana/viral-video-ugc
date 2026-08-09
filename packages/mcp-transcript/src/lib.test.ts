@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,14 +64,35 @@ describe("fetchYouTubeCaptions", () => {
     expect(transcript!.segments[0].text).toBe(`<tag> 'quote' "double"`);
   });
 
-  it("returns undefined when the request fails", async () => {
+  it("returns undefined when the request fails (timedtext and yt-dlp both yield nothing)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("", false)));
-    expect(await fetchYouTubeCaptions("abc123")).toBeUndefined();
+    const runner = vi.fn(async () => { throw new Error("yt-dlp failed"); });
+    expect(await fetchYouTubeCaptions("abc123", runner)).toBeUndefined();
   });
 
   it("returns undefined when the video has no caption track", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("")));
-    expect(await fetchYouTubeCaptions("abc123")).toBeUndefined();
+    const runner = vi.fn(async () => {});
+    expect(await fetchYouTubeCaptions("abc123", runner)).toBeUndefined();
+  });
+
+  it("falls back to yt-dlp auto-subs when timedtext is empty", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse("")));
+    const runner = vi.fn(async (_url: string, opts: Record<string, unknown>) => {
+      const outDir = dirname(opts.output as string);
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(
+        join(outDir, "abc123.en.json3"),
+        JSON.stringify({
+          events: [{ tStartMs: 500, dDurationMs: 2500, segs: [{ utf8: "Hello & welcome" }] }]
+        })
+      );
+    });
+
+    const transcript = await fetchYouTubeCaptions("abc123", runner);
+    expect(transcript).toBeDefined();
+    expect(transcript!.source).toBe("platform_captions");
+    expect(transcript!.segments[0]).toEqual({ startSec: 0.5, endSec: 3, text: "Hello & welcome" });
   });
 });
 
@@ -139,8 +162,9 @@ describe("transcribeCandidate", () => {
       return urlStr.includes("timedtext") ? textResponse("") : whisperResponse();
     }));
     process.env.OPENAI_API_KEY = "test-key";
+    const subtitleRunner = vi.fn(async () => { throw new Error("yt-dlp found no subs"); });
 
-    const transcript = await transcribeCandidate(candidate, "/tmp/out");
+    const transcript = await transcribeCandidate(candidate, "/tmp/out", subtitleRunner);
     expect(extractAudioMock).toHaveBeenCalled();
     expect(transcript.source).toBe("whisper");
     delete process.env.OPENAI_API_KEY;

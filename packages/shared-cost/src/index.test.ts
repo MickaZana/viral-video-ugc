@@ -18,6 +18,16 @@ describe("estimateCostUsd", () => {
   it("prices gemini image generation per image", () => {
     expect(estimateCostUsd("gemini", "image", 10)).toBeCloseTo(0.39, 6);
   });
+
+  it("prices gemini text per-model per-token (LLM failover)", () => {
+    expect(estimateCostUsd("gemini", "input_tokens", 1_000_000, "gemini-2.5-pro")).toBeCloseTo(1.25, 6);
+    expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-2.5-pro")).toBeCloseTo(10, 6);
+    expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-2.5-flash")).toBeCloseTo(2.5, 6);
+  });
+
+  it("returns 0 for an unknown gemini text model rather than throwing", () => {
+    expect(estimateCostUsd("gemini", "input_tokens", 1000, "gemini-nonexistent")).toBe(0);
+  });
 });
 
 describe("CostLedger", () => {
@@ -44,6 +54,15 @@ describe("CostLedger", () => {
     ledger.recordAnthropicUsage("script_rewrite", { input_tokens: 1000, output_tokens: 500 }, "claude-sonnet-5");
     expect(ledger.getEvents()).toHaveLength(2);
     expect(ledger.totalUsd()).toBeCloseTo(1000 * (3 / 1_000_000) + 500 * (15 / 1_000_000), 6);
+  });
+
+  it("recordGeminiUsage attributes text tokens to the gemini vendor, priced per model", () => {
+    const ledger = new CostLedger();
+    ledger.recordGeminiUsage("script_rewrite", { input_tokens: 1_000_000, output_tokens: 500_000 }, "gemini-2.5-pro");
+    expect(ledger.getEvents()).toHaveLength(2);
+    expect(ledger.getEvents().every((e) => e.vendor === "gemini" && e.stage === "script_rewrite")).toBe(true);
+    expect(ledger.totalUsd()).toBeCloseTo(1.25 + 5.0, 6);
+    expect(ledger.totalsByModel()["gemini-2.5-pro"]).toBeCloseTo(6.25, 6);
   });
 
   it("prices different models independently and splits totals by model", () => {

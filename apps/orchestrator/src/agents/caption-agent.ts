@@ -1,8 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { requireEnvVar } from "@vvugc/shared-config";
 import type { CostLedger } from "@vvugc/shared-cost";
 import { CaptionCueSchema, type CaptionCue, type RewrittenScript } from "@vvugc/shared-schema";
 import { z } from "zod";
+import { generateWithFailover } from "./llm-failover.js";
 
 const SYSTEM_PROMPT = `You are a caption-timing editor for short-form vertical video (TikTok/Reels/Shorts).
 Given a script (hook, points, cta) and a fixed total duration, split it into on-screen caption
@@ -21,9 +20,6 @@ export async function generateCaptions(
 ): Promise<CaptionCue[]> {
   if (opts.dryRun) return mockCaptions(script);
 
-  const apiKey = requireEnvVar("ANTHROPIC_API_KEY");
-  const client = new Anthropic({ apiKey });
-
   const userPrompt = `Total duration: ${script.durationSec} seconds
 
 Hook: ${script.hook}
@@ -35,21 +31,17 @@ CTA: ${script.cta}`;
   // length — mechanical, bounded, high-volume (once per candidate every run), not a creative
   // judgment call, so it doesn't need the premium models. See CLAUDE.md's "Model selection".
   const model = "claude-haiku-4-5";
-  const message = await client.messages.create({
-    model,
-    max_tokens: 1024,
+  const { text } = await generateWithFailover({
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }]
+    userPrompt,
+    maxTokens: 1024,
+    anthropicModel: model,
+    geminiModel: "gemini-2.5-flash",
+    stage: "caption_timing",
+    costLedger: opts.costLedger
   });
 
-  opts.costLedger?.recordAnthropicUsage("caption_timing", message.usage, model);
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude caption-timing response contained no text block");
-  }
-
-  const parsed = JSON.parse(extractJsonArray(textBlock.text));
+  const parsed = JSON.parse(extractJsonArray(text));
   return z.array(CaptionCueSchema).parse(parsed);
 }
 

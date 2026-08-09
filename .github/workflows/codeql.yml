@@ -1,0 +1,107 @@
+name: "CodeQL"
+
+# Static code scanning (GitHub Advanced Security). Complements CI's OSV
+# dependency-vulnerability gate (ci.yml's dependency-scan job) with
+# first-party-code analysis: injection/SSRF/XSS/traversal-style flaws in our
+# own TypeScript rather than vulnerabilities in the dependency tree.
+#
+# IMPORTANT — GHAS gating: CodeQL can only run on a private repo once GitHub
+# Advanced Security is enabled, which is a documented *pending business
+# decision* (see docs/race-to-100-execution-plan.md P4.4 — "Enable GitHub
+# Advanced Security (or make repo public)"). On a private repo without GHAS
+# the analyze step hard-fails. Rather than merge a workflow that turns every
+# push/PR/scheduled run red until that decision lands, the job first probes the
+# GHAS-gated code-scanning/alerts endpoint (a 403 with "Advanced Security must
+# be enabled" when GHAS is off, a 200 when it's on) and only
+# initializes/analyzes when it reports enabled. So this workflow is a green
+# no-op today and activates automatically the moment GHAS is switched on — no
+# workflow edit needed at that point.
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+  schedule:
+    # Weekly, Monday 03:17 UTC — offset from the top of the hour so the scan
+    # never contends with the CI matrix and the weekly pipeline run. The GHAS
+    # gate also keeps this scheduled run green (a skipped scan) until GHAS is
+    # enabled, instead of emitting a failure notification every Monday.
+    - cron: "17 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # CodeQL needs security-events: write to create/update code-scanning
+      # alerts; the rest are the read-only minimum for checkout, the actions
+      # cache, and the GHAS-status REST call. No secrets or package writes —
+      # this job never publishes anything.
+      security-events: write
+      actions: read
+      contents: read
+      packages: read
+    strategy:
+      # One language per matrix arm — keeps each analysis independently
+      # attributable (and re-runnable) instead of one all-or-nothing job.
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect Advanced Security availability
+        id: ghas
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            // Probe a genuinely GHAS-gated endpoint. The repo's
+            // security_and_analysis field (the obvious way to detect this) is
+            // only visible to admin/owner/security-manager tokens, and a
+            // workflow GITHUB_TOKEN is never admin — so reading that field would
+            // report "disabled" forever, even after GHAS is enabled. Code
+            // scanning alerts, by contrast, return a distinct 403 ("Advanced
+            // Security must be enabled...") when GHAS is off and a 200 (possibly
+            // empty list) when it's on — an unambiguous signal any token can
+            // read. So this check auto-activates the moment GHAS is switched on.
+            try {
+              await github.rest.codeScanning.listAlerts({ owner, repo });
+              core.info("code-scanning/alerts returned 200 — GitHub Advanced Security is enabled.");
+              core.setOutput("enabled", "true");
+            } catch (error) {
+              core.setOutput("enabled", "false");
+              const status = error?.status;
+              const message = error?.message ?? "";
+              if (status === 403 && /Advanced Security must be enabled/i.test(message)) {
+                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
+              } else {
+                core.warning(`could not confirm code-scanning availability (status ${status}); skipping CodeQL. ${message}`);
+              }
+            }
+
+      - name: Initialize CodeQL
+        if: steps.ghas.outputs.enabled == 'true'
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # The repo is a pnpm workspace whose packages build with plain `tsc -b`
+          # (see ci.yml's build step — turbo's native binary is deliberately not
+          # used). JS/TS extraction doesn't need a build artifact, so skip
+          # autobuild entirely: autobuild probes for npm/yarn at the repo root
+          # and can waste minutes (or fail) guessing at a pnpm workspace layout
+          # that isn't the npm one it looks for.
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        if: steps.ghas.outputs.enabled == 'true'
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+      - name: Skip CodeQL when GHAS is unavailable
+        if: steps.ghas.outputs.enabled != 'true'
+        run: |
+          echo "GitHub Advanced Security is not enabled for this repository."
+          echo "Skipping CodeQL analysis — CI stays green. See docs/race-to-100-execution-plan.md P4.4."

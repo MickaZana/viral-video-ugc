@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlanStore } from "@vvugc/shared-billing";
+import { createOverageStore } from "./overage.js";
 
 const TEST_USER = "test-user";
 const TEST_PASS = "test-pass";
@@ -107,7 +108,7 @@ describe("billing: real run-quota enforcement", () => {
     expect(res.status).toBe(200);
   }, 20_000);
 
-  it("an active Starter-tier account is blocked with a real 402 once it hits its real 4-run monthly limit", async () => {
+  it("an active Starter-tier account past its 4-run monthly limit runs as consumption overage (200 + overage flag + recorded charge), not a 402", async () => {
     await startServer();
     const { cookie, orgId } = await signUpAndGetAccount("paid@example.com");
     await saveSettings(cookie);
@@ -121,11 +122,15 @@ describe("billing: real run-quota enforcement", () => {
       headers: { Cookie: cookie, "Content-Type": "application/json" },
       body: JSON.stringify({ dryRun: true })
     });
-    expect(res.status).toBe(402);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toMatch(/monthly run limit reached/);
-    expect(body.error).toMatch(/Starter/);
-  });
+    expect(body.overage).not.toBeNull();
+    expect(body.overage.priceUsdPerRun).toBeGreaterThan(0);
+
+    // The overage charge is persisted to the ledger for billing.
+    const overageStore = createOverageStore(join(runsDir, "overage.json"));
+    expect(overageStore.countForMonth(orgId, new Date().toISOString().slice(0, 7))).toBe(1);
+  }, 20_000);
 
   it("an active Starter-tier account under its limit can still run for real", async () => {
     await startServer();

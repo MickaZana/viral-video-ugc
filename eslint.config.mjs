@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 
 export default tseslint.config(
   {
@@ -44,5 +45,13 @@ export default tseslint.config(
       // over reviewing those spots by eye. Downgraded to a warning, not silenced.
       "@typescript-eslint/no-explicit-any": "warn"
     }
+  },
+  // The React control-panel is the only React surface; scope the React Hooks rules
+  // to it rather than applying them to every server-side file in the repo. Two
+  // effects deliberately suppress exhaustive-deps (useApi.ts and Rewriter.tsx) —
+  // the plugin must be loaded for those disable comments to be valid, not errors.
+  {
+    files: ["apps/control-panel/**/*.{ts,tsx}"],
+    ...reactHooks.configs["recommended-latest"]
   }
 );

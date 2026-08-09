@@ -171,3 +171,72 @@ select:focus-visible,
 }
 
 ::selection { background: var(--accent); color: #08090c; }
+
+/* ---------------------------------------------------------------------------
+ * Workspace (control-panel SPA) brand surface.
+ *
+ * The control-panel is the product workspace ("better yorbi"): a deliberate
+ * dark-lime brand that is intentionally NOT the monochrome marketing/dashboard
+ * look above. These tokens are the single source of truth for that surface's
+ * palette and type families. The SPA loads this same /tokens.css file and
+ * scopes itself in with data-surface="workspace" (set on its <html> tag), so
+ * the values below live here once instead of being duplicated in the SPA's own
+ * CSS. The monochrome surfaces above never set data-surface="workspace" and
+ * are unaffected — the two palettes use disjoint variable names.
+ *
+ * The type slots (--font-*) are named exactly as Tailwind v4's default theme
+ * emits them, so the SPA's `font-mono` utility keeps resolving to the
+ * workspace mono: this scoped rule's specificity (html[data-surface=...]) beats
+ * Tailwind's `:root` defaults for the same name.
+ * ------------------------------------------------------------------------- */
+:root[data-surface="workspace"] {
+  --color-bg: #080808;
+  --color-nav: #0a0a0a;
+  --color-surface: #111111;
+  --color-raised: #1a1a1a;
+  --color-border: #242424;
+  --color-input: #2a2a2a;
+  --color-text: #f0f0f0;
+  --color-on-accent: #080808;
+  /* Muted ramp brightened so every tone clears WCAG AA (4.5:1) on the darkest
+     surfaces (#080808 bg / #0a0a0a nav / #111111 surface / #1a1a1a raised).
+     Hierarchy preserved: muted-3 (dimmest) < muted-2 < muted < muted-5 < muted-4 < muted-6. */
+  --color-muted: #999999;
+  --color-muted-2: #8f8f8f;
+  --color-muted-3: #858585;
+  --color-muted-4: #adadad;
+  --color-muted-5: #a3a3a3;
+  --color-muted-6: #bdbdbd;
+  --color-faint: #333333;
+  --color-lime: #c8ff00;
+  --color-lime-dim: #8ab300;
+  --color-red: #ff2b2b;
+  --color-orange: #ff7a00;
+  --font-display: 'Barlow Condensed', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Light / "white" theme — flips the workspace surfaces to paper while keeping
+   the lime identity readable (darkened to an olive-green that works on white).
+   Values not re-declared here (red/orange/type) intentionally inherit the
+   workspace defaults above. */
+:root[data-surface="workspace"][data-theme="light"] {
+  --color-bg: #f4f4f1;
+  --color-nav: #ffffff;
+  --color-surface: #ffffff;
+  --color-raised: #e8e8e4;
+  --color-border: #e1e1dd;
+  --color-input: #d7d7d2;
+  --color-text: #171717;
+  --color-on-accent: #ffffff;
+  --color-muted: #5c5c58;
+  --color-muted-2: #565653;
+  --color-muted-3: #6d6d69;
+  --color-muted-4: #797975;
+  --color-muted-5: #61615e;
+  --color-muted-6: #4c4c49;
+  --color-faint: #8c8c87;
+  --color-lime: #4f6b00;
+  --color-lime-dim: #6f8a00;
+}

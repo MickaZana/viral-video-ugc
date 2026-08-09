@@ -13,6 +13,15 @@ async function signup(page: import("@playwright/test").Page, email: string, orgN
   await page.fill("#authOrgName", orgName);
   await page.click("#authSubmit");
   await expect(page.locator("#appView")).toBeVisible();
+  await expect(page.locator("#onboardingView")).toBeVisible();
+  await page.fill("#onboardingName", "Workspace Owner");
+  await page.click("#onboardingNext");
+  await page.check('input[name="onboardingWorkspace"][value="Clients"]');
+  await page.click("#onboardingNext");
+  await page.fill("#onboardingNiche", "multi-client");
+  await page.check('input[name="onboardingPlatform"][value="youtube_shorts"]');
+  await page.click("#onboardingNext");
+  await expect(page.locator("#onboardingView")).toBeHidden();
 }
 
 async function createClient(request: import("@playwright/test").APIRequestContext, name: string, niche: string) {

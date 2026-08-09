@@ -5,6 +5,14 @@ about this repo requires it. `fly.review-dashboard.toml` and `fly.marketing-site
 at the repo root are ready-to-use configs for it if you want a concrete, working path
 rather than choosing a host from scratch.
 
+**The control-panel SPA (the product workspace / "better yorbi" front-end) ships
+with the review-dashboard app, not separately.** `server.ts` serves the built SPA at
+`https://<review-dashboard-host>/app` (assets under `/assets`, and the SPA's `/api/*`
+calls are rewritten to the backend's real routes same-origin so session-cookie auth
+works without CORS). Because `Dockerfile.review-dashboard` runs `pnpm -r run build`
+and copies the result into the runtime image, deploying the review-dashboard is
+sufficient — there is no separate control-panel image to build or host.
+
 Both configs build the image directly from source on Fly's own builders
 (`[build] dockerfile = ...`), not from the images `ci.yml` pushes to GHCR. That's
 deliberate: pulling a private GHCR image onto Fly needs extra registry-credential
@@ -47,11 +55,12 @@ The two apps are independent Fly apps — repeat this section once for each
    on every deploy. Each app gets its **own** volume (Fly volumes are per-app even
    when the name string matches):
    ```
-   fly volumes create vvugc_runs --region iad --size 1 -a viral-video-ugc
-   fly volumes create vvugc_runs --region iad --size 1 -a vvugc-marketing-site
+   fly volumes create vvugc_runs --region ams --size 1 -a viral-video-ugc
+   fly volumes create vvugc_runs --region ams --size 1 -a vvugc-marketing-site
    ```
-   Use the same `--region` as each `.toml`'s `primary_region` (`iad` by default —
-   change both together if you pick a different region).
+   Use the same `--region` as each `.toml`'s `primary_region` (`ams` in the
+   checked-in configs). Change the commands and both configs together if you
+   choose a different region.
 
 3. **Set required secrets.** Never put these in the `.toml`'s `[env]` block (which is
    committed, plaintext config) — `fly secrets set` stores them encrypted and injects
