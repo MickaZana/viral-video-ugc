@@ -16,7 +16,7 @@
     "@vvugc/shared-schema": "workspace:*",
     "@vvugc/shared-config": "workspace:*",
     "@vvugc/shared-http": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.9.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
