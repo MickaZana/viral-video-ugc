@@ -10,11 +10,12 @@ name: "CodeQL"
 # decision* (see docs/race-to-100-execution-plan.md P4.4 — "Enable GitHub
 # Advanced Security (or make repo public)"). On a private repo without GHAS
 # the analyze step hard-fails. Rather than merge a workflow that turns every
-# push/PR/scheduled run red until that decision lands, the job first checks
-# the repo's security_and_analysis.advanced_security.status via the REST API
-# and only initializes/analyzes when it is "enabled". So this workflow is a
-# green no-op today and activates automatically the moment GHAS is switched
-# on — no workflow edit needed at that point.
+# push/PR/scheduled run red until that decision lands, the job first probes the
+# GHAS-gated code-scanning/alerts endpoint (a 403 with "Advanced Security must
+# be enabled" when GHAS is off, a 200 when it's on) and only
+# initializes/analyzes when it reports enabled. So this workflow is a green
+# no-op today and activates automatically the moment GHAS is switched on — no
+# workflow edit needed at that point.
 on:
   push:
     branches: [main, staging]
@@ -56,18 +57,28 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
+            // Probe a genuinely GHAS-gated endpoint. The repo's
+            // security_and_analysis field (the obvious way to detect this) is
+            // only visible to admin/owner/security-manager tokens, and a
+            // workflow GITHUB_TOKEN is never admin — so reading that field would
+            // report "disabled" forever, even after GHAS is enabled. Code
+            // scanning alerts, by contrast, return a distinct 403 ("Advanced
+            // Security must be enabled...") when GHAS is off and a 200 (possibly
+            // empty list) when it's on — an unambiguous signal any token can
+            // read. So this check auto-activates the moment GHAS is switched on.
             try {
-              const { data } = await github.rest.repos.get({ owner, repo });
-              const status = data?.security_and_analysis?.advanced_security?.status;
-              const enabled = status === "enabled";
-              core.info(`security_and_analysis.advanced_security.status=${status ?? "unavailable"}`);
-              core.setOutput("enabled", enabled ? "true" : "false");
-              if (!enabled) {
-                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
-              }
+              await github.rest.codeScanning.listAlerts({ owner, repo });
+              core.info("code-scanning/alerts returned 200 — GitHub Advanced Security is enabled.");
+              core.setOutput("enabled", "true");
             } catch (error) {
-              core.warning(`failed to inspect repository security settings; skipping CodeQL. error=${error.message}`);
               core.setOutput("enabled", "false");
+              const status = error?.status;
+              const message = error?.message ?? "";
+              if (status === 403 && /Advanced Security must be enabled/i.test(message)) {
+                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
+              } else {
+                core.warning(`could not confirm code-scanning availability (status ${status}); skipping CodeQL. ${message}`);
+              }
             }
 
       - name: Initialize CodeQL
