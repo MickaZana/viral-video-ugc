@@ -112,3 +112,20 @@ html, body, #root {
   animation: scan-sweep 1.4s linear infinite;
 }
 
+/* Reduced motion: the workspace's decorative animations (hero flow-in, status
+   blinks/pulses, the rec/sweep overlays) are all non-essential. Disabling them
+   under prefers-reduced-motion honors WCAG 2.3.3 and also makes the axe a11y
+   scans deterministic — they measure the settled, fully-opaque state instead
+   of catching elements mid-opacity-animation (which blends their colors
+   against the page background and can report a false sub-AA contrast ratio).
+   Same convention as the shared tokens and review-dashboard CSS. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-in,
+  .blink,
+  .pulse-lime,
+  .rec-pulse,
+  .scan-sweep {
+    animation: none;
+  }
+}
+

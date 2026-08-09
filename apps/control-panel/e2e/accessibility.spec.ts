@@ -8,6 +8,13 @@ import AxeBuilder from "@axe-core/playwright";
 // "best-practice" rules are excluded as opinionated style preferences.
 
 async function scan(page: Page, label: string): Promise<void> {
+  // Measure the settled state: the hero flow and status indicators animate
+  // (opacity 0→1 flow-ins, blinking/pulsing dots), and axe catches mid-animation
+  // frames whose colors are blended against the page background — a real element
+  // that passes WCAG AA at full opacity can read as sub-4.5:1 mid-fade. Emulating
+  // reduced motion disables those decorative animations (see index.css), so the
+  // scan checks the fully-opaque colors a static user actually reads.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(results.violations, `${label} — ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
 }
