@@ -27,7 +27,11 @@ jobs:
       scan-args: |-
         --lockfile=./pnpm-lock.yaml
       fail-on-vuln: true
-      upload-sarif: true
+      # GHAS (GitHub Advanced Security) is not enabled on this private repo, so
+      # the SARIF upload step fails with "Code Security must be enabled". The
+      # scan itself still works without it — fail-on-vuln makes the job fail on
+      # any known vulnerability — so we skip the upload until GHAS is enabled.
+      upload-sarif: false
 
   build-and-test:
     runs-on: ubuntu-latest

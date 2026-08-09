@@ -84,9 +84,9 @@ describe("renderHeroBlock", () => {
 
 describe("renderPricingGrid", () => {
   const tiers: PricingTier[] = [
-    { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
-    { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },
-    { id: "agency", name: "Agency", priceUsdPerMonth: 249, monthlyRunLimit: 60, stripePriceIdEnvVar: "STRIPE_PRICE_ID_AGENCY" }
+    { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, overagePriceUsdPerRun: 6, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
+    { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, overagePriceUsdPerRun: 5, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },
+    { id: "agency", name: "Agency", priceUsdPerMonth: 249, monthlyRunLimit: 60, overagePriceUsdPerRun: 4, stripePriceIdEnvVar: "STRIPE_PRICE_ID_AGENCY" }
   ];
 
   it("renders one card per tier with its real name, price, and run limit", () => {
