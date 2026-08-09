@@ -63,6 +63,15 @@ export default defineConfig({
       // points at a real Supabase project.
       DATABASE_URL: "",
       SUPABASE_DATABASE_URL: "",
+      // …and a real Stripe account. Clearing these forces POST
+      // /accounts/billing/checkout down its deterministic unconfigured path (422
+      // with the missing-price error), the same way billing-routes.test.ts does —
+      // otherwise a dev with live Stripe keys would redirect the test browser to
+      // a real hosted Checkout session instead.
+      STRIPE_SECRET_KEY: "",
+      STRIPE_PRICE_ID_STARTER: "",
+      STRIPE_PRICE_ID_GROWTH: "",
+      STRIPE_PRICE_ID_AGENCY: "",
       DASHBOARD_USERNAME,
       DASHBOARD_PASSWORD,
       SOCIAL_TOKEN_ENCRYPTION_KEY: "e2e-social-token-encryption-key-at-least-32-characters"

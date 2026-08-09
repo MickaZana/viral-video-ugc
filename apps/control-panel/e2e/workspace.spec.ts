@@ -127,3 +127,18 @@ test("video generator creates a client and runs a real dry-run pipeline", async 
   // The pipeline actually queued review items — a real manifest + cost ledger exist.
   await expect(page.getByText("Queued for review", { exact: true })).toBeVisible();
 });
+
+test("billing checkout hits the real endpoint and surfaces its error honestly", async ({ page }) => {
+  await signup(page);
+  await page.getByRole("button", { name: "BILLING" }).click();
+  await expect(page.getByRole("heading", { name: "BILLING", exact: true })).toBeVisible();
+
+  // A fresh org has no plan, so every tier shows a real CHECKOUT button — no
+  // dead links. The test server runs with Stripe unconfigured, so clicking one
+  // exercises the genuine POST /accounts/billing/checkout path and the backend's
+  // 422 must be shown verbatim rather than a fake success or silent dead click.
+  const checkout = page.getByRole("button", { name: "CHECKOUT", exact: true }).first();
+  await expect(checkout).toBeVisible();
+  await checkout.click();
+  await expect(page.getByText(/Checkout error: .*STRIPE_PRICE_ID_(STARTER|GROWTH|AGENCY)/)).toBeVisible();
+});

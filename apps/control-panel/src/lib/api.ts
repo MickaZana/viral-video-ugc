@@ -155,6 +155,16 @@ export const api = {
   billing(): Promise<BillingResponse> {
     return request<BillingResponse>('/accounts/billing')
   },
+  /** Starts a real Stripe Checkout session for the given tier. Returns the hosted
+   *  checkout URL to redirect the browser to; on failure (e.g. Stripe not
+   *  configured yet, unknown tier, missing billing.manage permission) throws the
+   *  backend's error message so the UI can show it honestly instead of a dead link. */
+  billingCheckout(tierId: string): Promise<{ url: string }> {
+    return request<{ url: string }>('/accounts/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ tierId })
+    })
+  },
 
   // ---- Models ----
   models(): Promise<ModelsResponse> {

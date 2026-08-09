@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { BillingResponse } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
@@ -13,6 +14,28 @@ import { Panel, StatCard } from '../components/primitives'
 export function Billing() {
   const bill = useApi<BillingResponse>(() => api.billing())
   const data = bill.data
+
+  // Checkout state: which tier has a session being created right now (so the
+  // button disables and no double-click starts two sessions), and any honest
+  // error the backend returned (e.g. Stripe not configured yet).
+  const [checkoutTierId, setCheckoutTierId] = useState<string | null>(null)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+
+  const startCheckout = async (tierId: string) => {
+    if (checkoutTierId) return
+    setCheckoutTierId(tierId)
+    setCheckoutError(null)
+    try {
+      const { url } = await api.billingCheckout(tierId)
+      // Real Stripe Checkout session — hand the browser to the hosted page.
+      window.location.href = url
+    } catch (err) {
+      // The backend's own message (422 unconfigured Stripe, 400 unknown tier,
+      // 403 missing permission…) shown verbatim — never a fake success.
+      setCheckoutError(err instanceof Error ? err.message : String(err))
+      setCheckoutTierId(null)
+    }
+  }
 
   const tier = data?.tiers.find((t) => t.id === data.plan?.tierId)
   const planName = tier?.name ?? (data?.plan?.tierId ? data.plan.tierId.toUpperCase() : 'NO PLAN')
@@ -85,8 +108,9 @@ export function Billing() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-[var(--color-border)]">
           {data?.tiers.map((t) => {
             const isCurrent = t.id === data.plan?.tierId
+            const isBusy = checkoutTierId === t.id
             return (
-              <div key={t.id} className={`bg-[var(--color-bg)] p-5 space-y-2 ${isCurrent ? 'ring-1 ring-[var(--color-lime)]' : ''}`}>
+              <div key={t.id} className={`bg-[var(--color-bg)] p-5 space-y-2 flex flex-col ${isCurrent ? 'ring-1 ring-[var(--color-lime)]' : ''}`}>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-text)' }}>
                     {t.name}
@@ -98,13 +122,28 @@ export function Billing() {
                 </p>
                 <p className="text-[11px] font-mono text-[var(--color-muted-4)]">{t.monthlyRunLimit} runs included</p>
                 <p className="text-[11px] font-mono text-[var(--color-muted-2)]">${t.overagePriceUsdPerRun.toFixed(2)} per run over</p>
+                {!isCurrent && (
+                  <button
+                    onClick={() => startCheckout(t.id)}
+                    disabled={checkoutTierId !== null}
+                    className="mt-auto px-4 py-2 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
+                    style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                  >
+                    {isBusy ? 'OPENING CHECKOUT…' : 'CHECKOUT'}
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
         <p className="text-[10px] font-mono text-[var(--color-muted-3)] px-5 py-3">
-          Plans bill monthly; consumption overage above the included runs is billed per-run. Manage subscription via checkout in the control panel.
+          Plans bill monthly; consumption overage above the included runs is billed per-run. Checkout opens a real Stripe session — your current plan isn't charged until you confirm there.
         </p>
+        {checkoutError && (
+          <p className="text-[11px] font-mono text-[var(--color-red)] px-5 pb-3">
+            Checkout error: {checkoutError}
+          </p>
+        )}
       </Panel>
 
       {bill.error && (
