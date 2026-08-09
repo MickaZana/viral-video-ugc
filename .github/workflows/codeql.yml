@@ -1,0 +1,56 @@
+name: "CodeQL"
+
+# Static code scanning (GitHub Advanced Security). Complements CI's OSV
+# dependency-vulnerability gate (ci.yml's dependency-scan job) with
+# first-party-code analysis: injection/SSRF/XSS/traversal-style flaws in our
+# own TypeScript rather than vulnerabilities in the dependency tree. Runs on
+# every push/PR to catch new findings, and on a weekly schedule to pick up
+# database updates against already-merged code.
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+  schedule:
+    # Weekly, Monday 03:17 UTC — offset from the top of the hour so the scan
+    # never contends with the CI matrix and the weekly pipeline run.
+    - cron: "17 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # CodeQL needs security-events: write to create/update code-scanning
+      # alerts; the rest are the read-only minimum for checkout and the actions
+      # cache. No secrets or package writes — this job never publishes anything.
+      security-events: write
+      actions: read
+      contents: read
+      packages: read
+    strategy:
+      # One language per matrix arm — keeps each analysis independently
+      # attributable (and re-runnable) instead of one all-or-nothing job.
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # The repo is a pnpm workspace whose packages build with plain `tsc -b`
+          # (see ci.yml's build step — turbo's native binary is deliberately not
+          # used). JS/TS extraction doesn't need a build artifact, so skip
+          # autobuild entirely: autobuild probes for npm/yarn at the repo root
+          # and can waste minutes (or fail) guessing at a pnpm workspace layout
+          # that isn't the npm one it looks for.
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
