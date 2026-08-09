@@ -3,16 +3,27 @@ name: "CodeQL"
 # Static code scanning (GitHub Advanced Security). Complements CI's OSV
 # dependency-vulnerability gate (ci.yml's dependency-scan job) with
 # first-party-code analysis: injection/SSRF/XSS/traversal-style flaws in our
-# own TypeScript rather than vulnerabilities in the dependency tree. Runs on
-# every push/PR to catch new findings, and on a weekly schedule to pick up
-# database updates against already-merged code.
+# own TypeScript rather than vulnerabilities in the dependency tree.
+#
+# IMPORTANT — GHAS gating: CodeQL can only run on a private repo once GitHub
+# Advanced Security is enabled, which is a documented *pending business
+# decision* (see docs/race-to-100-execution-plan.md P4.4 — "Enable GitHub
+# Advanced Security (or make repo public)"). On a private repo without GHAS
+# the analyze step hard-fails. Rather than merge a workflow that turns every
+# push/PR/scheduled run red until that decision lands, the job first checks
+# the repo's security_and_analysis.advanced_security.status via the REST API
+# and only initializes/analyzes when it is "enabled". So this workflow is a
+# green no-op today and activates automatically the moment GHAS is switched
+# on — no workflow edit needed at that point.
 on:
   push:
     branches: [main, staging]
   pull_request:
   schedule:
     # Weekly, Monday 03:17 UTC — offset from the top of the hour so the scan
-    # never contends with the CI matrix and the weekly pipeline run.
+    # never contends with the CI matrix and the weekly pipeline run. The GHAS
+    # gate also keeps this scheduled run green (a skipped scan) until GHAS is
+    # enabled, instead of emitting a failure notification every Monday.
     - cron: "17 3 * * 1"
 
 jobs:
@@ -22,8 +33,9 @@ jobs:
     timeout-minutes: 60
     permissions:
       # CodeQL needs security-events: write to create/update code-scanning
-      # alerts; the rest are the read-only minimum for checkout and the actions
-      # cache. No secrets or package writes — this job never publishes anything.
+      # alerts; the rest are the read-only minimum for checkout, the actions
+      # cache, and the GHAS-status REST call. No secrets or package writes —
+      # this job never publishes anything.
       security-events: write
       actions: read
       contents: read
@@ -38,7 +50,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect Advanced Security availability
+        id: ghas
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            try {
+              const { data } = await github.rest.repos.get({ owner, repo });
+              const status = data?.security_and_analysis?.advanced_security?.status;
+              const enabled = status === "enabled";
+              core.info(`security_and_analysis.advanced_security.status=${status ?? "unavailable"}`);
+              core.setOutput("enabled", enabled ? "true" : "false");
+              if (!enabled) {
+                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
+              }
+            } catch (error) {
+              core.warning(`failed to inspect repository security settings; skipping CodeQL. error=${error.message}`);
+              core.setOutput("enabled", "false");
+            }
+
       - name: Initialize CodeQL
+        if: steps.ghas.outputs.enabled == 'true'
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
@@ -51,6 +84,13 @@ jobs:
           build-mode: none
 
       - name: Perform CodeQL Analysis
+        if: steps.ghas.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+
+      - name: Skip CodeQL when GHAS is unavailable
+        if: steps.ghas.outputs.enabled != 'true'
+        run: |
+          echo "GitHub Advanced Security is not enabled for this repository."
+          echo "Skipping CodeQL analysis — CI stays green. See docs/race-to-100-execution-plan.md P4.4."
