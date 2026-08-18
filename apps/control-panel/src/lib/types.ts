@@ -75,6 +75,9 @@ export interface RunSummary {
   candidatesFailed?: number
   platformsFailed?: number
   failures?: RunFailure[]
+  /** Operator's riffed discovery brief, when the run was started from the Spy panel.
+   *  Lets the Studio run page show "your brief" after a hard refresh. */
+  discoveryBrief?: DiscoverBrief | null
 }
 
 export interface Stats {
@@ -237,19 +240,67 @@ export interface CreateClientInput {
 /** Response from POST /accounts/run — the pipeline's RunResult plus the org's
  *  overage state (null when the run is inside the plan's included runs). */
 export interface RunResponse {
-  runId: string
-  accountId?: string
-  orgId?: string
-  clientId?: string
+  runId: string;
+  accountId?: string;
+  orgId?: string;
+  clientId?: string;
+  niche: string;
+  candidatesFound: number;
+  reviewItemsCreated: number;
+  manifestPath: string;
+  completedAt: string;
+  costLedgerPath?: string;
+  estimatedCostUsd?: number;
+  candidatesFailed?: number;
+  platformsFailed?: number;
+  overage: { priceUsdPerRun: number } | null;
+}
+
+// ---- Discovery ("what's working" + brief) ----
+// Mirrors POST /accounts/discover. The backend wraps external discovery in
+// try/catch, so even an empty/erroring fetch returns 200 with a seeded brief.
+
+export interface DiscoverVideoMetrics {
+  views: number
+  likes: number
+  comments: number
+  velocityScore: number
+}
+
+export interface DiscoverWhy {
+  hook: string[]
+  format: string[]
+  pattern: string[]
+}
+
+export interface DiscoverVideo {
+  id: string
+  platform: Platform
+  url: string
+  author: string
+  thumbnail?: string
+  metrics: DiscoverVideoMetrics
+  whyItWorks: DiscoverWhy
+  patterns: string[]
+}
+
+export interface DiscoverBrief {
+  angle: string
+  hookTemplate: string
+  structure: string[]
+  patterns: string[]
+  dos: string[]
+  donts: string[]
+}
+
+export interface DiscoverResponse {
+  videos: DiscoverVideo[]
+  brief: DiscoverBrief
+}
+
+export interface DiscoverRequest {
   niche: string
-  candidatesFound: number
-  reviewItemsCreated: number
-  manifestPath: string
-  completedAt: string
-  costLedgerPath?: string
-  estimatedCostUsd?: number
-  candidatesFailed?: number
-  platformsFailed?: number
-  overage: { priceUsdPerRun: number } | null
+  platform?: string
+  limit?: number
 }
 

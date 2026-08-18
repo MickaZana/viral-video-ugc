@@ -228,6 +228,9 @@ importers:
       '@vvugc/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@vvugc/mcp-discovery':
+        specifier: workspace:*
+        version: link:../../packages/mcp-discovery
       '@vvugc/mcp-publish':
         specifier: workspace:*
         version: link:../../packages/mcp-publish

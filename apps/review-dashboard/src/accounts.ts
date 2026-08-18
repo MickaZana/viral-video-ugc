@@ -23,7 +23,10 @@ import {
 } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import { BrandKitSchema, PlatformSchema, RunConfigSchema } from "@vvugc/shared-schema";
+import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
+import { discoverPlatform } from "@vvugc/mcp-discovery";
+import { buildDiscoverResponse } from "./discoveryAnalyze.js";
 import {
   getReviewItem,
   listReviewItems,
@@ -829,6 +832,10 @@ export function registerAccountRoutes(
       if (sourceUrl && !parseSourceUrl(sourceUrl)) {
         return res.status(400).json({ error: "sourceUrl must be a TikTok, YouTube, or Instagram (Reels) link" })
       }
+      // Optional riffed brief from the discovery panel. Typed loosely here; the
+      // config stores it verbatim so the Studio can surface it on the run page.
+      const briefRaw = req.body?.brief
+      const brief = briefRaw && typeof briefRaw === "object" && !Array.isArray(briefRaw) ? briefRaw : undefined
       const validPlatforms = ["tiktok", "youtube_shorts", "instagram_reels"] as const
       const platforms =
         platformRaw && (validPlatforms as readonly string[]).includes(platformRaw)
@@ -876,6 +883,7 @@ export function registerAccountRoutes(
         locale: client.locale,
         brandKit: client.brandKit,
         sourceUrl: sourceUrl ?? undefined,
+        discoveryBrief: brief ?? null,
         dryRun: !live,
         createdAt: new Date().toISOString()
       })
@@ -889,8 +897,45 @@ export function registerAccountRoutes(
       res.status(202).json({
         job: { id: job.id, status: job.status },
         runId,
-        progressUrl: `/api/accounts/run-progress/${runId}`
+        progressUrl: `/api/accounts/run-progress/${runId}`,
+        brief: config.discoveryBrief ?? undefined
       })
+    })
+  );
+
+  // ── Discovery "what's working" + brief ─────────────────────────────────────
+  // Finds viral videos in a niche, explains WHY each works from its metrics, and
+  // synthesizes a riff-able brief the SPA can turn into a run. External discovery
+  // can fail or return empty (no API keys, rate limits, offline) — that must
+  // NEVER 500: we catch and fall back to a 200 with an empty video list and a
+  // brief seeded from the niche text so the editor stays usable.
+  app.post(
+    "/accounts/discover",
+    requireSession,
+    runRateLimiter,
+    asyncHandler<Record<string, string>>(async (req: AuthedRequest, res: Response) => {
+      const account = requireAccount(req, res);
+      if (!account) return;
+      const niche = typeof req.body?.niche === "string" ? req.body.niche.trim() : "";
+      if (!niche) return res.status(400).json({ error: "niche required" });
+
+      const validPlatforms = ["tiktok", "youtube_shorts", "instagram_reels"] as const;
+      const platformRaw = typeof req.body?.platform === "string" ? req.body.platform : undefined;
+      const platform = platformRaw && (validPlatforms as readonly string[]).includes(platformRaw)
+        ? (platformRaw as (typeof validPlatforms)[number])
+        : "tiktok";
+      const limit = typeof req.body?.limit === "number" && Number.isFinite(req.body.limit) ? Math.min(Math.max(Math.trunc(req.body.limit), 1), 50) : 10;
+
+      let candidates: CandidateVideo[] = [];
+      try {
+        candidates = await discoverPlatform(platform, niche, limit);
+      } catch {
+        candidates = [];
+      }
+      if (!Array.isArray(candidates)) candidates = [];
+
+      const payload = buildDiscoverResponse(candidates, niche);
+      res.json(payload);
     })
   );
 

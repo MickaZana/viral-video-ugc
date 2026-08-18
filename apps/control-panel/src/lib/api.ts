@@ -14,6 +14,9 @@ import type {
   ClientsResponse,
   CreateClientInput,
   CreatorsResponse,
+  DiscoverBrief,
+  DiscoverRequest,
+  DiscoverResponse,
   ModelsResponse,
   RemixPreviewResponse,
   RemixRequest,
@@ -114,11 +117,13 @@ export interface StartRequest {
   clientId?: string
   dryRun?: boolean
   live?: boolean
+  brief?: DiscoverBrief
 }
 export interface StartResponse {
   job: { id: string; status: string }
   runId: string
   progressUrl: string
+  brief?: DiscoverBrief
 }
 
 export const api = {
@@ -229,7 +234,16 @@ export const api = {
   start(body: StartRequest): Promise<StartResponse> {
     return request<StartResponse>('/accounts/start', {
       method: 'POST',
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        niche: body.niche,
+        platform: body.platform,
+        brandVoice: body.brandVoice,
+        sourceUrl: body.sourceUrl,
+        clientId: body.clientId,
+        dryRun: body.dryRun,
+        live: body.live,
+        brief: body.brief
+      })
     })
   },
 
@@ -248,6 +262,15 @@ export const api = {
   },
   creators(): Promise<TrackedCreator[]> {
     return request<CreatorsResponse>('/creators').then((r) => r.creators)
+  },
+  /** Discovery: finds what's working in a niche, explains why, and returns a
+   *  riff-able brief. Never throws on an empty/erroring external fetch — the
+   *  backend returns 200 with a seeded brief. */
+  discover(body: DiscoverRequest): Promise<DiscoverResponse> {
+    return request<DiscoverResponse>('/accounts/discover', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
   },
   regenerateScript(id: string, body: { hook: string; points: string[]; cta: string }): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/regenerate-script`, {

@@ -50,10 +50,19 @@ export async function rewriteScript(
     locale?: string;
     dryRun?: boolean;
     costLedger?: CostLedger;
+    /** Optional riffed discovery brief (angle / hook template / structure / patterns /
+     *  dos / donts) the operator edited in the control panel. When present, it is
+     *  folded into the user prompt so the generated script leads with those creative
+     *  directions — this is what makes "discover → riff brief → run" actually shape
+     *  the output rather than being cosmetic. Typed loosely (unknown) on purpose: the
+     *  brief shape lives in the discovery analyzer, not in shared-schema. */
+    discoveryBrief?: unknown;
   }
 ): Promise<RewrittenScript> {
   const locale = opts.locale ?? "en";
   if (opts.dryRun) return mockRewrittenScript(transcript, { ...opts, locale });
+
+  const discoveryBriefBlock = opts.discoveryBrief ? buildBriefBlock(opts.discoveryBrief) : "";
 
   const userPrompt = `Niche: ${opts.niche}
 Brand voice: ${opts.brandVoice}
@@ -62,7 +71,7 @@ Target duration: ${opts.durationSec} seconds
 Target platforms: ${opts.platforms.join(", ")}
 Write the script in this language (BCP-47 tag): ${locale}. Trending phrases should be
 native to that language/platform culture, not translated English slang.
-
+${discoveryBriefBlock}
 Source transcript:
 """
 ${transcript.text}
@@ -120,4 +129,29 @@ function extractJson(text: string): string {
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error(`No JSON object found in Claude response: ${text}`);
   return text.slice(start, end + 1);
+}
+
+/**
+ * Renders the operator's riffed discovery brief into a prompt section. Defensive by
+ * design — the brief arrives as loosely-typed JSON from the control panel, so every
+ * field is checked before use and ignored if missing/malformed.
+ */
+function buildBriefBlock(brief: unknown): string {
+  if (!brief || typeof brief !== "object") return "";
+  const b = brief as Record<string, unknown>;
+  const pick = (key: string): string[] =>
+    Array.isArray(b[key]) ? (b[key] as unknown[]).filter((x) => typeof x === "string") : [];
+
+  const lines = ["\nDiscovery brief (riffed by the operator — lead with these creative directions):"];
+  if (typeof b.angle === "string") lines.push(`Angle: ${b.angle}`);
+  if (typeof b.hookTemplate === "string") lines.push(`Hook template: ${b.hookTemplate}`);
+  const structure = pick("structure");
+  if (structure.length) lines.push(`Structure: ${structure.join(" → ")}`);
+  const patterns = pick("patterns");
+  if (patterns.length) lines.push(`Patterns to lean into: ${patterns.join(", ")}`);
+  const dos = pick("dos");
+  if (dos.length) lines.push(`Do: ${dos.join("; ")}`);
+  const donts = pick("donts");
+  if (donts.length) lines.push(`Don't: ${donts.join("; ")}`);
+  return lines.join("\n");
 }

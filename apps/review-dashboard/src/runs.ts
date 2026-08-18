@@ -21,6 +21,10 @@ export interface RunSummary {
   /** Why each failed candidate/platform failed — previously only in structured
    *  logs/CLI output, never reachable from the dashboard. See conductor.ts. */
   failures?: RunFailure[];
+  /** The operator's riffed discovery brief, when the run was kicked off from the
+   *  Spy panel's "Start a run from this brief". Surfaced so the Studio run page can
+   *  show "your brief" even after a hard refresh (it lives on the run manifest). */
+  discoveryBrief?: unknown;
 }
 
 /**
@@ -55,7 +59,8 @@ export function listRuns(): RunSummary[] {
       estimatedCostUsd,
       candidatesFailed: manifest.candidatesFailed,
       platformsFailed: manifest.platformsFailed,
-      failures: manifest.failures
+      failures: manifest.failures,
+      discoveryBrief: manifest.config?.discoveryBrief ?? null
     });
   }
 

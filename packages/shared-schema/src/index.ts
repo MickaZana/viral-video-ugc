@@ -72,6 +72,11 @@ export const RunConfigSchema = z.object({
    *  Both optional so plain discovery-driven runs are unchanged. */
   sourceUrl: z.string().url().optional(),
   sourceTranscript: TranscriptSchema.optional(),
+  /** Optional brief a user riffed from the discovery panel. Threaded into the run
+   *  so the Studio can surface "your brief" alongside the live nine-stage progress.
+   *  Typed loosely (z.any) on purpose — the brief shape lives in the discovery
+   *  analyzer, and importing it here would create a circular workspace dependency. */
+  discoveryBrief: z.any().nullable().optional(),
   createdAt: z.string().datetime()
 });
 export type RunConfig = z.infer<typeof RunConfigSchema>;

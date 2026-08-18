@@ -190,6 +190,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         platforms: config.platforms,
         locale: config.locale,
         dryRun: config.dryRun,
+        discoveryBrief: config.discoveryBrief,
         costLedger
       });
 

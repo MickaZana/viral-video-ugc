@@ -19,6 +19,7 @@
     "@vvugc/shared-metrics": "workspace:*",
     "@vvugc/shared-auth": "workspace:*",
     "@vvugc/orchestrator": "workspace:*",
+    "@vvugc/mcp-discovery": "workspace:*",
     "@vvugc/mcp-publish": "workspace:*",
     "@vvugc/shared-billing": "workspace:*",
     "express": "^5.2.1",
