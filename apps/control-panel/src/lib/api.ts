@@ -127,6 +127,15 @@ export interface StartResponse {
   brief?: DiscoverBrief
 }
 
+/** Optional filters for GET /queue. Server-side; keeps the QA board focused on
+ *  exactly what the operator wants to see (e.g. hide dry-run/mock items). */
+export interface QueueFilter {
+  status?: ReviewItem['status']
+  platform?: ReviewItem['platform']
+  /** When false, excludes dry-run (mock) items from the queue. */
+  dryRun?: boolean
+}
+
 export const api = {
   // ---- Account / auth ----
   me(): Promise<MeResponse> {
@@ -252,8 +261,13 @@ export const api = {
   stats(): Promise<Stats> {
     return request<Stats>('/stats')
   },
-  queue(): Promise<ReviewItem[]> {
-    return request<ReviewItem[]>('/queue')
+  queue(filter?: QueueFilter): Promise<ReviewItem[]> {
+    const params = new URLSearchParams()
+    if (filter?.status) params.set('status', filter.status)
+    if (filter?.platform) params.set('platform', String(filter.platform))
+    if (filter?.dryRun !== undefined) params.set('dryRun', String(filter.dryRun))
+    const qs = params.toString()
+    return request<ReviewItem[]>(`/queue${qs ? `?${qs}` : ''}`)
   },
   queueItem(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}`)
@@ -288,6 +302,23 @@ export const api = {
   },
   reject(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/reject`, { method: 'POST' })
+  },
+  /** Publish a previously-approved item to its connected platform account.
+   *  Refuses (via the backend) for mock/dry-run items or anything not approved. */
+  publish(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/publish`, { method: 'POST' })
+  },
+  bulkApprove(ids: string[]): Promise<{ updated: number }> {
+    return request<{ updated: number }>('/queue/bulk/approve', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
+  },
+  bulkReject(ids: string[]): Promise<{ updated: number }> {
+    return request<{ updated: number }>('/queue/bulk/reject', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
   },
   /** Same-origin URL for a review item's finished video — consumed directly by a
    *  <video> element (History tab), not through this JSON client, because the

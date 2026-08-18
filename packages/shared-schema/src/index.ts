@@ -188,6 +188,11 @@ export const ReviewItemSchema = z.object({
   publishedUrl: z.string().optional(),
   publishedAt: z.string().datetime().optional(),
   status: ReviewItemStatusSchema.default("pending"),
+  /** True when this item came from a dry-run (mock) pipeline run — see RunConfig.dryRun.
+   *  Carried onto the item so the review UI can badge/deprioritize mock items and the
+   *  publish route can refuse to ship a fake asset. Defaults to false for items written
+   *  before this field existed. */
+  dryRun: z.boolean().default(false),
   createdAt: z.string().datetime()
 });
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;

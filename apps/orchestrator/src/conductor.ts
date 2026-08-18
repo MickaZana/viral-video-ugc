@@ -315,6 +315,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             voiceoverPath,
             sourceTranscriptText: transcript.text,
             status: "pending",
+            dryRun: config.dryRun,
             createdAt: new Date().toISOString()
           };
           await insertReviewItem(reviewItem);

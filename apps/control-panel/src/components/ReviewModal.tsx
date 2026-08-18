@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReviewItem } from '../lib/types'
 import { api } from '../lib/api'
-import { PlatformBadge, ScoreBar, StatusBadge, formatRelative } from './primitives'
+import { PlatformBadge, ScoreBar, StatusBadge, MockBadge, formatRelative } from './primitives'
 
 /**
  * ReviewModal — full-screen preview of a review item before approve/reject.
@@ -14,10 +14,11 @@ interface ReviewModalProps {
   onClose: () => void
   onApprove: (id: string) => void
   onReject: (id: string) => void
+  onPublish?: (id: string) => void
   onDownload: (id: string) => void
 }
 
-export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: ReviewModalProps) {
+export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onDownload }: ReviewModalProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   async function handleApprove() {
@@ -32,6 +33,13 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: 
     finally { setActionLoading(null); onReject(item.id) }
   }
 
+  async function handlePublish() {
+    if (!onPublish) return
+    setActionLoading('publish')
+    try { await api.publish(item.id) } catch { /* */ }
+    finally { setActionLoading(null); onPublish(item.id) }
+  }
+
   const hasVideo = !!item.videoPath
 
   /**
@@ -44,9 +52,12 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: 
       // Don't intercept when user is typing in an input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') { onClose(); return }
-      if (item.status !== 'pending') return
-      if (e.key === 'a' || e.key === 'A') handleApprove()
-      if (e.key === 'r' || e.key === 'R') handleReject()
+      if (item.status === 'pending') {
+        if (e.key === 'a' || e.key === 'A') handleApprove()
+        if (e.key === 'r' || e.key === 'R') handleReject()
+      } else if (item.status === 'approved' && !item.dryRun && !item.publishedPostId && onPublish) {
+        if (e.key === 'p' || e.key === 'P') handlePublish()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -67,6 +78,7 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: 
             </span>
             <PlatformBadge platform={item.platform} />
             <StatusBadge status={item.status} />
+            {item.dryRun && <MockBadge />}
             <span className="text-[10px] font-mono text-[var(--color-muted-3)]">{item.id.slice(0, 8)}</span>
           </div>
           <button
@@ -210,14 +222,29 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: 
                   </button>
                 </>
               )}
+              {item.status === 'approved' && !item.dryRun && !item.publishedPostId && (
+                <button
+                  onClick={handlePublish}
+                  disabled={actionLoading === 'publish'}
+                  className="flex-1 px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50 hover:brightness-110"
+                  style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                >
+                  {actionLoading === 'publish' ? 'PUBLISHING...' : '↗ PUBLISH NOW'}
+                </button>
+              )}
               {item.status === 'approved' && (
                 <button
                   onClick={() => onDownload(item.id)}
-                  className="flex-1 px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors hover:brightness-110"
+                  className="px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors hover:brightness-110 disabled:opacity-50"
                   style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                 >
                   ↓ EXPORT VIDEO
                 </button>
+              )}
+              {item.status === 'approved' && item.dryRun && (
+                <span className="text-[10px] font-mono text-[var(--color-orange)] uppercase tracking-widest">
+                  Mock run — regenerate live before publishing
+                </span>
               )}
               {item.status === 'rejected' && (
                 <span className="text-[11px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">This item was rejected.</span>
@@ -231,10 +258,15 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onDownload }: 
                 </button>
               )}
             </div>
-            {/* Keyboard shortcut hint — shown only for pending items */}
+            {/* Keyboard shortcut hint — shown for actionable states */}
             {item.status === 'pending' && (
               <div className="px-6 pb-3 text-[9px] font-mono text-[var(--color-muted-3)] text-center tracking-widest">
                 [A] Approve &nbsp;·&nbsp; [R] Reject &nbsp;·&nbsp; [Esc] Close
+              </div>
+            )}
+            {item.status === 'approved' && !item.dryRun && !item.publishedPostId && (
+              <div className="px-6 pb-3 text-[9px] font-mono text-[var(--color-muted-3)] text-center tracking-widest">
+                [P] Publish &nbsp;·&nbsp; [Esc] Close
               </div>
             )}
           </div>

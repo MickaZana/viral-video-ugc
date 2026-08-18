@@ -707,10 +707,13 @@ export function registerAccountRoutes(
       if (clientId && !clientStore.getForOrg(resolveOrgId(account), clientId)) {
         return res.status(404).json({ error: "client not found" });
       }
+      const dryRunRaw = req.query.dryRun;
+      const dryRun = dryRunRaw === "true" ? true : dryRunRaw === "false" ? false : undefined;
       res.json({
         items: await listReviewItems({
           orgId: resolveOrgId(account),
-          clientId
+          clientId,
+          dryRun
         })
       });
     })

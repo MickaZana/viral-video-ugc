@@ -96,6 +96,7 @@ function reviewItem(orgId: string, id: string): ReviewItem {
     score: 82,
     flags: [],
     status: "pending",
+    dryRun: false,
     createdAt: new Date().toISOString()
   };
 }

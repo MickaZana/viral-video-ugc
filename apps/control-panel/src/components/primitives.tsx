@@ -57,6 +57,23 @@ export function StatusBadge({ status }: { status: ReviewItemStatus }) {
   )
 }
 
+/** Amber "MOCK" badge — flags dry-run (non-live) pipeline items that have no
+ *  real asset and cannot be published until regenerated live. */
+export function MockBadge() {
+  return (
+    <span
+      className="text-[9px] font-mono px-1.5 py-0.5 uppercase tracking-widest border"
+      style={{
+        color: 'var(--color-orange)',
+        borderColor: 'var(--color-orange)' + '44',
+        backgroundColor: 'var(--color-orange)' + '11'
+      }}
+    >
+      MOCK
+    </span>
+  )
+}
+
 export function TrendIcon({ trend }: { trend: 'up' | 'down' | 'neutral' }) {
   if (trend === 'up') return <span className="text-[var(--color-lime)] text-sm">▲</span>
   if (trend === 'down') return <span className="text-[var(--color-red)] text-sm">▼</span>

@@ -35,6 +35,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     score: 80,
     flags: [],
     status: "pending",
+    dryRun: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
@@ -274,7 +275,6 @@ describe("review-dashboard HTTP API", () => {
     it("every other route rejects a request with no credentials", async () => {
       await startServer();
       const targets: [string, RequestInit?][] = [
-        [`${baseUrl}/`],
         [`${baseUrl}/queue`],
         [`${baseUrl}/stats`],
         [`${baseUrl}/runs`],
@@ -286,6 +286,14 @@ describe("review-dashboard HTTP API", () => {
         const res = await fetch(url, init);
         expect(res.status, `${init?.method ?? "GET"} ${url}`).toBe(401);
       }
+    });
+
+    it("GET / is intentionally public — it redirects to the SPA rather than requiring auth", async () => {
+      await startServer();
+      // redirect: "manual" so fetch doesn't follow the 302 to /app (which would
+      // resolve to 200 via the SPA fallback and mask the intended unauthenticated redirect.
+      const res = await fetch(`${baseUrl}/`, { redirect: "manual" });
+      expect(res.status, "GET /").toBe(302);
     });
 
     it("GET /tokens.css requires no credentials — it's non-sensitive and the public /account page depends on it", async () => {

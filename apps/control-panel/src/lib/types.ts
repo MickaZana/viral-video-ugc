@@ -56,6 +56,10 @@ export interface ReviewItem {
   publishedAt?: string
   status: ReviewItemStatus
   createdAt: string
+  /** True when the item was produced by a dry-run (mock) pipeline run — it has no
+   *  real rendered asset and must be regenerated live (VVUGC_LLM_LIVE=true) before
+   *  it can be published. Always surfaced with a MOCK badge and never publishable. */
+  dryRun?: boolean
 }
 
 export interface RunFailure {

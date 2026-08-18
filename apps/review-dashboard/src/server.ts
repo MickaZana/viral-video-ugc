@@ -352,8 +352,11 @@ app.get(
     }
 
     const niche = typeof req.query.niche === "string" && req.query.niche ? req.query.niche : undefined;
+    const dryRunRaw = req.query.dryRun;
+    const dryRun =
+      dryRunRaw === "true" ? true : dryRunRaw === "false" ? false : undefined;
     res.json(
-      await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data })
+      await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun })
     );
   })
 );
@@ -569,6 +572,11 @@ app.post(
     if (!item) return res.status(404).json({ error: "not found" });
     if (item.status !== "approved") {
       return res.status(409).json({ error: `item must be approved before publishing (current status: ${item.status})` });
+    }
+    if (item.dryRun) {
+      return res.status(409).json({
+        error: "this is a dry-run (mock) item — it has no real asset to publish. Regenerate it live (VVUGC_LLM_LIVE=true) first."
+      });
     }
     if (item.publishedPostId) {
       return res.status(409).json({ error: `item was already published (postId: ${item.publishedPostId})` });

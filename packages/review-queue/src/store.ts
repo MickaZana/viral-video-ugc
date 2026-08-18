@@ -6,6 +6,9 @@ export interface ReviewItemFilter {
   platform?: ReviewItem["platform"];
   orgId?: string;
   clientId?: string;
+  /** When set, restrict to mock (`true`) or real (`false`) items. Items written
+   *  before the `dryRun` field existed are treated as real (false). */
+  dryRun?: boolean;
 }
 
 /**
