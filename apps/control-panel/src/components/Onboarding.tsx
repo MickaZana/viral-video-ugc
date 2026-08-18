@@ -35,11 +35,18 @@ interface OnboardingProps {
 export function Onboarding({ onComplete, onNavigate, onStart }: OnboardingProps) {
   const [step, setStep] = useState<Step>(0)
   const [starting, setStarting] = useState(false)
+  const [niche, setNiche] = useState('')
+  const [brandVoice, setBrandVoice] = useState('')
+  const [sourceUrl, setSourceUrl] = useState('')
 
   async function handleStart() {
     setStarting(true)
     try {
-      const { runId } = await api.start({})
+      const { runId } = await api.start({
+        niche: niche || undefined,
+        brandVoice: brandVoice || undefined,
+        sourceUrl: sourceUrl || undefined
+      })
       onStart?.(runId)
     } catch {
       // If the run can't start, don't trap the user in the overlay — let them in.
@@ -157,6 +164,27 @@ export function Onboarding({ onComplete, onNavigate, onStart }: OnboardingProps)
               <p className="text-sm text-[var(--color-muted-4)] leading-relaxed">
                 This Week is home. Start a dry-run, then review what lands in the queue.
               </p>
+              <div className="space-y-3 mt-4">
+                <p className="text-[11px] uppercase tracking-widest text-[var(--color-lime)]">Tell us about your brand (optional)</p>
+                <input
+                  value={niche}
+                  onChange={(e) => setNiche(e.target.value)}
+                  placeholder="Your niche (e.g. anti-anxiety dog gear)"
+                  className="w-full bg-[var(--color-raised)] border border-[var(--color-faint)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted-3)] focus:border-[var(--color-lime)] outline-none"
+                />
+                <input
+                  value={brandVoice}
+                  onChange={(e) => setBrandVoice(e.target.value)}
+                  placeholder="Brand voice (e.g. calm, expert, reassuring)"
+                  className="w-full bg-[var(--color-raised)] border border-[var(--color-faint)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted-3)] focus:border-[var(--color-lime)] outline-none"
+                />
+                <input
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  placeholder="Paste a brand or viral link to remix (optional)"
+                  className="w-full bg-[var(--color-raised)] border border-[var(--color-faint)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted-3)] focus:border-[var(--color-lime)] outline-none"
+                />
+              </div>
               <div className="border border-[var(--color-border)] p-4 mt-4">
                 <p className="text-[11px] uppercase tracking-widest text-[var(--color-lime)] mb-2">Pro tips</p>
                 <ul className="space-y-1.5 text-[12px] text-[var(--color-muted-4)]">

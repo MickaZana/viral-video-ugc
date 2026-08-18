@@ -109,6 +109,7 @@ export interface LoginResponse {
 export interface StartRequest {
   niche?: string
   platform?: string
+  brandVoice?: string
   sourceUrl?: string
   clientId?: string
   dryRun?: boolean
