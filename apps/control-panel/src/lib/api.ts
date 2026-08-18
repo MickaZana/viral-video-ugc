@@ -106,6 +106,20 @@ export interface LoginResponse {
   expiresAt?: string
 }
 
+export interface StartRequest {
+  niche?: string
+  platform?: string
+  sourceUrl?: string
+  clientId?: string
+  dryRun?: boolean
+  live?: boolean
+}
+export interface StartResponse {
+  job: { id: string; status: string }
+  runId: string
+  progressUrl: string
+}
+
 export const api = {
   // ---- Account / auth ----
   me(): Promise<MeResponse> {
@@ -205,6 +219,14 @@ export const api = {
    *  is the backend default; pass dryRun:false to attempt a live run. */
   run(body: { clientId: string; dryRun: boolean }): Promise<RunResponse> {
     return request<RunResponse>('/accounts/run', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  /** First-run happy path: enqueue a dry-run (or live) pipeline for the org and
+   *  return its runId + progressUrl so the SPA can land on the live run page. */
+  start(body: StartRequest): Promise<StartResponse> {
+    return request<StartResponse>('/accounts/start', {
       method: 'POST',
       body: JSON.stringify(body)
     })

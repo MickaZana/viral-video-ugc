@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from '../lib/api'
 
 const ONBOARDING_KEY = 'ugu-onboarding-done'
 
@@ -28,10 +29,23 @@ type Step = 0 | 1 | 2 | 3
 interface OnboardingProps {
   onComplete: () => void
   onNavigate: (tab: string) => void
+  onStart?: (runId: string) => void
 }
 
-export function Onboarding({ onComplete, onNavigate }: OnboardingProps) {
+export function Onboarding({ onComplete, onNavigate, onStart }: OnboardingProps) {
   const [step, setStep] = useState<Step>(0)
+  const [starting, setStarting] = useState(false)
+
+  async function handleStart() {
+    setStarting(true)
+    try {
+      const { runId } = await api.start({})
+      onStart?.(runId)
+    } catch {
+      // If the run can't start, don't trap the user in the overlay — let them in.
+      onComplete()
+    }
+  }
 
   function next() {
     if (step < 3) setStep((step + 1) as Step)
@@ -172,11 +186,12 @@ export function Onboarding({ onComplete, onNavigate }: OnboardingProps) {
                 </button>
               )}
               <button
-                onClick={next}
-                className="px-6 py-2.5 font-semibold uppercase tracking-widest text-sm transition-colors hover:brightness-110"
+                onClick={step === 3 ? handleStart : next}
+                disabled={step === 3 && starting}
+                className="px-6 py-2.5 font-semibold uppercase tracking-widest text-sm transition-colors hover:brightness-110 disabled:opacity-50"
                 style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
               >
-                {step === 3 ? 'Get started' : 'Next'}
+                {step === 3 ? (starting ? 'Starting…' : 'Get started') : 'Next'}
               </button>
             </div>
           </div>

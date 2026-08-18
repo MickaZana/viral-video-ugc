@@ -139,6 +139,10 @@ export function WorkspaceLayout({
             navigate(tabPath[tab] ?? paths.home)
             completeOnboarding()
           }}
+          onStart={(runId) => {
+            completeOnboarding()
+            navigate(paths.studioRun(runId))
+          }}
         />
       )}
     </div>

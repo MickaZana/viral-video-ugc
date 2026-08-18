@@ -515,9 +515,21 @@ export function registerAccountRoutes(
 
   // SSE endpoint for real-time pipeline progress events.
   // The client connects once a run starts and receives stage-by-stage updates.
-  app.get("/accounts/run-progress/:runId", requireSession, (req: Request, res: Response) => {
-    sseProgressHandler(req, res);
-  });
+  // Org-scoped: a run only streams for the org that owns it (defense-in-depth on
+  // top of the session check) — another tenant's runId answers 404, not a stream.
+  app.get(
+    "/accounts/run-progress/:runId",
+    requireSession,
+    asyncHandler<{ runId: string }>(async (req: AuthedRequest, res: Response) => {
+      const account = requireAccount(req, res)
+      if (!account) return
+      const orgId = resolveOrgId(account)
+      const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId
+      const owned = (await jobStore.list(orgId)).some((j) => j.config?.runId === runId)
+      if (!owned) return res.status(404).json({ error: "run not found" })
+      sseProgressHandler(req, res)
+    })
+  );
 
   app.post(
     "/accounts/clients/:clientId/acceptance",
@@ -789,6 +801,96 @@ export function registerAccountRoutes(
         });
       }
       res.json({ ...result, overage: isOverage ? { priceUsdPerRun: quota.overagePriceUsdPerRun } : null });
+    })
+  );
+
+  // ── First run (30-second happy path) ──────────────────────────────────────
+  // POST /accounts/start builds a RunConfig from the org's client (auto-creating a
+  // default one if the org has none) and ENQUEUES it for the background worker,
+  // returning 202 with a runId + progressUrl so the SPA can land on
+  // /app/studio/runs/:runId and watch live SSE. sourceUrl provided -> remix (skip
+  // discovery); omitted -> discovery. Dry-run is the default; live needs the
+  // pipeline.run.live permission.
+  app.post(
+    "/accounts/start",
+    requireSession,
+    runRateLimiter,
+    asyncHandler<Record<string, string>>(async (req: AuthedRequest, res: Response) => {
+      const live = req.body?.live === true
+      const account = live
+        ? requirePermission("pipeline.run.live")(req, res)
+        : requirePermission("pipeline.run")(req, res)
+      if (!account) return
+      const orgId = resolveOrgId(account)
+
+      const niche = typeof req.body?.niche === "string" ? req.body.niche.trim() : ""
+      const platformRaw = typeof req.body?.platform === "string" ? req.body.platform : undefined
+      const sourceUrl = typeof req.body?.sourceUrl === "string" ? req.body.sourceUrl : undefined
+      if (sourceUrl && !parseSourceUrl(sourceUrl)) {
+        return res.status(400).json({ error: "sourceUrl must be a TikTok, YouTube, or Instagram (Reels) link" })
+      }
+      const validPlatforms = ["tiktok", "youtube_shorts", "instagram_reels"] as const
+      const platforms =
+        platformRaw && (validPlatforms as readonly string[]).includes(platformRaw)
+          ? [platformRaw as (typeof validPlatforms)[number]]
+          : undefined
+
+      // Resolve or auto-create a default client so the first run needs zero setup.
+      const existing = clientStore.listByOrg(orgId)
+      const fallbackPlatforms = existing[0]?.platforms
+      const requestedClientId = typeof req.body?.clientId === "string" ? req.body.clientId : undefined
+      const preClient = requestedClientId ? clientStore.getForOrg(orgId, requestedClientId) : existing[0]
+      const client = preClient ?? clientStore.create(orgId, {
+        name: "Default Client",
+        active: true,
+        niche: niche || "general",
+        brandVoice:
+          typeof req.body?.brandVoice === "string" && req.body.brandVoice.trim()
+            ? req.body.brandVoice
+            : "Conversational, energetic, direct to camera",
+        locale: "en",
+        platforms: platforms ?? fallbackPlatforms ?? ["tiktok"],
+        targetDurationSec: 30,
+        videoVendor: "kling",
+        voiceVendor: "elevenlabs",
+        cadence: "weekly"
+      })
+
+      const plan = planStore.get(orgId)
+      const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR)
+      const quota = checkRunQuota(plan, usage)
+      const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined
+
+      const runId = randomUUID()
+      const config = RunConfigSchema.parse({
+        runId,
+        orgId,
+        accountId: orgId,
+        clientId: client.id,
+        niche: client.niche,
+        platforms: client.platforms,
+        brandVoice: client.brandVoice,
+        targetDurationSec: client.targetDurationSec,
+        videoVendor: client.videoVendor,
+        voiceVendor: client.voiceVendor,
+        locale: client.locale,
+        brandKit: client.brandKit,
+        sourceUrl: sourceUrl ?? undefined,
+        dryRun: !live,
+        createdAt: new Date().toISOString()
+      })
+
+      const idempotencyKey =
+        typeof req.headers["idempotency-key"] === "string" ? req.headers["idempotency-key"] : randomUUID()
+      const job = await jobStore.enqueue(orgId, client.id, config, idempotencyKey)
+      if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
+        overageStore.record({ orgId, runId, priceUsdPerRun: quota.overagePriceUsdPerRun, clientId: client.id })
+      }
+      res.status(202).json({
+        job: { id: job.id, status: job.status },
+        runId,
+        progressUrl: `/api/accounts/run-progress/${runId}`
+      })
     })
   );
 
