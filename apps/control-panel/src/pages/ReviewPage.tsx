@@ -37,6 +37,7 @@ export function ReviewPage() {
   const [sort, setSort] = useState<SortKey>('score')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const handleDownload = useCallback((id: string) => {
     const url = api.mediaUrl(id)
@@ -121,6 +122,48 @@ export function ReviewPage() {
     [queue]
   )
 
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const handleBulkApprove = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (!ids.length) return
+    setBusyId('__bulk__')
+    setError(null)
+    try {
+      await api.bulkApprove(ids)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return
+    } finally {
+      setBusyId(null)
+      setSelectedIds(new Set())
+      queue.reload()
+    }
+  }, [selectedIds, queue])
+
+  const handleBulkReject = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (!ids.length) return
+    setBusyId('__bulk__')
+    setError(null)
+    try {
+      await api.bulkReject(ids)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return
+    } finally {
+      setBusyId(null)
+      setSelectedIds(new Set())
+      queue.reload()
+    }
+  }, [selectedIds, queue])
+
   function group(key: (typeof COLUMNS)[number]['key']) {
     if (key === 'published') return visible.filter((i) => Boolean(i.publishedPostId))
     if (key === 'approved') return visible.filter((i) => i.status === 'approved' && !i.publishedPostId)
@@ -180,13 +223,23 @@ export function ReviewPage() {
                   const isMock = Boolean(item.dryRun)
                   const canPublish = item.status === 'approved' && !item.publishedPostId && !isMock
                   return (
-                    <div key={item.id} className="px-4 py-3 space-y-2">
-                      <button onClick={() => navigate(paths.reviewItem(item.id))} className="text-left w-full">
+                  <div key={item.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelect(item.id)}
+                        aria-label={`Select ${item.id}`}
+                        style={{ accentColor: 'var(--color-lime)' }}
+                        className="mt-1 shrink-0"
+                      />
+                      <button onClick={() => navigate(paths.reviewItem(item.id))} className="text-left flex-1 min-w-0">
                         <p className="text-sm text-[var(--color-text)]">{item.script.hook}</p>
                         <p className="text-[10px] text-[var(--color-muted-3)] mt-1">
                           {item.niche} · {formatRelative(item.createdAt)}
                         </p>
                       </button>
+                    </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <PlatformBadge platform={item.platform} />
                         <div className="w-16">
@@ -261,6 +314,32 @@ export function ReviewPage() {
           )
         })}
       </div>
+
+      {selectedIds.size > 0 && (
+        <div className="sticky bottom-0 z-40 flex items-center gap-3 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-lg">
+          <span className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">{selectedIds.size} selected</span>
+          <button
+            onClick={handleBulkApprove}
+            disabled={busyId === '__bulk__'}
+            className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors disabled:opacity-50"
+          >
+            ✓ Approve selected
+          </button>
+          <button
+            onClick={handleBulkReject}
+            disabled={busyId === '__bulk__'}
+            className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-red)] text-[var(--color-red)] hover:bg-[var(--color-red)] hover:text-white transition-colors disabled:opacity-50"
+          >
+            ✗ Reject selected
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-[10px] uppercase tracking-widest text-[var(--color-muted-2)] hover:text-[var(--color-text)]"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {items.length === 0 && !queue.loading && (
         <EmptyState
