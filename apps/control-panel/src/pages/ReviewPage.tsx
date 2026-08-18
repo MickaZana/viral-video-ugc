@@ -132,6 +132,18 @@ export function ReviewPage() {
       return next
     })
 
+  const toggleColumn = (key: (typeof COLUMNS)[number]['key']) => {
+    const colIds = group(key).map((i) => i.id)
+    if (!colIds.length) return
+    const allSelected = colIds.every((id) => selectedIds.has(id))
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) colIds.forEach((id) => next.delete(id))
+      else colIds.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
   const handleBulkApprove = useCallback(async () => {
     const ids = Array.from(selectedIds)
     if (!ids.length) return
@@ -221,7 +233,25 @@ export function ReviewPage() {
           return (
             <div key={col.key} className="border border-[var(--color-border)] bg-[var(--color-surface)]">
               <div className="border-b border-[var(--color-border)] px-4 py-3 flex items-center justify-between">
-                <span className="text-[11px] uppercase tracking-widest">{col.label}</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={list.length > 0 && list.every((i) => selectedIds.has(i.id))}
+                    ref={(el) => {
+                      if (el) {
+                        const some = list.some((i) => selectedIds.has(i.id))
+                        const all = list.every((i) => selectedIds.has(i.id))
+                        el.indeterminate = some && !all
+                      }
+                    }}
+                    onChange={() => toggleColumn(col.key)}
+                    disabled={list.length === 0}
+                    aria-label={`Select all in ${col.label}`}
+                    style={{ accentColor: 'var(--color-lime)' }}
+                    className="shrink-0"
+                  />
+                  <span className="text-[11px] uppercase tracking-widest">{col.label}</span>
+                </div>
                 <span className="text-[11px] font-mono text-[var(--color-muted-2)]">{list.length}</span>
               </div>
               <div className="divide-y divide-[var(--color-raised)] min-h-[8rem]">
