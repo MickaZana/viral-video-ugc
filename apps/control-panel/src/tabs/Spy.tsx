@@ -1,9 +1,12 @@
+import { useNavigate } from 'react-router-dom'
+import { paths } from '../lib/paths'
 import { useState } from 'react'
 import type { TrackedCreator } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar, TrendIcon, formatCompact, formatRelative } from '../components/primitives'
 import { creatorScore } from './Dashboard'
+import { EmptyState } from '../components/EmptyState'
 
 type PlatformFilter = 'all' | 'youtube_shorts' | 'instagram_reels' | 'tiktok'
 
@@ -13,6 +16,7 @@ type PlatformFilter = 'all' | 'youtube_shorts' | 'instagram_reels' | 'tiktok'
  * creator shows its real metrics, source posts, and platform. No mock data.
  */
 export function Spy() {
+  const navigate = useNavigate()
   const creators = useApi(() => api.creators())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [platform, setPlatform] = useState<PlatformFilter>('all')
@@ -72,7 +76,13 @@ export function Spy() {
             </div>
           ))}
           {filtered.length === 0 && !creators.loading && (
-            <p className="text-[11px] font-mono text-[var(--color-muted-2)] px-4 py-6">No discovered sources yet.</p>
+            <EmptyState
+              icon="◈"
+              title="NO SOURCES DISCOVERED"
+              description="Run the pipeline to discover viral creators. The Creator Spy fills up automatically as you track more niches."
+              actionLabel="RUN PIPELINE"
+              onAction={() => navigate(paths.studio)}
+            />
           )}
         </div>
       </div>
@@ -82,9 +92,13 @@ export function Spy() {
         {selected ? (
           <CreatorDetail c={selected} />
         ) : (
-          <Panel title="NO SOURCE SELECTED">
-            <p className="text-[11px] font-mono text-[var(--color-muted-2)] px-5 py-6">No discovered creators to inspect.</p>
-          </Panel>
+          <div className="border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <EmptyState
+              icon="◈"
+              title="SELECT A SOURCE"
+              description="Click a creator from the list to see their viral metrics, tracked runs, and AI intel summary."
+            />
+          </div>
         )}
       </div>
 
@@ -113,14 +127,14 @@ function CreatorDetail({ c }: { c: TrackedCreator }) {
               <span className="text-[10px] font-mono text-[var(--color-muted-2)]">SURVEILLANCE ACTIVE</span>
               <span className="text-[10px] font-mono text-[var(--color-lime)] pulse-lime">●</span>
             </div>
-            <h2 className="text-4xl font-black mt-2" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-text)' }}>
+            <h2 className="text-4xl font-black mt-2" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', color: 'var(--color-text)' }}>
               {c.label}
             </h2>
             <p className="text-sm font-mono text-[var(--color-muted-2)] mt-1">{c.niche} · {formatCompact(c.views)} views</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Viral Score</p>
-            <p className="text-6xl font-black" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-lime)' }}>
+            <p className="text-6xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', color: 'var(--color-lime)' }}>
               {score}
             </p>
           </div>
@@ -148,7 +162,7 @@ function CreatorDetail({ c }: { c: TrackedCreator }) {
       </div>
 
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-        <p className="text-sm font-black uppercase tracking-widest mb-3" style={{ fontFamily: 'Barlow Condensed' }}>
+        <p className="text-sm font-black uppercase tracking-widest mb-3" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
           AI INTEL SUMMARY
         </p>
         <p className="text-sm font-mono text-[var(--color-muted-4)] leading-relaxed">

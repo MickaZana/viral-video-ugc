@@ -14,6 +14,7 @@ import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
 import { checkRunQuota } from "./quota.js";
 import { createOverageStore } from "./overage.js";
+import { createProgressCallback, completeRun } from "./run-progress.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -228,7 +229,9 @@ export async function processNextPipelineJob(
     // Hybrid billing: a run past the tier's included allowance is allowed and
     // recorded as consumption overage, not blocked.
     const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
-    const result = await runCycle(job.config, { onProgress: () => {} });
+    const onProgress = createProgressCallback(job.config.runId);
+    const result = await runCycle(job.config, { onProgress });
+    completeRun(job.config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
     if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
       createOverageStore(join(VVUGC_RUNS_DIR, "overage.json")).record({
         orgId: job.orgId,

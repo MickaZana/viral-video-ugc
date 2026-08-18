@@ -141,11 +141,10 @@ describe("account settings and self-service run routes", () => {
     expect(usage.totalRuns).toBe(1);
   }, 20_000);
 
-  it("GET /account serves the self-service page without Basic Auth", async () => {
+  it("GET /account redirects to the SPA workspace", async () => {
     await startServer();
-    const res = await fetch(`${baseUrl}/account`);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("Sign in");
+    const res = await fetch(`${baseUrl}/account`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/app");
   });
 });

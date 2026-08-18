@@ -21,7 +21,6 @@ import { join, resolve, sep } from "node:path";
 import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { listRuns } from "./runs.js";
 import { listTrackedCreators } from "./creators.js";
-import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
 import { renderAccountPage } from "./account-page.js";
@@ -216,7 +215,12 @@ registerBillingRoutes(app, requireSession);
 // the owner to send a teammate; without this second route it fell through past
 // /account to the operator Basic Auth gate below and 401'd for every invited
 // teammate, the same failure mode /tokens.css had before it was moved up here.
-app.get(["/dashboard", "/account", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
+// /account used to be the HTML self-service page. The product workspace is the
+// SPA now — bounce there. /account/join stays as the invite-accept page.
+app.get("/account", (_req, res) => {
+  res.redirect(302, "/app");
+});
+app.get(["/dashboard", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
   res.type("html").send(renderAccountPage(req.scriptNonce));
 });
 
@@ -275,11 +279,10 @@ app.get(
   })
 );
 
-// The control-panel SPA — the product workspace / landing (see the "better yorbi"
+// The control-panel SPA — the product workspace / landing (see the
 // front-end). Served from this same origin so its session-cookie auth and CSRF
 // protection work exactly as they do in dev (Vite proxies /api to this backend).
-// Mounted at /app (the operator dashboard stays at /) and public: guests load the
-// landing, then sign in. The hashed Vite assets are served at /assets. Optional —
+// Mounted at /app. Guests see sign-in; authenticated / redirects to /app/review. The hashed Vite assets are served at /assets. Optional —
 // if the SPA hasn't been built in this checkout, /app simply 404s and the
 // dashboard's own operator UI is unaffected.
 const CONTROL_PANEL_DIST = fileURLToPath(new URL("../../control-panel/dist/", import.meta.url));
@@ -295,6 +298,15 @@ if (existsSync(CONTROL_PANEL_DIST)) {
   // "*" wildcard, so a prefix-mount middleware is the correct shape here.
   app.use("/app", serveControlPanel);
 }
+
+// Product home is the SPA. Session -> review queue; guests -> sign-in.
+// Registered before the operator Basic Auth gate so unauthenticated / is a
+// 302, not a 401 challenge. Nested /app/* already SPA-fallbacks above.
+app.get("/", (req, res) => {
+  const session = verifySessionRequest(req);
+  if (session) return res.redirect(302, "/app/review");
+  return res.redirect(302, "/app");
+});
 
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
@@ -583,9 +595,7 @@ app.post(
   })
 );
 
-app.get("/", (req: Request & { scriptNonce?: string }, res) => {
-  res.type("html").send(renderDashboardPage(req.scriptNonce));
-});
+
 
 // Error-handling middleware — must have exactly 4 params for Express to
 // recognize it as such. Catches rejections forwarded by asyncHandler.

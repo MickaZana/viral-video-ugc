@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { paths } from '../lib/paths'
 import type {
   AgencyClient,
   ClientCadence,
@@ -13,6 +15,7 @@ import type {
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
+import { PipelineProgress } from '../components/PipelineProgress'
 
 /**
  * Video Generator — pick a model by the result you want, then run the real
@@ -56,7 +59,57 @@ const EMPTY_FORM = {
   cadence: 'manual' as ClientCadence
 }
 
+/**
+ * Pre-built niche presets — let a new user start the pipeline in one click
+ * instead of filling every field manually. Each preset maps directly onto
+ * the new-client form fields; the user can still edit anything after.
+ */
+const NICHE_PRESETS: ReadonlyArray<{
+  emoji: string
+  label: string
+  niche: string
+  brandVoice: string
+  platforms: Platform[]
+}> = [
+  { emoji: '🏋️', label: 'Fitness',  niche: 'fitness motivation',        brandVoice: 'energetic, raw, authentic',       platforms: ['youtube_shorts', 'tiktok'] },
+  { emoji: '💰', label: 'Finance',  niche: 'personal finance tips',      brandVoice: 'calm, authoritative, simple',     platforms: ['youtube_shorts'] },
+  { emoji: '🍔', label: 'Food',     niche: 'food and cooking',           brandVoice: 'warm, fun, approachable',         platforms: ['tiktok', 'instagram_reels'] },
+  { emoji: '✨', label: 'Beauty',   niche: 'skincare and beauty',        brandVoice: 'aspirational, relatable, trendy', platforms: ['tiktok', 'instagram_reels'] },
+  { emoji: '🎮', label: 'Gaming',   niche: 'gaming highlights and tips', brandVoice: 'hype, casual, community-first',   platforms: ['youtube_shorts', 'tiktok'] },
+]
+
+/** Renders the 5 niche preset buttons. Fires onSelect with a partial form
+ *  update so VideoGenerator can merge it into its own form state. */
+function NichePresets({ onSelect }: {
+  onSelect: (patch: Partial<typeof EMPTY_FORM>) => void
+}) {
+  return (
+    <div className="mb-5">
+      <p className="text-[10px] font-mono text-[var(--color-muted-2)] uppercase tracking-widest mb-2">
+        Quick start — pick a niche
+      </p>
+      <div className="grid grid-cols-5 gap-2">
+        {NICHE_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onSelect({ niche: p.niche, brandVoice: p.brandVoice, platforms: [...p.platforms] })}
+            className="border border-[var(--color-border)] p-3 text-left hover:border-[var(--color-lime)] transition-colors group"
+          >
+            <div className="text-base mb-1">{p.emoji}</div>
+            <div className="text-[10px] font-mono uppercase tracking-widest group-hover:text-[var(--color-lime)] transition-colors"
+              style={{ color: 'var(--color-muted-2)' }}>
+              {p.label}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function VideoGenerator() {
+  const navigate = useNavigate()
   const models = useApi<ModelsResponse>(() => api.models())
   const clients = useApi<{ clients: AgencyClient[] }>(() => api.clients())
   const grouped = models.data?.grouped
@@ -68,6 +121,7 @@ export function VideoGenerator() {
   const [live, setLive] = useState(false)
   const [run, setRun] = useState<RunResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
 
   const clientList = clients.data?.clients ?? []
   const selectedClient = clientList.find((c) => c.id === clientId) ?? clientList[0] ?? null
@@ -128,6 +182,7 @@ export function VideoGenerator() {
     setRunning(true)
     setError(null)
     setRun(null)
+    setActiveRunId(null)
     try {
       const videoVendor = (videoChosen ? vendorForModelId(videoChosen.id) : selectedClient.videoVendor) as VideoVendor
       const voiceVendor = voiceChosen ? (vendorForModelId(voiceChosen.id) as VoiceVendor) : selectedClient.voiceVendor
@@ -154,6 +209,8 @@ export function VideoGenerator() {
       }
       const result = await api.run({ clientId: target.id, dryRun: !live })
       setRun(result)
+      setActiveRunId(result.runId)
+      navigate(paths.studioRun(result.runId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -177,7 +234,7 @@ export function VideoGenerator() {
             return (
               <div key={kind} className="px-5 py-4">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-text)' }}>
+                  <span className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', color: 'var(--color-text)' }}>
                     {KIND_LABEL[kind]}
                   </span>
                   {chosen && (
@@ -228,8 +285,11 @@ export function VideoGenerator() {
             ) : (
               <>
                 <p className="text-[11px] font-mono text-[var(--color-muted-2)]">
-                  No client yet — a client holds the niche, platforms and vendors a run is built from. Create one to run the pipeline; your selected video/voiceover model becomes its vendor.
+                  No client yet — pick a niche below to pre-fill the form, or type your own. Your selected video/voiceover model becomes its vendor.
                 </p>
+                <NichePresets
+                  onSelect={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <label className="block">
                     <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Client name</span>
@@ -302,7 +362,7 @@ export function VideoGenerator() {
                   onClick={handleCreateClient}
                   disabled={creating || !form.name.trim() || !form.niche.trim() || !form.brandVoice.trim() || form.platforms.length === 0}
                   className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-                  style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                  style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                 >
                   {creating ? 'CREATING...' : 'CREATE CLIENT'}
                 </button>
@@ -364,7 +424,7 @@ export function VideoGenerator() {
                     onClick={handleRun}
                     disabled={running}
                     className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-                    style={{ fontFamily: 'Barlow Condensed', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                    style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                   >
                     {running ? 'RUNNING...' : live ? 'RUN LIVE' : 'RUN DRY-RUN'}
                   </button>
@@ -389,27 +449,18 @@ export function VideoGenerator() {
 
       {error && <p className="text-[11px] font-mono text-[var(--color-red)]">{error}</p>}
 
-      {run && (
-        <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed' }}>
-              RUN COMPLETE <span className="text-[var(--color-lime)]">({live ? 'LIVE' : 'DRY-RUN'})</span>
-            </p>
-            <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest">✓ QUEUED FOR REVIEW</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Run</span><div className="text-[var(--color-text)]">{run.runId.slice(0, 8)}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Queued for review</span><div className="text-[var(--color-lime)]">{run.reviewItemsCreated}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates found</span><div className="text-[var(--color-text)]">{run.candidatesFound}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Est. cost</span><div className="text-[var(--color-text)]">${run.estimatedCostUsd?.toFixed(2) ?? 'n/a'}</div></div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono mt-3">
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Overage</span><div className="text-[var(--color-orange)]">{run.overage ? `$${run.overage.priceUsdPerRun}/run` : 'none'}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates failed</span><div className="text-[var(--color-text)]">{run.candidatesFailed ?? 0}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Platforms failed</span><div className="text-[var(--color-text)]">{run.platformsFailed ?? 0}</div></div>
-          </div>
-        </div>
+      {/* Pipeline running: take over the visible area so the 9-stage progress
+          is the hero of the screen — this is the feature Higgsfield cannot copy. */}
+      {running && (
+        <PipelineRunningPanel runId={activeRunId ?? run?.runId} />
       )}
+
+      {/* Show compact progress bar after run finishes (not full-panel) */}
+      {!running && (activeRunId || run?.runId) && (
+        <PipelineProgress active={false} runId={activeRunId ?? run?.runId} />
+      )}
+
+      {run && <RunSummary run={run} live={live} />}
 
       {models.error && (
         <p className="text-[11px] font-mono text-[var(--color-red)]">Load error: {models.error}</p>
@@ -417,6 +468,63 @@ export function VideoGenerator() {
       {clients.error && (
         <p className="text-[11px] font-mono text-[var(--color-red)]">Load error: {clients.error}</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * Full-panel takeover shown while a pipeline run is in progress.
+ * Surfaces the 9-stage automation as the primary visual — this is the
+ * feature Higgsfield cannot match (they generate one clip at a time).
+ */
+function PipelineRunningPanel({ runId }: { runId?: string }) {
+  return (
+    <div className="border border-[var(--color-lime)] bg-[var(--color-surface)] p-6 space-y-6">
+      <div className="flex items-center gap-3">
+        <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest pulse-lime">
+          ● Pipeline Running
+        </span>
+        {runId && (
+          <span className="text-[10px] font-mono text-[var(--color-muted-3)]">
+            run {runId.slice(0, 8)}
+          </span>
+        )}
+      </div>
+      <PipelineProgress active runId={runId} />
+      <p className="text-[11px] font-mono text-[var(--color-muted-2)] text-center">
+        Sit back — discovery → transcript → script → voiceover → video → assembly → QA → queue,
+        all running automatically.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Compact post-run summary shown after a pipeline completes.
+ * Isolated so it can be updated without touching VideoGenerator.
+ */
+function RunSummary({ run, live }: { run: RunResponse; live: boolean }) {
+  return (
+    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+          Run Complete <span className="text-[var(--color-lime)]">({live ? 'LIVE' : 'DRY-RUN'})</span>
+        </p>
+        <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest">
+          ✓ Queued for Review
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Run</span><div className="text-[var(--color-text)]">{run.runId.slice(0, 8)}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Queued</span><div className="text-[var(--color-lime)]">{run.reviewItemsCreated}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates</span><div className="text-[var(--color-text)]">{run.candidatesFound}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Est. cost</span><div className="text-[var(--color-text)]">${run.estimatedCostUsd?.toFixed(2) ?? 'n/a'}</div></div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-[10px] font-mono mt-3">
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Overage</span><div className="text-[var(--color-orange)]">{run.overage ? `$${run.overage.priceUsdPerRun}/run` : 'none'}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Failed candidates</span><div className="text-[var(--color-text)]">{run.candidatesFailed ?? 0}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Failed platforms</span><div className="text-[var(--color-text)]">{run.platformsFailed ?? 0}</div></div>
+      </div>
     </div>
   )
 }

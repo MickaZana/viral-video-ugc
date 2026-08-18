@@ -7,7 +7,28 @@ import tailwindcss from '@tailwindcss/vite'
 // and the account-session auth). The proxy keeps the browser same-origin so the
 // session cookie flows normally — no CORS needed in development.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: 'app-basename',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const path = (req.url ?? '').split('?')[0]
+          if (path === '/') {
+            res.statusCode = 302
+            res.setHeader('Location', '/app')
+            res.end()
+            return
+          }
+          if (path === '/app' || path.startsWith('/app/')) {
+            req.url = '/'
+          }
+          next()
+        })
+      }
+    }
+  ],
   server: {
     host: '0.0.0.0',
     port: 4330,

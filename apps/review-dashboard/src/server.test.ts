@@ -198,12 +198,11 @@ describe("review-dashboard HTTP API", () => {
     expect(body).toContain("--accent");
   });
 
-  it("GET / renders the dashboard shell", async () => {
+  it("GET / redirects guests to /app", async () => {
     await startServer();
-    const res = await fetch(`${baseUrl}/`, { headers: AUTH_HEADER });
-    const html = await res.text();
-    expect(html).toContain("Review Queue");
-    expect(html).toContain('id="queue-list"');
+    const res = await fetch(`${baseUrl}/`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/app");
   });
 
   it("GET /app serves the control-panel SPA without operator auth (when built)", async () => {
@@ -216,8 +215,13 @@ describe("review-dashboard HTTP API", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
-    expect(html).toContain("UGU PROGRAM");
+    expect(html).toContain("Viral Video UGC");
     expect(html).toContain('<div id="root">');
+    const nested = await fetch(`${baseUrl}/app/intel`);
+    if (nested.status !== 404) {
+      expect(nested.status).toBe(200);
+      expect(await nested.text()).toContain('<div id="root">');
+    }
   });
 
   it("GET /api/* is rewritten to the backend's real routes", async () => {

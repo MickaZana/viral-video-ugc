@@ -1,8 +1,11 @@
+import { useNavigate } from 'react-router-dom'
+import { paths } from '../lib/paths'
 import { useEffect, useState } from 'react'
 import type { ReviewItem } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar } from '../components/primitives'
+import { EmptyState } from '../components/EmptyState'
 
 /**
  * Script Rewriter — real data and real regeneration. The user selects an actual
@@ -11,6 +14,7 @@ import { Panel, PlatformBadge, ScoreBar } from '../components/primitives'
  * orchestration regeneration and returns the updated item. No mock output.
  */
 export function Rewriter() {
+  const navigate = useNavigate()
   const queue = useApi(() => api.queue())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [hook, setHook] = useState('')
@@ -96,14 +100,22 @@ export function Rewriter() {
             </button>
           ))}
           {items.length === 0 && !queue.loading && (
-            <span className="text-[11px] font-mono text-[var(--color-muted-2)]">No review items yet — run the pipeline first.</span>
+            <EmptyState
+              icon="⌥"
+              title="NO REVIEW ITEMS"
+              description="Run the pipeline first to generate review items. Each item contains a viral script you can rewrite for your niche."
+              actionLabel="RUN PIPELINE"
+              onAction={() => navigate(paths.studio)}
+              secondaryLabel="OR REMIX A URL"
+              onSecondary={() => navigate(paths.intelRemix)}
+            />
           )}
         </div>
       </Panel>
 
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed' }}>
+          <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             ORIGINAL VIRAL SCRIPT
           </p>
           {selectedId && <span className="text-[10px] font-mono text-[var(--color-muted-2)]">{selectedId}</span>}
@@ -143,7 +155,7 @@ export function Rewriter() {
           disabled={loading || !selectedId}
           className="px-8 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
           style={{
-            fontFamily: 'Barlow Condensed',
+            fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
             backgroundColor: loading ? 'var(--color-muted-3)' : 'var(--color-lime)',
             color: 'var(--color-on-accent)'
           }}
@@ -154,7 +166,7 @@ export function Rewriter() {
         {done && result && (
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-[var(--color-muted-2)] uppercase tracking-widest">Viral Score</span>
-            <span className="text-2xl font-black" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-lime)' }}>
+            <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', color: 'var(--color-lime)' }}>
               {result.score}
             </span>
           </div>
@@ -163,7 +175,7 @@ export function Rewriter() {
 
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed' }}>
+          <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             AI REWRITTEN SCRIPT
           </p>
           {loading && (

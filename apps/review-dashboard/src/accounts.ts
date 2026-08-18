@@ -38,6 +38,7 @@ import { deleteSecurityEventsForAccount, deleteSecurityEventsForOrg, listSecurit
 import { createPipelineJobStore } from "./jobs.js";
 import { createMfaChallengeStore, createMfaStore } from "./mfa.js";
 import { createPasswordResetStore } from "./password-reset.js";
+import { createProgressCallback, completeRun, sseProgressHandler } from "./run-progress.js";
 import { generateTotpSecret, otpauthTotpUrl, verifyTotpCode } from "./totp.js";
 import { purgeOrgRuns } from "./runs.js";
 import {
@@ -512,6 +513,12 @@ export function registerAccountRoutes(
     })
   );
 
+  // SSE endpoint for real-time pipeline progress events.
+  // The client connects once a run starts and receives stage-by-stage updates.
+  app.get("/accounts/run-progress/:runId", requireSession, (req: Request, res: Response) => {
+    sseProgressHandler(req, res);
+  });
+
   app.post(
     "/accounts/clients/:clientId/acceptance",
     requireSession,
@@ -768,7 +775,9 @@ export function registerAccountRoutes(
         createdAt: new Date().toISOString()
       });
 
-      const result = await runCycle(config, { onProgress: () => {} });
+      const onProgress = createProgressCallback(config.runId);
+      const result = await runCycle(config, { onProgress });
+      completeRun(config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
 
       if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
         overageStore.record({
@@ -862,7 +871,9 @@ export function registerAccountRoutes(
         createdAt: new Date().toISOString()
       });
 
-      const result = await runCycle(config, { onProgress: () => {} });
+      const onProgressRemix = createProgressCallback(config.runId);
+      const result = await runCycle(config, { onProgress: onProgressRemix });
+      completeRun(config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
 
       if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
         overageStore.record({

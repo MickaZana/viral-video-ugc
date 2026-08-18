@@ -13,6 +13,18 @@ proven structural elements that made the source work, without copying its wordin
 - CTA: a short, platform-native call to action (follow/comment/share hook, not generic "like and subscribe")
 - Platform-specific pacing notes for how delivery should differ across target platforms
 
+Emotional arc requirements (non-negotiable):
+- Hook MUST trigger ONE of: fear, curiosity, social proof, or controversy — established in the first 3 words
+- Use the "open loop" technique: the hook raises a question or creates tension that only the points resolve
+- Point 1 must escalate tension, not resolve it — resolution belongs in the final point or CTA
+- CTA must feel like a natural payoff to the emotional journey, not a generic bolted-on request
+
+Platform-specific fields you MUST include in platformNotes for every target platform:
+- tiktok: a trending audio cue suggestion (describe the mood/energy of the sound, not a song title)
+- youtube_shorts: optimal thumbnail text (3 words max, high-contrast, front-loaded benefit)
+- instagram_reels: best cover frame timestamp suggestion (e.g. "0:04 — subject leans in")
+- facebook: caption opening line (different from the hook — the caption is read before the video plays)
+
 Respond with ONLY a JSON object matching this shape, no prose, no markdown fences:
 {
   "hook": string,
@@ -21,6 +33,7 @@ Respond with ONLY a JSON object matching this shape, no prose, no markdown fence
   "trendingPhrases": string[],
   "platformNotes": { [platform: string]: string }
 }`;
+
 
 export async function rewriteScript(
   transcript: Transcript,
