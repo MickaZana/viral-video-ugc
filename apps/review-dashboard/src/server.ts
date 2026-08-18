@@ -369,7 +369,9 @@ app.get(
     const approved = items.filter((i) => i.status === "approved").length;
     const rejected = items.filter((i) => i.status === "rejected").length;
     const estimatedCostUsd = listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
-    res.json({ pending, approved, rejected, estimatedCostUsd });
+    // Surfaced so the control-panel can disable live-only actions (publish,
+    // regenerate-live) when this dashboard is running in mock mode.
+    res.json({ pending, approved, rejected, estimatedCostUsd, isLLMLive: isLLMLive() });
   })
 );
 

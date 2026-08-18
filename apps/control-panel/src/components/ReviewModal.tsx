@@ -16,10 +16,13 @@ interface ReviewModalProps {
   onReject: (id: string) => void
   onPublish?: (id: string) => void
   onRegenerateLive?: (id: string) => void
+  /** When false, the dashboard is in mock mode and live-only actions (publish,
+   *  regenerate-live) are disabled. Undefined = not yet known (treat as enabled). */
+  liveMode?: boolean
   onDownload: (id: string) => void
 }
 
-export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onRegenerateLive, onDownload }: ReviewModalProps) {
+export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onRegenerateLive, liveMode, onDownload }: ReviewModalProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   async function handleApprove() {
@@ -235,7 +238,7 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onR
               {item.status === 'approved' && !item.dryRun && !item.publishedPostId && (
                 <button
                   onClick={handlePublish}
-                  disabled={actionLoading === 'publish'}
+                  disabled={actionLoading === 'publish' || liveMode === false}
                   className="flex-1 px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50 hover:brightness-110"
                   style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                 >
@@ -254,12 +257,17 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onR
               {item.dryRun && !item.publishedPostId && (
                 <button
                   onClick={handleRegenerateLive}
-                  disabled={actionLoading === 'regenerate'}
+                  disabled={actionLoading === 'regenerate' || liveMode === false}
                   className="flex-1 px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50 hover:brightness-110"
                   style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-orange)', color: 'black' }}
                 >
                   {actionLoading === 'regenerate' ? 'REGENERATING...' : '↻ REGENERATE LIVE'}
                 </button>
+              )}
+              {!item.publishedPostId && liveMode === false && (
+                <span className="text-[10px] font-mono text-[var(--color-orange)] uppercase tracking-widest">
+                  Mock mode — run dashboard live to enable
+                </span>
               )}
               {item.status === 'rejected' && (
                 <span className="text-[11px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">This item was rejected.</span>

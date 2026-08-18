@@ -31,6 +31,8 @@ type SortKey = 'score' | 'createdAt'
 export function ReviewPage() {
   const navigate = useNavigate()
   const queue = useApi(() => api.queue())
+  const stats = useApi(() => api.stats())
+  const liveMode = stats.data?.isLLMLive
   const items = queue.data ?? []
   const [quick, setQuick] = useState<ReviewItem | null>(null)
   const [hideMock, setHideMock] = useState(true)
@@ -206,6 +208,11 @@ export function ReviewPage() {
               : `${mockCount} mock run${mockCount === 1 ? '' : 's'} shown`}
           </span>
         )}
+        {liveMode === false && (
+          <span className="text-[10px] font-mono text-[var(--color-orange)]">
+            Mock mode — Publish &amp; Regenerate live disabled (set VVUGC_LLM_LIVE=true)
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -277,7 +284,7 @@ export function ReviewPage() {
                         {canPublish && (
                           <button
                             onClick={() => handlePublish(item.id)}
-                            disabled={isBusy}
+                            disabled={isBusy || liveMode === false}
                             className="flex-1 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)] hover:brightness-110 transition-colors disabled:opacity-50"
                           >
                             {isBusy ? 'PUBLISHING…' : '↗ Publish'}
@@ -286,7 +293,7 @@ export function ReviewPage() {
                         {isMock && !item.publishedPostId && (
                           <button
                             onClick={() => handleRegenerateLive(item.id)}
-                            disabled={isBusy}
+                            disabled={isBusy || liveMode === false}
                             className="flex-1 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest border border-[var(--color-orange)] text-[var(--color-orange)] hover:bg-[var(--color-orange)] hover:text-black transition-colors disabled:opacity-50"
                           >
                             {isBusy ? 'REGENERATING…' : '↻ Regenerate live'}
@@ -373,6 +380,7 @@ export function ReviewPage() {
             setQuick(null)
             queue.reload()
           }}
+          liveMode={liveMode}
           onDownload={handleDownload}
         />
       )}

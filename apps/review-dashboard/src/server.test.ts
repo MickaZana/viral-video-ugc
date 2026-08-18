@@ -173,7 +173,8 @@ describe("review-dashboard HTTP API", () => {
 
     await startServer();
     const stats = await (await fetch(`${baseUrl}/stats`, { headers: AUTH_HEADER })).json();
-    expect(stats).toEqual({ pending: 1, approved: 1, rejected: 1, estimatedCostUsd: 2.5 });
+    expect(stats).toEqual(expect.objectContaining({ pending: 1, approved: 1, rejected: 1, estimatedCostUsd: 2.5 }));
+    expect(typeof stats.isLLMLive).toBe("boolean");
   });
 
   it("GET /runs returns run history read from the runs directory", async () => {

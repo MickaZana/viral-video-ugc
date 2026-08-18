@@ -89,6 +89,10 @@ export interface Stats {
   approved: number
   rejected: number
   estimatedCostUsd: number
+  /** True when the dashboard is running with VVUGC_LLM_LIVE=true — i.e. publish
+   *  and live regeneration are actually possible. When false/absent, the UI
+   *  disables those live-only actions. */
+  isLLMLive?: boolean
 }
 
 /**
