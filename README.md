@@ -33,6 +33,40 @@ pnpm cli run --niche=fitness --platforms=youtube_shorts --max-candidates=3
 
 The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`.
 
+## LLM & external-call safety (governance)
+
+The pipeline has exactly **one** behavioral mock: the `dryRun` subsystem. When
+`dryRun` is true, every stage (discovery candidates, transcript, script,
+captions, QA, video, voiceover, assembly) returns deterministic output and
+contacts **no** third-party API. `dryRun` defaults to **true** on every request
+path, so the system is safe-by-default and never spends API credits unless you
+explicitly opt in.
+
+Real execution is a **two-key lock**:
+
+- **Per-request intent** — `live: true` (or `dryRun: false`) on the run / remix /
+  regenerate call. Necessary, but **not sufficient**.
+- **Environment opt-in** — `VVUGC_LLM_LIVE=true`. The operator must set this in
+  the deployment environment. Without it, every run is forced to `dryRun`
+  regardless of what the client requests.
+
+So accidental API spend is impossible even if a client sends `live: true`. This
+is enforced in one place (`apps/review-dashboard/src/llm-gate.ts`) and applied
+to every run / remix / regenerate endpoint plus the scheduler.
+
+External **discovery** (platform scraping: YouTube / TikTok / Meta) is gated
+separately by `VVUGC_DISCOVERY_LIVE=true`. When unset, `/accounts/discover`
+returns an empty candidate list and the editor seeds a brief from the niche text
+— fully offline, never a 500.
+
+Scheduled (cron) runs default to `dryRun`. To let them go live you must set both
+`SCHEDULED_RUNS_LIVE=true` **and** `VVUGC_LLM_LIVE=true`.
+
+> The only other "mock-like" code in the runtime is `discoveryAnalyze.seedBrief`,
+> a benign deterministic fallback used when discovery finds zero videos so the
+> editor is never empty. Everything else is real or part of the `dryRun` mock.
+> (Unit tests use `vi.mock` doubles — those are test seams, not shipped behavior.)
+
 ### Voiceover narration (optional)
 
 Add `--voice-vendor elevenlabs` or `--voice-vendor grok` to narrate the video with speech perfectly synced to the burned-in captions — omit it and videos stay silent/vendor-native-audio, today's default. Needs `ELEVENLABS_API_KEY` or `XAI_API_KEY` respectively (see `.env.example`); works in `--dry-run` too, with no credentials needed (a mock adapter exercises the same timing/sync logic against generated silence). See `packages/mcp-voiceover/README.md` for how the sync guarantee actually works — this is not lip-sync (the video vendors here produce B-roll, not consistent talking-head footage).

@@ -5,6 +5,7 @@ import { loadEnv } from "@vvugc/shared-config";
 import { RunConfigSchema } from "@vvugc/shared-schema";
 import type { PipelineJob } from "@vvugc/review-queue";
 import { createPipelineJobStore } from "./jobs.js";
+import { isLLMLive } from "./llm-gate.js";
 
 export interface SchedulerTickResult {
   claimed: number;
@@ -39,8 +40,9 @@ export async function runDueClientSchedules(now = new Date()): Promise<Scheduler
         videoVendor: client.videoVendor,
         voiceVendor: client.voiceVendor,
         // Scheduled runs are safe by default. Production can explicitly opt into
-        // paid execution after live-vendor acceptance has passed.
-        dryRun: process.env.SCHEDULED_RUNS_LIVE !== "true",
+        // paid execution after live-vendor acceptance has passed — which also
+        // requires VVUGC_LLM_LIVE=true (two-key lock, see ./llm-gate.ts).
+        dryRun: process.env.SCHEDULED_RUNS_LIVE !== "true" || !isLLMLive(),
         createdAt: now.toISOString()
       });
       enqueued.push(await jobStore.enqueue(

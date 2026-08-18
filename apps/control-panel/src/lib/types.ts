@@ -304,3 +304,13 @@ export interface DiscoverRequest {
   limit?: number
 }
 
+/** Response from GET /accounts/trends — proactive discovery suggestions aggregated
+ *  from local history (clients + past run manifests). `source: "local-history"`
+ *  means no live trend API is connected; a live source would set it to "live". */
+export interface TrendsResponse {
+  source: 'local-history' | 'live'
+  suggestedNiches: string[]
+  suggestedAngles: string[]
+  note?: string
+}
+

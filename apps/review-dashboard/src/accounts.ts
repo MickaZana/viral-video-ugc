@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import rateLimit from "express-rate-limit";
@@ -26,6 +27,7 @@ import { BrandKitSchema, PlatformSchema, RunConfigSchema } from "@vvugc/shared-s
 import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
 import { discoverPlatform } from "@vvugc/mcp-discovery";
+import { isRealRun, isLLMLive, isDiscoveryLive } from "./llm-gate.js";
 import { buildDiscoverResponse } from "./discoveryAnalyze.js";
 import {
   getReviewItem,
@@ -564,7 +566,7 @@ export function registerAccountRoutes(
         targetDurationSec: client.targetDurationSec,
         videoVendor: client.videoVendor,
         voiceVendor: client.voiceVendor,
-        dryRun: !live,
+        dryRun: !(live && isLLMLive()),
         createdAt: new Date().toISOString()
       });
       const evidence = await runAcceptance(config, { onProgress: () => {} });
@@ -618,7 +620,7 @@ export function registerAccountRoutes(
       targetDurationSec: client.targetDurationSec,
       videoVendor: client.videoVendor,
       voiceVendor: client.voiceVendor,
-      dryRun: req.body?.live !== true,
+        dryRun: !isRealRun(req),
       createdAt: new Date().toISOString()
     });
     const job = await jobStore.enqueue(orgId, clientId, config, idempotencyKey);
@@ -786,7 +788,7 @@ export function registerAccountRoutes(
         orgId,
         clientId: client?.id,
         locale: client?.locale ?? "en",
-        dryRun: req.body?.dryRun !== false,
+        dryRun: !isRealRun(req),
         createdAt: new Date().toISOString()
       });
 
@@ -884,7 +886,7 @@ export function registerAccountRoutes(
         brandKit: client.brandKit,
         sourceUrl: sourceUrl ?? undefined,
         discoveryBrief: brief ?? null,
-        dryRun: !live,
+        dryRun: !(live && isLLMLive()),
         createdAt: new Date().toISOString()
       })
 
@@ -927,15 +929,78 @@ export function registerAccountRoutes(
       const limit = typeof req.body?.limit === "number" && Number.isFinite(req.body.limit) ? Math.min(Math.max(Math.trunc(req.body.limit), 1), 50) : 10;
 
       let candidates: CandidateVideo[] = [];
-      try {
-        candidates = await discoverPlatform(platform, niche, limit);
-      } catch {
-        candidates = [];
+      // External discovery is OFF by default (governance): it only hits platform
+      // APIs when VVUGC_DISCOVERY_LIVE=true. Otherwise we fall through to an empty
+      // candidate list and the editor seeds a brief from the niche text — zero
+      // external calls, zero 500s.
+      if (isDiscoveryLive()) {
+        try {
+          candidates = await discoverPlatform(platform, niche, limit);
+        } catch {
+          candidates = [];
+        }
       }
       if (!Array.isArray(candidates)) candidates = [];
 
       const payload = buildDiscoverResponse(candidates, niche);
       res.json(payload);
+    })
+  );
+
+  // ── Trends (proactive discovery) ───────────────────────────────────────────
+  // Aggregates niches + winning patterns from local history (clients + past run
+  // manifests' riffed discovery briefs) so the Studio can proactively suggest
+  // angles before the operator types anything. This is the offline stand-in for a
+  // live trend API (Google Trends / platform signals) — those would upgrade
+  // `source` to "live" and require external keys. Never 500s on missing data.
+  app.get(
+    "/accounts/trends",
+    requireSession,
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const account = requireAccount(req, res);
+      if (!account) return;
+      const orgId = resolveOrgId(account);
+
+      const niches = new Set<string>();
+      for (const c of clientStore.listByOrg(orgId)) {
+        if (c.niche && c.niche.trim()) niches.add(c.niche.trim());
+      }
+
+      const patternFreq = new Map<string, number>();
+      const { VVUGC_RUNS_DIR } = loadEnv();
+      if (existsSync(VVUGC_RUNS_DIR)) {
+        for (const entry of readdirSync(VVUGC_RUNS_DIR, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const mp = join(VVUGC_RUNS_DIR, entry.name, "manifest.json");
+          if (!existsSync(mp)) continue;
+          try {
+            const manifest = JSON.parse(readFileSync(mp, "utf-8"));
+            const cfg = manifest?.config;
+            if (cfg?.niche && typeof cfg.niche === "string") niches.add(cfg.niche.trim());
+            const patterns = cfg?.discoveryBrief?.patterns;
+            if (Array.isArray(patterns)) {
+              for (const p of patterns) {
+                if (typeof p === "string") patternFreq.set(p, (patternFreq.get(p) ?? 0) + 1);
+              }
+            }
+          } catch {
+            // malformed manifest — skip, never fatal
+          }
+        }
+      }
+
+      const suggestedNiches = [...niches].filter(Boolean).slice(0, 8);
+      const suggestedAngles = [...patternFreq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([p]) => p);
+
+      res.json({
+        source: "local-history",
+        suggestedNiches,
+        suggestedAngles,
+        note: "Local history only — connect a live trend source for real-time viral signals."
+      });
     })
   );
 
@@ -1014,7 +1079,7 @@ export function registerAccountRoutes(
         locale,
         sourceUrl,
         sourceTranscript: transcript,
-        dryRun: req.body?.dryRun !== false,
+        dryRun: !isRealRun(req),
         createdAt: new Date().toISOString()
       });
 

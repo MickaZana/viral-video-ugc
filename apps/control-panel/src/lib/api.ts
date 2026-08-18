@@ -24,7 +24,8 @@ import type {
   RunResponse,
   RunSummary,
   Stats,
-  TrackedCreator
+  TrackedCreator,
+  TrendsResponse
 } from './types'
 import { loadCsrf } from './auth'
 
@@ -262,6 +263,10 @@ export const api = {
   },
   creators(): Promise<TrackedCreator[]> {
     return request<CreatorsResponse>('/creators').then((r) => r.creators)
+  },
+  /** Proactive discovery: niches + winning angles aggregated from local history. */
+  trends(): Promise<TrendsResponse> {
+    return request<TrendsResponse>('/accounts/trends')
   },
   /** Discovery: finds what's working in a niche, explains why, and returns a
    *  riff-able brief. Never throws on an empty/erroring external fetch — the

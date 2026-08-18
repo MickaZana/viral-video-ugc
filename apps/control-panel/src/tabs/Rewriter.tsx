@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { paths } from '../lib/paths'
 import { useEffect, useState } from 'react'
-import type { ReviewItem } from '../lib/types'
+import type { ReviewItem, DiscoverBrief } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar } from '../components/primitives'
@@ -16,7 +16,9 @@ import { EmptyState } from '../components/EmptyState'
 export function Rewriter() {
   const navigate = useNavigate()
   const queue = useApi(() => api.queue())
+  const runs = useApi(() => api.runs())
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [hook, setHook] = useState('')
   const [points, setPoints] = useState('')
   const [cta, setCta] = useState('')
@@ -26,6 +28,14 @@ export function Rewriter() {
   const [error, setError] = useState<string | null>(null)
 
   const items = queue.data ?? []
+
+  // The riffed discovery brief that seeded this item's run, if any — resolves the
+  // through-line (discover → riff brief → run → review) so the operator can see and
+  // reuse the creative direction while rewriting, not just the generated script.
+  const brief: DiscoverBrief | null | undefined =
+    selectedRunId && runs.data
+      ? ((runs.data.find((r) => r.runId === selectedRunId)?.discoveryBrief as DiscoverBrief) ?? null)
+      : undefined
 
   useEffect(() => {
     // Auto-select the first real item once the queue loads.
@@ -39,12 +49,21 @@ export function Rewriter() {
     const item = items.find((i) => i.id === id)
     if (!item) return
     setSelectedId(id)
+    setSelectedRunId(item.runId)
     setHook(item.script.hook)
     setPoints(item.script.points.join('\n'))
     setCta(item.script.cta)
     setDone(false)
     setResult(null)
     setError(null)
+  }
+
+  /** Loads the riffed brief's hook + structure into the editor as a starting point
+   *  for a brief-aware rewrite (the operator then refines before regenerating). */
+  function applyBrief() {
+    if (!brief) return
+    setHook(brief.hookTemplate)
+    setPoints(brief.structure.join('\n'))
   }
 
   async function handleRewrite() {
@@ -112,6 +131,27 @@ export function Rewriter() {
           )}
         </div>
       </Panel>
+
+      {brief && (
+        <div className="border border-[var(--color-lime)] bg-[var(--color-surface)] p-5 space-y-2">
+          <p className="text-[10px] uppercase tracking-widest text-[var(--color-lime)]">Your brief — from discovery</p>
+          <p className="text-sm text-[var(--color-text)]"><span className="text-[var(--color-muted-2)]">Angle:</span> {brief.angle}</p>
+          <p className="text-sm text-[var(--color-text)]"><span className="text-[var(--color-muted-2)]">Hook:</span> {brief.hookTemplate}</p>
+          <p className="text-[11px] text-[var(--color-muted-4)]">Structure: {brief.structure.join(' → ')}</p>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {brief.patterns.map((p, i) => (
+              <span key={i} className="text-[10px] font-mono px-2 py-0.5 border border-[var(--color-faint)] text-[var(--color-lime)]">{p}</span>
+            ))}
+          </div>
+          <button
+            onClick={applyBrief}
+            className="mt-2 px-4 py-2 text-xs font-semibold uppercase tracking-widest"
+            style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+          >
+            Apply brief to editor
+          </button>
+        </div>
+      )}
 
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between mb-3">

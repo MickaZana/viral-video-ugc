@@ -15,6 +15,7 @@ import type {
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
+import { DiscoverPanel } from '../components/DiscoveryPanel'
 import { PipelineProgress } from '../components/PipelineProgress'
 
 /**
@@ -220,6 +221,7 @@ export function VideoGenerator() {
 
   return (
     <div className="space-y-8">
+      <DiscoverPanel />
       <Panel title="CHOOSE MODELS BY RESULT">
         <div className="divide-y divide-[var(--color-raised)]">
           {KIND_ORDER.map((kind) => {

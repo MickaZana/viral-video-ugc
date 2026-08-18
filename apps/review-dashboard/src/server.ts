@@ -33,6 +33,7 @@ import { MODEL_CATALOG, groupModelsByResult } from "./models.js";
 import { createSocialConnectionStore } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
 import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
+import { isLLMLive } from "./llm-gate.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-review-dashboard" });
@@ -513,7 +514,9 @@ app.post(
     try {
       const regenerated = await regenerateScene(item, sceneIndex, {
         videoVendor,
-        dryRun: Boolean(req.body?.dryRun),
+        // Regeneration stays in mock mode unless real LLM spend is explicitly
+        // enabled (VVUGC_LLM_LIVE=true); otherwise it is always a dry-run.
+        dryRun: Boolean(req.body?.dryRun) || !isLLMLive(),
         outDir: regenerateWorkDir(item.runId)
       });
       await replaceReviewItem(regenerated);
@@ -544,7 +547,7 @@ app.post(
       const regenerated = await regenerateScript(
         item,
         { hook, points, cta },
-        { videoVendor, dryRun: Boolean(req.body?.dryRun), outDir: regenerateWorkDir(item.runId) }
+        { videoVendor, dryRun: Boolean(req.body?.dryRun) || !isLLMLive(), outDir: regenerateWorkDir(item.runId) }
       );
       await replaceReviewItem(regenerated);
       res.json(regenerated);
