@@ -15,10 +15,11 @@ interface ReviewModalProps {
   onApprove: (id: string) => void
   onReject: (id: string) => void
   onPublish?: (id: string) => void
+  onRegenerateLive?: (id: string) => void
   onDownload: (id: string) => void
 }
 
-export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onDownload }: ReviewModalProps) {
+export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onRegenerateLive, onDownload }: ReviewModalProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   async function handleApprove() {
@@ -40,6 +41,13 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onD
     finally { setActionLoading(null); onPublish(item.id) }
   }
 
+  async function handleRegenerateLive() {
+    if (!onRegenerateLive) return
+    setActionLoading('regenerate')
+    try { await api.regenerateLive(item.id) } catch { /* */ }
+    finally { setActionLoading(null); onRegenerateLive(item.id) }
+  }
+
   const hasVideo = !!item.videoPath
 
   /**
@@ -57,6 +65,8 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onD
         if (e.key === 'r' || e.key === 'R') handleReject()
       } else if (item.status === 'approved' && !item.dryRun && !item.publishedPostId && onPublish) {
         if (e.key === 'p' || e.key === 'P') handlePublish()
+      } else if (item.dryRun && !item.publishedPostId && onRegenerateLive) {
+        if (e.key === 'l' || e.key === 'L') handleRegenerateLive()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -241,10 +251,15 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onD
                   ↓ EXPORT VIDEO
                 </button>
               )}
-              {item.status === 'approved' && item.dryRun && (
-                <span className="text-[10px] font-mono text-[var(--color-orange)] uppercase tracking-widest">
-                  Mock run — regenerate live before publishing
-                </span>
+              {item.dryRun && !item.publishedPostId && (
+                <button
+                  onClick={handleRegenerateLive}
+                  disabled={actionLoading === 'regenerate'}
+                  className="flex-1 px-4 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50 hover:brightness-110"
+                  style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-orange)', color: 'black' }}
+                >
+                  {actionLoading === 'regenerate' ? 'REGENERATING...' : '↻ REGENERATE LIVE'}
+                </button>
               )}
               {item.status === 'rejected' && (
                 <span className="text-[11px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">This item was rejected.</span>
@@ -267,6 +282,11 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onD
             {item.status === 'approved' && !item.dryRun && !item.publishedPostId && (
               <div className="px-6 pb-3 text-[9px] font-mono text-[var(--color-muted-3)] text-center tracking-widest">
                 [P] Publish &nbsp;·&nbsp; [Esc] Close
+              </div>
+            )}
+            {item.dryRun && !item.publishedPostId && (
+              <div className="px-6 pb-3 text-[9px] font-mono text-[var(--color-muted-3)] text-center tracking-widest">
+                [L] Regenerate live &nbsp;·&nbsp; [Esc] Close
               </div>
             )}
           </div>

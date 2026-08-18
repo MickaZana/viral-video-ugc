@@ -560,6 +560,40 @@ app.post(
   })
 );
 
+// Promote a dry-run (mock) item to a real, publishable render. Forces a live
+// render regardless of the server's LLM mode — this is the explicit "make the
+// mock real" action. After a successful render the item's dryRun flag is flipped
+// to false so the publish route will accept it.
+app.post(
+  "/queue/:id/regenerate-live",
+  regenerateRateLimiter,
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+    if (!item.dryRun) {
+      return res.status(409).json({ error: "item is already a live (real) render — nothing to promote" });
+    }
+    const videoVendor = req.body?.videoVendor ?? item.clips?.[0]?.vendor;
+    if (!videoVendor) {
+      return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
+    }
+    try {
+      const regenerated = await regenerateScript(
+        item,
+        { hook: item.script.hook, points: item.script.points, cta: item.script.cta },
+        { videoVendor, dryRun: false, outDir: regenerateWorkDir(item.runId) }
+      );
+      // regenerateScript spreads the original item, so dryRun would survive as true —
+      // flip it off explicitly since this render is real.
+      const promoted = { ...regenerated, dryRun: false };
+      await replaceReviewItem(promoted);
+      res.json(promoted);
+    } catch (err) {
+      res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  })
+);
+
 // Publishing is only ever reachable from here — nowhere in conductor.ts calls
 // mcp-publish. Gated on status === "approved" so this can't be used to post
 // something a human hasn't signed off on, and can't double-post an item that's

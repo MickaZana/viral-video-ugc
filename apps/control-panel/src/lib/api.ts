@@ -308,6 +308,11 @@ export const api = {
   publish(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/publish`, { method: 'POST' })
   },
+  /** Promote a dry-run (mock) item to a real, publishable render by re-rendering
+   *  it live. Flips dryRun to false so the item can then be published. */
+  regenerateLive(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/regenerate-live`, { method: 'POST' })
+  },
   bulkApprove(ids: string[]): Promise<{ updated: number }> {
     return request<{ updated: number }>('/queue/bulk/approve', {
       method: 'POST',

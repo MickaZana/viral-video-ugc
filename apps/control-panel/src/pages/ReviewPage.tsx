@@ -36,6 +36,7 @@ export function ReviewPage() {
   const [hideMock, setHideMock] = useState(true)
   const [sort, setSort] = useState<SortKey>('score')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleDownload = useCallback((id: string) => {
     const url = api.mediaUrl(id)
@@ -58,10 +59,11 @@ export function ReviewPage() {
   const handleApprove = useCallback(
     async (id: string) => {
       setBusyId(id)
+      setError(null)
       try {
         await api.approve(id)
-      } catch {
-        /* surfaced via reload */
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
       } finally {
         setBusyId(null)
         queue.reload()
@@ -73,10 +75,11 @@ export function ReviewPage() {
   const handleReject = useCallback(
     async (id: string) => {
       setBusyId(id)
+      setError(null)
       try {
         await api.reject(id)
-      } catch {
-        /* surfaced via reload */
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
       } finally {
         setBusyId(null)
         queue.reload()
@@ -88,10 +91,28 @@ export function ReviewPage() {
   const handlePublish = useCallback(
     async (id: string) => {
       setBusyId(id)
+      setError(null)
       try {
         await api.publish(id)
-      } catch {
-        /* surfaced via reload */
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusyId(null)
+        queue.reload()
+      }
+    },
+    [queue]
+  )
+
+  const handleRegenerateLive = useCallback(
+    async (id: string) => {
+      setBusyId(id)
+      setError(null)
+      try {
+        await api.regenerateLive(id)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        return
       } finally {
         setBusyId(null)
         queue.reload()
@@ -108,6 +129,11 @@ export function ReviewPage() {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="border border-[var(--color-red)] bg-[var(--color-red)]/10 px-4 py-2 text-[11px] font-mono text-[var(--color-red)]">
+          {error}
+        </div>
+      )}
       {/* Triage toolbar — keep the board focused on what matters */}
       <div className="flex flex-wrap items-center gap-4 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
         <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-[var(--color-muted-2)] cursor-pointer select-none">
@@ -204,10 +230,14 @@ export function ReviewPage() {
                             {isBusy ? 'PUBLISHING…' : '↗ Publish'}
                           </button>
                         )}
-                        {item.status === 'approved' && isMock && (
-                          <span className="text-[9px] font-mono text-[var(--color-orange)] uppercase tracking-widest">
-                            Mock — regenerate live to publish
-                          </span>
+                        {isMock && !item.publishedPostId && (
+                          <button
+                            onClick={() => handleRegenerateLive(item.id)}
+                            disabled={isBusy}
+                            className="flex-1 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest border border-[var(--color-orange)] text-[var(--color-orange)] hover:bg-[var(--color-orange)] hover:text-black transition-colors disabled:opacity-50"
+                          >
+                            {isBusy ? 'REGENERATING…' : '↻ Regenerate live'}
+                          </button>
                         )}
                         {Boolean(item.publishedPostId) && (
                           <a
@@ -257,6 +287,10 @@ export function ReviewPage() {
             queue.reload()
           }}
           onPublish={() => {
+            setQuick(null)
+            queue.reload()
+          }}
+          onRegenerateLive={() => {
             setQuick(null)
             queue.reload()
           }}
