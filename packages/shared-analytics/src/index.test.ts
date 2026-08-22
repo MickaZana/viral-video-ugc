@@ -456,6 +456,38 @@ describe("concurrency-cap", () => {
       cap.record(8.5);
       expect(warned).toBe(true);
     });
+
+    it("still counts the triggering amount in totalSpent after throwing", () => {
+      // record() does `this.spent += costUsd` BEFORE checking the limit, so the
+      // call that pushes spend over the cap is included in totalSpent even
+      // though it threw — the cap prevents the caller from doing more paid
+      // work, it doesn't undo the cost that was already incurred finding out.
+      // ($25 cap, three $10 records — the third throws at $30 spent, not $20.)
+      const cap = new CostCap(25);
+      cap.record(10);
+      cap.record(10);
+      expect(() => cap.record(10)).toThrow(CostCapExceededError);
+      expect(cap.totalSpent).toBe(30);
+    });
+
+    it("doesn't see spend recorded on a different instance for the same org (Phase 7, Gap 2)", () => {
+      // CostCap is in-memory and per-process by design. Two workers (or two
+      // requests handled by two separate processes) each construct their own
+      // CostCap, so a $25 cap is really $25-per-worker, not $25-per-org,
+      // whenever more than one worker is handling that org's runs at once.
+      const workerACap = new CostCap(25);
+      const workerBCap = new CostCap(25);
+      workerACap.record(20);
+      workerBCap.record(20);
+      // Neither individually exceeded $25, so neither threw — but the org
+      // actually spent $40 against a $25 intended ceiling. A single shared
+      // CostCap would have thrown on the second $20. Fixing this for real
+      // needs the same DB-backed reservation that Phase 7's quota-race gap
+      // (apps/review-dashboard/src/billing-reservation.test.ts) is blocked on.
+      expect(workerACap.totalSpent).toBe(20);
+      expect(workerBCap.totalSpent).toBe(20);
+      expect(workerACap.totalSpent + workerBCap.totalSpent).toBe(40);
+    });
   });
 
   describe("FlowLimiter", () => {

@@ -75,26 +75,34 @@ function writeAllUnlocked(dbPath: string, rows: OverageCharge[]): void {
 export function createOverageStore(dbPath: string): OverageStore {
   return {
     record({ orgId, runId, priceUsdPerRun, estimatedVendorCostUsd = priceUsdPerRun, clientId }) {
-      const charge: OverageCharge = {
-        id: randomUUID(),
-        orgId,
-        runId,
-        month: new Date().toISOString().slice(0, 7),
-        priceUsdPerRun,
-        estimatedVendorCostUsd,
-        clientId,
-        createdAt: new Date().toISOString()
-      };
       mkdirSync(dirname(dbPath), { recursive: true });
       acquireLock(dbPath);
       try {
         const all = readAllUnlocked(dbPath);
+        // Idempotency: a runId can only ever be billed once. The read-check-append
+        // sequence has to happen under the SAME lock acquisition as the write below —
+        // checking before acquiring (or releasing between check and append) would just
+        // reintroduce the exact TOCTOU race this guard exists to close, since two
+        // concurrent record() calls for the same runId could otherwise both pass the
+        // check before either had appended.
+        const existing = all.find((c) => c.orgId === orgId && c.runId === runId);
+        if (existing) return existing;
+        const charge: OverageCharge = {
+          id: randomUUID(),
+          orgId,
+          runId,
+          month: new Date().toISOString().slice(0, 7),
+          priceUsdPerRun,
+          estimatedVendorCostUsd,
+          clientId,
+          createdAt: new Date().toISOString()
+        };
         all.push(charge);
         writeAllUnlocked(dbPath, all);
+        return charge;
       } finally {
         releaseLock(dbPath);
       }
-      return charge;
     },
 
     listByOrg(orgId) {
