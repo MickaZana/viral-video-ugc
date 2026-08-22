@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "./passwords.js";
@@ -150,7 +150,7 @@ function readAllUnlocked(dbPath: string): Account[] {
 
 function writeAllUnlocked(dbPath: string, accounts: Account[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(accounts, null, 2));
+  { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(accounts, null, 2)); renameSync(_atomicTmp, dbPath); };
 }
 
 export class EmailAlreadyRegisteredError extends Error {

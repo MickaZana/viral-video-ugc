@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { saveAccount, saveCsrf, type PublicAccount } from '../lib/auth'
 import { api } from '../lib/api'
 import { Logo } from '../components/Logo'
@@ -6,7 +7,18 @@ import { Logo } from '../components/Logo'
 type AuthMode = 'signin' | 'signup' | 'forgot' | 'reset'
 
 export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void }) {
-  const [mode, setMode] = useState<AuthMode>('signin')
+  const [searchParams] = useSearchParams()
+  const [mode, setMode] = useState<AuthMode>(() => {
+    const m = searchParams.get('mode')
+    return (m === 'signin' || m === 'signup' || m === 'forgot' || m === 'reset') ? m : 'signup'
+  })
+
+  useEffect(() => {
+    const m = searchParams.get('mode')
+    if (m === 'signin' || m === 'signup' || m === 'forgot' || m === 'reset') {
+      setMode(m)
+    }
+  }, [searchParams])
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -64,13 +76,12 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
     setBusy(true)
     const fd = new FormData(e.currentTarget)
     try {
-      await api.signup({
+      const res = await api.signup({
         email: String(fd.get('email') || ''),
         password: String(fd.get('password') || ''),
         orgName: String(fd.get('orgName') || '') || undefined
       })
-      const me = await api.me()
-      await finishSession(me.account, me.csrfToken)
+      await finishSession(res.account, (res as any).csrfToken)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -114,9 +125,9 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
     }
   }
 
-  const input =
-    'w-full bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] text-sm p-3 focus:outline-none focus:border-[var(--color-lime)] transition-colors'
-  const label = 'block text-[10px] uppercase tracking-widest text-[var(--color-muted)] mb-1'
+  // Use design tokens for proper theme support (light/dark)
+  const input = 'w-full bg-[var(--color-input)] border border-[var(--color-border)] text-[var(--color-text)] text-sm p-3 focus:outline-none focus:border-[var(--color-lime)] transition-colors'
+  const label = 'block text-[10px] uppercase tracking-widest text-[var(--color-muted-4)] mb-1'
   const field = (id: string, title: string, type = 'text') => (
     <div>
       <label className={label} htmlFor={id}>
@@ -127,10 +138,9 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
   )
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] flex items-center justify-center p-6">
+    <div className="min-h-screen bg-[var(--color-bg)] flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8">
-          <span className="w-1.5 h-1.5 bg-[var(--color-lime)]" aria-hidden="true" />
           <Logo />
         </div>
 
@@ -153,9 +163,9 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
               }}
               className="text-[10px] uppercase tracking-widest px-2 py-1.5 border transition-colors flex-1"
               style={{
-                color: mode === m ? 'var(--color-on-accent)' : 'var(--color-muted)',
+                color: mode === m ? 'var(--color-on-accent)' : 'var(--color-text)',
                 backgroundColor: mode === m ? 'var(--color-lime)' : 'transparent',
-                borderColor: mode === m ? 'var(--color-lime)' : 'var(--color-faint)'
+                borderColor: mode === m ? 'var(--color-lime)' : 'var(--color-border)'
               }}
             >
               {tabLabel}
@@ -163,7 +173,7 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
           ))}
         </div>
 
-        <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8">
+        <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-2xl">
           {mode === 'signin' && mfaToken && (
             <form onSubmit={handleMfa} className="space-y-4">
               <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Two-factor code</p>
@@ -182,7 +192,7 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
 
           {mode === 'signin' && !mfaToken && (
             <form onSubmit={handleSignIn} className="space-y-4">
-              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">Access your account</p>
+              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Access your account</p>
               {field('email', 'Email', 'email')}
               {field('password', 'Password', 'password')}
               {error && <p className="text-[11px] text-[var(--color-red)]">{error}</p>}
@@ -200,7 +210,7 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
 
           {mode === 'signup' && (
             <form onSubmit={handleSignUp} className="space-y-4">
-              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">Create your account</p>
+              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Create your account</p>
               {field('email', 'Email', 'email')}
               {field('orgName', 'Organization (optional)')}
               {field('password', 'Password (8+ chars)', 'password')}
@@ -219,7 +229,7 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
 
           {mode === 'forgot' && (
             <form onSubmit={handleForgot} className="space-y-4">
-              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">Recover your password</p>
+              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Recover your password</p>
               {field('email', 'Email', 'email')}
               {error && <p className="text-[11px] text-[var(--color-red)]">{error}</p>}
               {info && <p className="text-[11px] text-[var(--color-lime)] break-all">{info}</p>}
@@ -236,11 +246,11 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
 
           {mode === 'reset' && (
             <form onSubmit={handleReset} className="space-y-4">
-              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">Set a new password</p>
+              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Set a new password</p>
               {field('token', 'Reset token', 'text')}
               {field('password', 'New password (8+ chars)', 'password')}
               {error && <p className="text-[11px] text-[var(--color-red)]">{error}</p>}
-              {info && <p className="text-[11px] text-[var(--color-lime)] break-all">{info}</p>}
+              {info && <p className="text-[11px] text-[var(--color-lime)]">{info}</p>}
               <button
                 type="submit"
                 disabled={busy}
@@ -251,6 +261,26 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
               </button>
             </form>
           )}
+        </div>
+      </div>
+
+      {/* Generated video showcase — populated with generated GIFs */}
+      <div className="w-full max-w-5xl mt-12">
+        <p className="text-[10px] uppercase tracking-widest text-[var(--color-text)] mb-4 text-center">Generated Content Preview</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="aspect-[9/16] bg-[var(--color-nav)] border border-[var(--color-border)] flex items-center justify-center overflow-hidden shadow-lg"
+            >
+              <div className="text-center">
+                <div className="w-8 h-8 mx-auto mb-2 border border-[var(--color-raised)] bg-[var(--color-surface)] flex items-center justify-center">
+                  <span className="text-[var(--color-muted-5)] text-xs">▶</span>
+                </div>
+                <span className="text-[9px] text-[var(--color-muted-5)] uppercase tracking-widest">Clip {i + 1}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

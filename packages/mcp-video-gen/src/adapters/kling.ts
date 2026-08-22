@@ -5,6 +5,7 @@ import { requireEnvVar } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
+import { mapToKlingParams } from "../visual-mapping.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
 const KLING_API_BASE = "https://api.klingai.com/v1";
@@ -53,13 +54,21 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
       const secretKey = requireEnvVar("KLING_SECRET_KEY");
       const authHeader = () => ({ Authorization: `Bearer ${signKlingJwt(accessKey, secretKey)}` });
 
-      const submitRes = await fetchWithRetry(`${KLING_API_BASE}/videos/text2video`, {
+      // Soul ID: if identityRef is present, use image2video endpoint with the face reference
+      const useImageEndpoint = !!req.identityRef?.primaryImageUrl;
+      const endpoint = useImageEndpoint
+        ? `${KLING_API_BASE}/videos/image2video`
+        : `${KLING_API_BASE}/videos/text2video`;
+
+      const submitRes = await fetchWithRetry(endpoint, {
         method: "POST",
         headers: { ...authHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: req.prompt,
+          ...(useImageEndpoint ? { image: req.identityRef!.primaryImageUrl } : {}),
           duration: String(req.durationSec),
-          aspect_ratio: req.aspectRatio
+          aspect_ratio: req.aspectRatio,
+          ...(req.visualDirection ? mapToKlingParams(req.visualDirection) : {}),
         })
       });
       if (!submitRes.ok) {

@@ -32,6 +32,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 4330,
+    fs: {
+      deny: ['.env', '.env.*', '**/.git/**']
+    },
     proxy: {
       '/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:4310',
@@ -53,8 +56,24 @@ export default defineConfig({
       }
     }
   },
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+    legalComments: 'none'
+  },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: false,
+    minify: 'esbuild',
+    cssMinify: true,
+    target: 'es2022',
+    reportCompressedSize: false,
+    rollupOptions: {
+      output: {
+        // Obfuscate chunk and asset filenames with cryptographic hashes
+        chunkFileNames: 'assets/c_[hash].js',
+        entryFileNames: 'assets/e_[hash].js',
+        assetFileNames: 'assets/a_[hash].[ext]'
+      }
+    }
   }
 })

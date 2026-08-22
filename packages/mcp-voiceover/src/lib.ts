@@ -54,7 +54,8 @@ export async function generateVoiceoverTrack(
   cues: CaptionCue[],
   adapter: VoiceoverAdapter,
   outDir: string,
-  videoId: string
+  videoId: string,
+  profile?: { voiceId?: string; language?: string; accent?: string; speechStyle?: string }
 ): Promise<VoiceoverTrack> {
   if (cues.length === 0) {
     throw new Error("generateVoiceoverTrack requires at least one caption cue");
@@ -72,7 +73,7 @@ export async function generateVoiceoverTrack(
     }
 
     const rawPath = join(outDir, `${videoId}-cue-${i}-raw.mp3`);
-    const { filePath: rawFilePath } = await adapter.synthesize(cue.text, rawPath);
+    const { filePath: rawFilePath } = await adapter.synthesize(cue.text, rawPath, profile);
 
     const conformedPath = join(outDir, `${videoId}-cue-${i}-conformed.mp3`);
     await conformAudioDuration(rawFilePath, targetDurationSec, conformedPath);

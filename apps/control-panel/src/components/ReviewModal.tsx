@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReviewItem } from '../lib/types'
 import { api } from '../lib/api'
 import { PlatformBadge, ScoreBar, StatusBadge, MockBadge, formatRelative } from './primitives'
+import { exportSingleItemJson, exportSingleItemScript } from '../lib/export'
 
 /**
  * ReviewModal — full-screen preview of a review item before approve/reject.
@@ -74,7 +75,7 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onR
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, item.status])
 
   return (
@@ -151,6 +152,69 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onR
                 </span>
               </div>
               <ScoreBar score={item.score} />
+              {item.template && (
+                <div className="mt-3 border border-[var(--color-lime)] p-3 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-lime)]">Template · {item.template.name}</span>
+                      <span className="text-[9px] font-mono text-[var(--color-muted-3)] ml-2">v{item.template.version} · {item.template.category}</span>
+                    </div>
+                    {item.structuralScore !== undefined && (
+                      <span className="text-[10px] font-mono text-[var(--color-lime)]">Structure {item.structuralScore}/100</span>
+                    )}
+                  </div>
+
+                  {/* Hook patterns */}
+                  <div>
+                    <span className="text-[9px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">Hook patterns</span>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {item.template.hookPatterns.slice(0, 4).map((h, i) => (
+                        <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 border border-[var(--color-faint)] text-[var(--color-muted-2)]">{h}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Script beats */}
+                  <div>
+                    <span className="text-[9px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">Script beats</span>
+                    <ol className="mt-1 space-y-0.5">
+                      {item.template.scriptStructure.map((b, i) => (
+                        <li key={i} className="text-[10px] font-mono text-[var(--color-muted-2)] flex gap-2">
+                          <span className="text-[var(--color-lime)] shrink-0">{i + 1}.</span>
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+
+                  {/* Direction */}
+                  <div className="grid grid-cols-1 gap-1.5 text-[10px] font-mono">
+                    <div><span className="text-[var(--color-muted-3)] uppercase tracking-widest">Visual:</span> <span className="text-[var(--color-muted-2)]">{item.template.visualDirection}</span></div>
+                    <div><span className="text-[var(--color-muted-3)] uppercase tracking-widest">Camera:</span> <span className="text-[var(--color-muted-2)]">{item.template.cameraDirection}</span></div>
+                    <div><span className="text-[var(--color-muted-3)] uppercase tracking-widest">Creator:</span> <span className="text-[var(--color-muted-2)]">{item.template.creatorDirection}</span></div>
+                    <div><span className="text-[var(--color-muted-3)] uppercase tracking-widest">Product:</span> <span className="text-[var(--color-muted-2)]">{item.template.productPlacementDirection}</span></div>
+                    <div><span className="text-[var(--color-muted-3)] uppercase tracking-widest">Captions:</span> <span className="text-[var(--color-muted-2)]">{item.template.captionStyle}</span></div>
+                  </div>
+
+                  {/* QA rubric */}
+                  <div>
+                    <span className="text-[9px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">QA rubric</span>
+                    <p className="text-[10px] font-mono text-[var(--color-muted-2)] mt-0.5">{item.template.qaRubric.join(' · ')}</p>
+                  </div>
+
+                  {/* Forbidden patterns — only show when there are some */}
+                  {item.template.forbiddenPatterns.length > 0 && (
+                    <div>
+                      <span className="text-[9px] font-mono text-[var(--color-red)] uppercase tracking-widest">Forbidden</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {item.template.forbiddenPatterns.slice(0, 6).map((f, i) => (
+                          <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 border border-[var(--color-red)] text-[var(--color-red)]">{f}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {item.originalityScore !== undefined && (
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-[10px] font-mono text-[var(--color-muted-2)] uppercase tracking-widest">Originality</span>
@@ -275,11 +339,26 @@ export function ReviewModal({ item, onClose, onApprove, onReject, onPublish, onR
               {hasVideo && (
                 <button
                   onClick={() => onDownload(item.id)}
-                  className="px-4 py-3 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-faint)] text-[var(--color-muted-4)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors"
+                  className="px-4 py-3 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors"
+                  title="Download MP4 Video"
                 >
                   ↓ MP4
                 </button>
               )}
+              <button
+                onClick={() => exportSingleItemScript(item)}
+                className="px-4 py-3 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors"
+                title="Export Script as TXT"
+              >
+                ↓ SCRIPT
+              </button>
+              <button
+                onClick={() => exportSingleItemJson(item)}
+                className="px-4 py-3 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors"
+                title="Export Full Item JSON"
+              >
+                ↓ JSON
+              </button>
             </div>
             {/* Keyboard shortcut hint — shown for actionable states */}
             {item.status === 'pending' && (

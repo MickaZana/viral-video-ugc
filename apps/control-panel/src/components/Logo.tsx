@@ -1,10 +1,10 @@
 /**
- * Viral Video UGC wordmark. Lime is a 6px signal LED, not a brand fill.
- * Clicking the logo goes to This Week (callers pass onClick).
+ * Viral Video UGC official logo and wordmark.
+ * Uses official brand logo asset. Clicking the logo navigates to home/This Week.
  */
 export function Logo({
   onClick,
-  size = 8,
+  size = 32,
   showWordmark = true,
   wordmarkClass = 'text-[15px]'
 }: {
@@ -15,10 +15,11 @@ export function Logo({
 }) {
   const inner = (
     <>
-      <span
-        className="shrink-0 bg-[var(--color-lime)]"
+      <img
+        src="/logo.png"
+        alt="Viral Video UGC Logo"
+        className="shrink-0 rounded-lg object-contain shadow-sm"
         style={{ width: size, height: size }}
-        aria-hidden="true"
       />
       {showWordmark && (
         <span className={`${wordmarkClass} font-semibold tracking-tight leading-none select-none text-[var(--color-text)]`}>
@@ -41,7 +42,7 @@ export function Logo({
       onClick={onClick}
       aria-label="Viral Video UGC — This Week"
       title="This Week"
-      className="flex items-center gap-2.5 group cursor-pointer"
+      className="flex items-center gap-2.5 group cursor-pointer hover:opacity-90 transition-opacity"
     >
       {inner}
     </button>

@@ -32,7 +32,12 @@ export interface RunSummary {
  * runs/<runId>/cost-ledger.json) — this was previously only viewable by opening those
  * files by hand. Reads them back into a list the dashboard can render as run history.
  */
-export function listRuns(): RunSummary[] {
+/**
+ * Lists run summaries. When orgId is provided, only runs belonging to that
+ * organization are returned (tenant isolation). When omitted (operator context),
+ * all runs are returned.
+ */
+export function listRuns(orgId?: string): RunSummary[] {
   const { VVUGC_RUNS_DIR } = loadEnv();
   if (!existsSync(VVUGC_RUNS_DIR)) return [];
 
@@ -43,24 +48,39 @@ export function listRuns(): RunSummary[] {
     const manifestPath = join(VVUGC_RUNS_DIR, entry.name, "manifest.json");
     if (!existsSync(manifestPath)) continue;
 
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    let manifest: Record<string, unknown>;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    } catch {
+      continue; // malformed manifest — skip
+    }
+
+    // Tenant isolation: skip runs that don't belong to the requesting org
+    const config = manifest.config as Record<string, unknown> | undefined;
+    if (orgId && config?.accountId !== orgId) continue;
+
     const costLedgerPath = join(VVUGC_RUNS_DIR, entry.name, "cost-ledger.json");
-    const estimatedCostUsd = existsSync(costLedgerPath)
-      ? JSON.parse(readFileSync(costLedgerPath, "utf-8")).totalUsd
-      : undefined;
+    let estimatedCostUsd: number | undefined;
+    try {
+      estimatedCostUsd = existsSync(costLedgerPath)
+        ? JSON.parse(readFileSync(costLedgerPath, "utf-8")).totalUsd
+        : undefined;
+    } catch {
+      estimatedCostUsd = undefined;
+    }
 
     runs.push({
       runId: entry.name,
-      niche: manifest.config?.niche ?? "unknown",
-      platforms: manifest.config?.platforms ?? [],
-      candidatesFound: manifest.candidatesFound ?? 0,
-      reviewItemsCreated: manifest.reviewItemsCreated ?? 0,
-      createdAt: manifest.config?.createdAt,
+      niche: (config?.niche as string) ?? "unknown",
+      platforms: (config?.platforms as string[]) ?? [],
+      candidatesFound: (manifest.candidatesFound as number) ?? 0,
+      reviewItemsCreated: (manifest.reviewItemsCreated as number) ?? 0,
+      createdAt: config?.createdAt as string | undefined,
       estimatedCostUsd,
-      candidatesFailed: manifest.candidatesFailed,
-      platformsFailed: manifest.platformsFailed,
-      failures: manifest.failures,
-      discoveryBrief: manifest.config?.discoveryBrief ?? null
+      candidatesFailed: manifest.candidatesFailed as number | undefined,
+      platformsFailed: manifest.platformsFailed as number | undefined,
+      failures: manifest.failures as RunFailure[] | undefined,
+      discoveryBrief: config?.discoveryBrief ?? null
     });
   }
 

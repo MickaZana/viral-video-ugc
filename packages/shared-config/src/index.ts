@@ -52,6 +52,9 @@ const EnvSchema = z.object({
   RUNWAY_API_KEY: z.string().optional(),
   /** Pika is served through fal.ai's platform, not a standalone Pika API — see adapters/pika.ts. */
   FAL_KEY: z.string().optional(),
+  /** Seedance 2.0 model ID on fal.ai — defaults to "fal-ai/seedance-2" if unset.
+   *  Override for a specific tier (e.g. "fal-ai/seedance-2/fast"). */
+  SEEDANCE_MODEL: z.string().optional(),
   /** Voiceover narration synced to burned-in captions — see packages/mcp-voiceover. Optional;
    *  select a vendor with the CLI's --voice-vendor flag, not just by setting a key here. */
   ELEVENLABS_API_KEY: z.string().optional(),
@@ -175,7 +178,33 @@ const EnvSchema = z.object({
    * 90 days is long enough to reconstruct what happened in any incident that
    * matters while keeping the files from growing without bound.
    */
-  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(90)
+  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
+  // ---------------------------------------------------------------------------
+  // Video Worker
+  // ---------------------------------------------------------------------------
+  /** Two-key live gate: set to "true" to allow real provider API calls. */
+  VVUGC_LLM_LIVE: z.string().optional(),
+  /** MCP server URL for Higgsfield adapter connectivity. */
+  MCP_SERVER_URL: z.string().optional(),
+  /** Timeout in ms for establishing an MCP session connection. */
+  MCP_CONNECT_TIMEOUT_MS: z.string().optional(),
+  /** Maximum reconnect attempts before giving up on MCP. */
+  MCP_MAX_RECONNECT_ATTEMPTS: z.string().optional(),
+  /** Number of concurrent provider jobs to process. */
+  VIDEO_WORKER_CONCURRENCY: z.string().optional(),
+  /** Polling interval in ms between job-claim attempts. */
+  VIDEO_WORKER_POLL_MS: z.string().optional(),
+  /** Lease duration in ms before a claimed job is considered abandoned. */
+  VIDEO_WORKER_LEASE_MS: z.string().optional(),
+  /** Port for the video-worker health/metrics HTTP server. */
+  VIDEO_WORKER_HEALTH_PORT: z.string().optional(),
+  // ---------------------------------------------------------------------------
+  // LipSync
+  // ---------------------------------------------------------------------------
+  /** Sync Labs API key for talking-head lipsync generation. */
+  SYNC_LABS_API_KEY: z.string().optional(),
+  /** HeyGen API key for talking-head lipsync generation. */
+  HEYGEN_API_KEY: z.string().optional()
 });
 
 export type Env = z.infer<typeof EnvSchema>;

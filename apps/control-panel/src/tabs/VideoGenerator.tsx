@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { paths } from '../lib/paths'
 import type {
@@ -11,12 +11,14 @@ import type {
   RunResponse,
   VideoVendor,
   VoiceVendor
+  ,ProductProfile, CreatorProfile, UGCTemplate
 } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
 import { DiscoverPanel } from '../components/DiscoveryPanel'
 import { PipelineProgress } from '../components/PipelineProgress'
+import { VisualDirectionPanel, toApiFormat, type VisualDirectionState } from '../components/VisualDirectionPanel'
 
 /**
  * Video Generator — pick a model by the result you want, then run the real
@@ -113,9 +115,15 @@ export function VideoGenerator() {
   const navigate = useNavigate()
   const models = useApi<ModelsResponse>(() => api.models())
   const clients = useApi<{ clients: AgencyClient[] }>(() => api.clients())
+  const products = useApi<{ products: ProductProfile[] }>(() => api.products())
+  const creators = useApi<{ creators: CreatorProfile[] }>(() => api.creatorProfiles())
+  const templates = useApi<{ templates: UGCTemplate[] }>(() => api.templates())
   const grouped = models.data?.grouped
   const [selected, setSelected] = useState<Partial<Record<ModelKind, string>>>({})
   const [clientId, setClientId] = useState('')
+  const [productProfileId, setProductProfileId] = useState('')
+  const [creatorProfileId, setCreatorProfileId] = useState('')
+  const [templateId, setTemplateId] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
   const [creating, setCreating] = useState(false)
   const [running, setRunning] = useState(false)
@@ -123,9 +131,16 @@ export function VideoGenerator() {
   const [run, setRun] = useState<RunResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [creatorPreflight, setCreatorPreflight] = useState<{ warnings: string[]; blocking: boolean } | null>(null)
+  const [visualDirection, setVisualDirection] = useState<Partial<VisualDirectionState>>({})
 
   const clientList = clients.data?.clients ?? []
   const selectedClient = clientList.find((c) => c.id === clientId) ?? clientList[0] ?? null
+  const selectedTemplate = (templates.data?.templates ?? []).find((t) => t.id === templateId)
+  const templateWarnings = selectedTemplate ? [
+    ...(selectedClient?.platforms ?? []).filter((p) => !selectedTemplate.targetPlatforms.includes(p)).length ? [`${selectedTemplate.name} is not optimized for one or more selected platforms`] : [],
+    selectedClient && Math.abs(selectedClient.targetDurationSec - selectedTemplate.recommendedDurationSec) > 15 ? [`Recommended duration is ${selectedTemplate.recommendedDurationSec}s`] : []
+  ].flat() : []
 
   // The effective video/voiceover picks. An explicit picker click wins; otherwise
   // they follow the selected client's saved vendors so the run matches the client.
@@ -141,6 +156,13 @@ export function VideoGenerator() {
     voiceList[0]?.id
   const videoChosen = videoList.find((m) => m.id === videoChosenId)
   const voiceChosen = voiceList.find((m) => m.id === voiceChosenId)
+  useEffect(() => {
+    const vendor = videoChosen ? vendorForModelId(videoChosen.id) : selectedClient?.videoVendor
+    if (!creatorProfileId || !vendor) { setCreatorPreflight(null); return }
+    let cancelled = false
+    void api.creatorPreflight(creatorProfileId, vendor, selectedClient?.id).then((value) => { if (!cancelled) setCreatorPreflight(value) }).catch(() => { if (!cancelled) setCreatorPreflight(null) })
+    return () => { cancelled = true }
+  }, [creatorProfileId, selectedClient, videoChosen])
 
   function togglePlatform(p: Platform) {
     setForm((f) => ({
@@ -186,6 +208,7 @@ export function VideoGenerator() {
     setActiveRunId(null)
     try {
       const videoVendor = (videoChosen ? vendorForModelId(videoChosen.id) : selectedClient.videoVendor) as VideoVendor
+      if (creatorProfileId && creatorPreflight?.blocking) { setError(`Creator profile is incompatible with ${videoVendor}: ${creatorPreflight.warnings.join('; ')}`); setRunning(false); return }
       const voiceVendor = voiceChosen ? (vendorForModelId(voiceChosen.id) as VoiceVendor) : selectedClient.voiceVendor
       let target = selectedClient
       // The video/voiceover picker drives what the run spends on — persist the
@@ -208,7 +231,7 @@ export function VideoGenerator() {
         target = updated.client
         clients.reload()
       }
-      const result = await api.run({ clientId: target.id, dryRun: !live })
+      const result = await api.run({ clientId: target.id, dryRun: !live, productProfileId: productProfileId || undefined, creatorProfileId: creatorProfileId || undefined, templateId: templateId || undefined, visualDirection: toApiFormat(visualDirection) })
       setRun(result)
       setActiveRunId(result.runId)
       navigate(paths.studioRun(result.runId))
@@ -222,6 +245,16 @@ export function VideoGenerator() {
   return (
     <div className="space-y-8">
       <DiscoverPanel />
+      {/* Batch Mode link */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => navigate(paths.studioBatch)}
+          className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors"
+        >
+          ⚡ Batch Mode
+        </button>
+      </div>
+
       <Panel title="CHOOSE MODELS BY RESULT">
         <div className="divide-y divide-[var(--color-raised)]">
           {KIND_ORDER.map((kind) => {
@@ -400,6 +433,35 @@ export function VideoGenerator() {
               )}
             </div>
 
+            <label className="block max-w-md">
+              <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">UGC template</span>
+              <select className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                <option value="">Freeform (no template)</option>
+                {(templates.data?.templates ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {selectedTemplate && <div className="text-[10px] font-mono text-[var(--color-muted-2)] mt-1">{selectedTemplate.description} · Beats: {selectedTemplate.scriptStructure.join(' → ')}</div>}
+              {selectedTemplate && selectedTemplate.requiredInputs.map((input) => <div key={input} className="text-[10px] font-mono text-[var(--color-muted-2)]">✓ Required: {input}</div>)}
+              {templateWarnings.map((warning) => <div key={warning} className="text-[10px] font-mono text-[var(--color-amber)] mt-1">⚠ {warning}</div>)}
+            </label>
+
+            <label className="block max-w-md">
+              <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Product profile (optional)</span>
+              <select
+                className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3 focus:outline-none focus:border-[var(--color-lime)] transition-colors"
+                value={productProfileId}
+                onChange={(e) => setProductProfileId(e.target.value)}
+              >
+                <option value="">No product profile</option>
+                {(products.data?.products ?? []).filter((p) => !selectedClient || !p.clientId || p.clientId === selectedClient.id).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <span className="block text-[10px] font-mono text-[var(--color-muted-3)] mt-1">Create and edit profiles from Brand.</span>
+            </label>
+
+            <label className="block max-w-md"><span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Creator profile (optional)</span><select className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3" value={creatorProfileId} onChange={(e) => setCreatorProfileId(e.target.value)}><option value="">No creator profile</option>{(creators.data?.creators ?? []).filter((c) => c.active && (!selectedClient || !c.clientId || c.clientId === selectedClient.id)).map((c) => <option key={c.id} value={c.id}>{c.displayName}</option>)}</select>{creatorProfileId && <span className="block text-[10px] text-[var(--color-amber)] mt-1">Reference-guided only; persistent identity is not guaranteed across vendors.</span>}</label>
+
+            {creatorPreflight && <div className={`text-[10px] mt-2 ${creatorPreflight.blocking ? 'text-[var(--color-red)]' : 'text-[var(--color-amber)]'}`}>{creatorPreflight.blocking ? 'Creator run blocked: ' : 'Creator capability notice: '}{creatorPreflight.warnings.join(' · ')}</div>}
             {selectedClient && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
@@ -420,6 +482,9 @@ export function VideoGenerator() {
                     <div className="text-[var(--color-lime)] mt-1">{videoChosen ? `~$${videoChosen.priceUsdPerUnit.toFixed(4)}/${videoChosen.unit}` : '—'}</div>
                   </div>
                 </div>
+
+                {/* Cinema Controls */}
+                <VisualDirectionPanel value={visualDirection} onChange={setVisualDirection} />
 
                 <div className="flex items-center gap-4 flex-wrap">
                   <button

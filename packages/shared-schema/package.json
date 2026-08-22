@@ -5,6 +5,11 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./batch": { "types": "./dist/batch.d.ts", "default": "./dist/batch.js" },
+    "./batch-planner": { "types": "./dist/batch-planner.d.ts", "default": "./dist/batch-planner.js" }
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run"

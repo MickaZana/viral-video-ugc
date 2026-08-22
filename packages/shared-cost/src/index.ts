@@ -17,7 +17,11 @@ export type CostVendor =
   | "elevenlabs"
   | "grok"
   | "gemini"
-  | "replicate";
+  | "replicate"
+  | "seedance"
+  | "grok_video"
+  | "sync_labs"
+  | "heygen";
 
 export interface CostEvent {
   stage: string;
@@ -74,7 +78,19 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // DEFAULT_MODEL is overridable via REPLICATE_MODEL) — this is a rough
   // representative estimate, not tied to any specific model's real per-run cost.
   // Confirm against the actual model's listed price on replicate.com before relying on it.
-  replicate: { clip: 0.4 }
+  replicate: { clip: 0.4 },
+  // Seedance via fal.ai — ~$0.02/sec of generated video, estimated as ~$0.10/clip
+  // at a typical 5-second clip. Confirm against current fal.ai pricing.
+  seedance: { clip: 0.1 },
+  // Grok Video via xAI — ~$0.05/sec of generated video, estimated as ~$0.25/clip
+  // at a typical 5-second clip. Confirm against current xAI pricing.
+  grok_video: { clip: 0.25 },
+  // Sync Labs — ~$0.02/sec for talking-head lipsync from audio + image.
+  // Estimated as ~$0.50/clip at a typical 25-second segment.
+  sync_labs: { clip: 0.5 },
+  // HeyGen — ~$0.03/sec for avatar video generation from audio + image.
+  // Estimated as ~$0.75/clip at a typical 25-second segment.
+  heygen: { clip: 0.75 }
 };
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {

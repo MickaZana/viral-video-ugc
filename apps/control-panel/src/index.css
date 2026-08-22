@@ -22,7 +22,182 @@ html, body, #root {
   color: var(--color-text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
+
+/* ==========================================================================
+   RESPONSIVE LAYOUT — Media Queries (min/max)
+   
+   Breakpoints:
+   - Mobile:  max-width: 639px
+   - Tablet:  min-width: 640px AND max-width: 1023px
+   - Desktop: min-width: 1024px
+   ========================================================================== */
+
+/* --- Base (all sizes) --- */
+.workspace-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-nav {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-raised);
+  background: var(--color-nav);
+}
+
+.workspace-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Ensure all flex children can shrink */
+.workspace-content *, .workspace-main * {
+  min-width: 0;
+}
+
+/* Prevent long unbroken strings from overflowing */
+p, span, button, a {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* --- MOBILE: max-width 639px --- */
+@media (max-width: 639px) {
+  .workspace-nav {
+    width: 3.25rem;
+  }
+  .workspace-nav .nav-label {
+    display: none;
+  }
+  .workspace-nav .nav-badge {
+    display: none;
+  }
+  .workspace-main {
+    padding: 0.75rem;
+  }
+  .workspace-header {
+    padding: 0.5rem 0.75rem;
+  }
+  .workspace-header .header-email {
+    display: none;
+  }
+  .workspace-header .header-export-label {
+    display: none;
+  }
+  /* Stack review grid into single column */
+  .review-grid {
+    grid-template-columns: 1fr !important;
+  }
+  /* Stack toolbar items */
+  .toolbar-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .toolbar-row .ml-auto {
+    margin-left: 0;
+    width: 100%;
+  }
+  /* Footer stacks */
+  .workspace-footer {
+    flex-direction: column;
+    text-align: center;
+    padding: 0.75rem;
+  }
+}
+
+/* --- TABLET: 640px to 1023px --- */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .workspace-nav {
+    width: 3.5rem;
+  }
+  .workspace-nav .nav-label {
+    display: none;
+  }
+  .workspace-nav .nav-badge {
+    display: none;
+  }
+  .workspace-main {
+    padding: 1rem;
+  }
+  .workspace-header {
+    padding: 0.75rem 1rem;
+  }
+  .workspace-header .header-email {
+    display: none;
+  }
+  /* Review grid: 2 columns on tablet */
+  .review-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .toolbar-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+/* --- DESKTOP: 1024px and above --- */
+@media (min-width: 1024px) {
+  .workspace-nav {
+    width: 13rem;
+  }
+  .workspace-nav .nav-label {
+    display: inline;
+  }
+  .workspace-nav .nav-badge {
+    display: inline-flex;
+  }
+  .workspace-main {
+    padding: 1.5rem;
+  }
+  .workspace-header {
+    padding: 0.75rem 1.5rem;
+  }
+  .workspace-header .header-email {
+    display: inline;
+  }
+  .workspace-header .header-export-label {
+    display: inline;
+  }
+  /* Review grid: full 4 columns on wide desktop */
+  .review-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- WIDE DESKTOP: 1280px and above --- */
+@media (min-width: 1280px) {
+  .review-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+}
+
+/* ==========================================================================
+   END RESPONSIVE
+   ========================================================================== */
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

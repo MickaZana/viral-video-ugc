@@ -19,14 +19,14 @@ const DEFAULT_VOICE_ID = "eve";
 export function createGrokAdapter(): VoiceoverAdapter {
   return {
     vendor: "grok",
-    async synthesize(text: string, outPath: string): Promise<{ filePath: string; durationSec: number }> {
+    async synthesize(text: string, outPath: string, opts): Promise<{ filePath: string; durationSec: number }> {
       const apiKey = requireEnvVar("XAI_API_KEY");
-      const voiceId = process.env.GROK_VOICE_ID || DEFAULT_VOICE_ID;
+      const voiceId = opts?.voiceId || process.env.GROK_VOICE_ID || DEFAULT_VOICE_ID;
 
       const res = await fetchWithRetry(XAI_TTS_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice_id: voiceId, language: "en" }),
+        body: JSON.stringify({ text: [opts?.accent && `Accent: ${opts.accent}`, opts?.speechStyle, text].filter(Boolean).join("\n"), voice_id: voiceId, language: opts?.language || "en" }),
         timeoutMs: 30_000
       });
       if (!res.ok) {

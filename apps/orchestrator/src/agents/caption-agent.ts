@@ -1,5 +1,5 @@
 import type { CostLedger } from "@vvugc/shared-cost";
-import { CaptionCueSchema, type CaptionCue, type RewrittenScript } from "@vvugc/shared-schema";
+import { CaptionCueSchema, type CaptionCue, type RewrittenScript, type UGCTemplate } from "@vvugc/shared-schema";
 import { z } from "zod";
 import { generateWithFailover } from "./llm-failover.js";
 
@@ -16,7 +16,7 @@ Respond with ONLY a JSON array, no prose, no markdown fences:
 
 export async function generateCaptions(
   script: RewrittenScript,
-  opts: { dryRun?: boolean; costLedger?: CostLedger } = {}
+  opts: { dryRun?: boolean; costLedger?: CostLedger; template?: UGCTemplate } = {}
 ): Promise<CaptionCue[]> {
   if (opts.dryRun) return mockCaptions(script);
 
@@ -26,6 +26,7 @@ Hook: ${script.hook}
 Points:
 ${script.points.map((p, i) => `${i + 1}. ${p}`).join("\n")}
 CTA: ${script.cta}`;
+  const templateBlock = opts.template ? `\nTemplate caption style: ${opts.template.captionStyle}. Keep cards aligned to beats: ${opts.template.scriptStructure.join(" → ")}` : "";
 
   // Haiku 4.5: this stage only splits an already-written script into timed cards by reading
   // length — mechanical, bounded, high-volume (once per candidate every run), not a creative
@@ -33,7 +34,7 @@ CTA: ${script.cta}`;
   const model = "claude-haiku-4-5";
   const { text } = await generateWithFailover({
     system: SYSTEM_PROMPT,
-    userPrompt,
+    userPrompt: userPrompt + templateBlock,
     maxTokens: 1024,
     anthropicModel: model,
     geminiModel: "gemini-2.5-flash",

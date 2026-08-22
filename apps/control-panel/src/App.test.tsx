@@ -79,7 +79,8 @@ describe('App (control panel shell)', () => {
     expect(screen.getByText(ACCOUNT.email)).toBeInTheDocument()
   })
 
-  it('renders sign-in (not a marketing landing) for an anonymous visitor', async () => {
+  it('lets an anonymous visitor reach sign-in from the landing page', async () => {
+    const user = userEvent.setup()
     globalThis.fetch = vi.fn(async () => {
       const res = jsonResponse({ error: 'No session' })
       return { ...res, ok: false, status: 401 } as Response
@@ -88,8 +89,22 @@ describe('App (control panel shell)', () => {
     renderApp()
     await waitFor(() => expect(screen.queryByText(/Establishing session/i)).not.toBeInTheDocument())
     expect(screen.queryByText(ACCOUNT.email)).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /Sign In/i }).length).toBeGreaterThan(0)
-    expect(screen.getByText(/Access your account/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Spy The Format/i })).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: /^Sign In$/i })[0])
+
+    expect(await screen.findByText(/Access your account/i)).toBeInTheDocument()
+  })
+
+  it('opens sign-up directly from the get-started query route', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      const res = jsonResponse({ error: 'No session' })
+      return { ...res, ok: false, status: 401 } as Response
+    }) as unknown as typeof fetch
+
+    renderApp('/app?mode=signup')
+
+    expect(await screen.findByText(/Create your account/i)).toBeInTheDocument()
   })
 
   it('toggles the theme from Settings and persists the choice', async () => {
@@ -97,18 +112,18 @@ describe('App (control panel shell)', () => {
     renderApp()
     await reachWorkspace()
 
-    expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(localStorage.getItem('ugu-theme')).toBe('dark')
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(localStorage.getItem('ugu-theme')).toBe('light')
 
     await user.click(screen.getByRole('link', { name: /Settings/i }))
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /^light$/i }))
-    expect(document.documentElement.dataset.theme).toBe('light')
-    expect(localStorage.getItem('ugu-theme')).toBe('light')
-
     await user.click(screen.getByRole('button', { name: /^dark$/i }))
     expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(localStorage.getItem('ugu-theme')).toBe('dark')
+
+    await user.click(screen.getByRole('button', { name: /^light$/i }))
+    expect(document.documentElement.dataset.theme).toBe('light')
   })
 
   it('navigates to Library via a real route and renders its category switcher', async () => {

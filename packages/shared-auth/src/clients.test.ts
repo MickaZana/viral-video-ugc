@@ -41,15 +41,16 @@ describe("createAgencyClientStore", () => {
 
   it("atomically claims only active weekly clients that are due", () => {
     const clients = store();
-    const now = new Date("2026-07-23T00:00:00.000Z");
     const weekly = clients.create("org-a", { ...input, cadence: "weekly" });
     const manual = clients.create("org-a", input);
-    clients.update("org-a", weekly.id, { ...input, cadence: "weekly" });
+    const updatedWeekly = clients.update("org-a", weekly.id, { ...input, cadence: "weekly" });
+    expect(updatedWeekly?.nextRunAt).toBeDefined();
+    const nextRun = new Date(updatedWeekly!.nextRunAt!);
     // The store schedules weekly work seven days out; claim at a later boundary.
-    const due = clients.claimDue(new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000));
+    const due = clients.claimDue(new Date(nextRun.getTime() + 1000));
     expect(due.map((entry) => entry.id)).toContain(weekly.id);
     expect(due.map((entry) => entry.id)).not.toContain(manual.id);
-    expect(clients.claimDue(new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000))).toHaveLength(0);
+    expect(clients.claimDue(new Date(nextRun.getTime() + 1000))).toHaveLength(0);
   });
 
   it("does not lose concurrent creates guarded by the lock", async () => {

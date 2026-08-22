@@ -7,6 +7,8 @@
  */
 
 export type Platform = 'tiktok' | 'youtube_shorts' | 'instagram_reels' | 'facebook'
+export type UGCTemplateId = 'testimonial' | 'unboxing' | 'tutorial' | 'problem_solution' | 'comparison' | 'before_after' | 'founder_story'
+export interface UGCTemplate { id: UGCTemplateId; version: string; name: string; description: string; category: string; targetPlatforms: Platform[]; recommendedDurationSec: number; scriptStructure: string[]; hookPatterns: string[]; requiredInputs: string[]; optionalInputs: string[]; visualDirection: string; cameraDirection: string; creatorDirection: string; productPlacementDirection: string; captionStyle: 'clean'|'bold'|'minimal'; ctaPatterns: string[]; forbiddenPatterns: string[]; qaRubric: string[]; defaultVariants: string[]; active: boolean; createdAt: string; updatedAt: string }
 export type ReviewItemStatus = 'pending' | 'approved' | 'rejected'
 
 export interface RewrittenScript {
@@ -41,10 +43,13 @@ export interface ReviewItem {
   orgId?: string
   clientId?: string
   niche: string
+  templateId?: UGCTemplateId
+  template?: UGCTemplate
   videoPath: string
   platform: Platform
   script: RewrittenScript
   score: number
+  structuralScore?: number
   flags: string[]
   originalityScore?: number
   clips?: RawClip[]
@@ -321,4 +326,44 @@ export interface TrendsResponse {
   suggestedAngles: string[]
   note?: string
 }
+
+export interface ProductImage {
+  id: string
+  fileName: string
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  filePath: string
+  createdAt: string
+}
+
+export interface ProductProfile {
+  id: string
+  orgId: string
+  clientId?: string
+  name: string
+  canonicalUrl?: string
+  description: string
+  shortDescription: string
+  productCategory: string
+  targetCustomer: string
+  customerPain: string
+  primaryBenefits: string[]
+  features: string[]
+  claims: string[]
+  forbiddenClaims: string[]
+  differentiators: string[]
+  price?: string
+  callToAction: string
+  brandTone?: string
+  productImages: ProductImage[]
+  extractedImageUrls: string[]
+  extractedSourceText?: string
+  extractionStatus: 'manual' | 'pending' | 'complete' | 'failed'
+  extractionError?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProductsResponse { products: ProductProfile[] }
+export interface CreatorReferenceImage { id: string; fileName: string; mimeType: string; createdAt: string }
+export interface CreatorProfile { id: string; clientId?: string; displayName: string; description: string; referenceImages: CreatorReferenceImage[]; avatarMode: 'reference_images' | 'vendor_avatar' | 'none'; preferredVideoVendor?: string; compatibleVendors: string[]; voiceVendor?: 'elevenlabs' | 'grok'; voiceId?: string; speechStyle: string; tone: string; wardrobe: string; visualStyle: string; ageRange?: string; language: string; accent?: string; prohibitedDepictions: string[]; defaultLocation?: string; consentConfirmed: boolean; consentConfirmedAt?: string; consentConfirmedBy?: string; active: boolean; createdAt: string; updatedAt: string }
 

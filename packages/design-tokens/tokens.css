@@ -7,7 +7,7 @@
  * product. Edit here, both surfaces update (served at /tokens.css by each app).
  */
 :root {
-  --bg: #ffffff;
+  --bg: #EDE8DC;
   --bg-raised: #f4f4f4;
   --bg-card: #ffffff;
   --border: #d6d6d6;
@@ -190,53 +190,74 @@ select:focus-visible,
  * Tailwind's `:root` defaults for the same name.
  * ------------------------------------------------------------------------- */
 :root[data-surface="workspace"] {
-  --color-bg: #080808;
-  --color-nav: #0a0a0a;
-  --color-surface: #111111;
-  --color-raised: #1a1a1a;
-  --color-border: #242424;
-  --color-input: #2a2a2a;
-  --color-text: #f0f0f0;
-  --color-on-accent: #080808;
-  /* Muted ramp brightened so every tone clears WCAG AA (4.5:1) on the darkest
-     surfaces (#080808 bg / #0a0a0a nav / #111111 surface / #1a1a1a raised).
-     Hierarchy preserved: muted-3 (dimmest) < muted-2 < muted < muted-5 < muted-4 < muted-6. */
-  --color-muted: #999999;
-  --color-muted-2: #8f8f8f;
-  --color-muted-3: #858585;
-  --color-muted-4: #adadad;
-  --color-muted-5: #a3a3a3;
-  --color-muted-6: #bdbdbd;
-  --color-faint: #333333;
-  --color-lime: #c8ff00;
-  --color-lime-dim: #8ab300;
-  --color-red: #ff2b2b;
-  --color-orange: #ff7a00;
+  --color-bg: #EDE8DC;
+  --color-nav: #ffffff;
+  --color-surface: #ffffff;
+  --color-raised: #f3eee3;
+  --color-border: #dcd7cb;
+  --color-input: #e4dfd3;
+  --color-text: #171717;
+  --color-on-accent: #ffffff;
+  /* Muted ramp — dark enough for WCAG AA (4.5:1+) on beige (#EDE8DC) and white */
+  --color-muted: #4a4a45;
+  --color-muted-2: #444441;
+  --color-muted-3: #3d3d3a;
+  --color-muted-4: #363633;
+  --color-muted-5: #2f2f2c;
+  --color-muted-6: #282825;
+  --color-faint: #5f5f5a;
+  --color-lime: #3d5a00;
+  --color-lime-dim: #4f6b00;
+  --color-red: #cc0000;
+  --color-orange: #b34500;
+  --color-amber: #b45309;
   --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
   --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, 'JetBrains Mono', monospace;
 }
 
-/* Light / "white" theme — flips the workspace surfaces to paper while keeping
-   the lime identity readable (darkened to an olive-green that works on white).
-   Values not re-declared here (red/orange/type) intentionally inherit the
-   workspace defaults above. */
 :root[data-surface="workspace"][data-theme="light"] {
-  --color-bg: #f4f4f1;
+  --color-bg: #EDE8DC;
   --color-nav: #ffffff;
   --color-surface: #ffffff;
-  --color-raised: #e8e8e4;
-  --color-border: #e1e1dd;
-  --color-input: #d7d7d2;
+  --color-raised: #f3eee3;
+  --color-border: #dcd7cb;
+  --color-input: #e4dfd3;
   --color-text: #171717;
   --color-on-accent: #ffffff;
-  --color-muted: #5c5c58;
-  --color-muted-2: #565653;
-  --color-muted-3: #6d6d69;
-  --color-muted-4: #797975;
-  --color-muted-5: #61615e;
-  --color-muted-6: #4c4c49;
-  --color-faint: #8c8c87;
-  --color-lime: #4f6b00;
-  --color-lime-dim: #6f8a00;
+  --color-muted: #4a4a45;
+  --color-muted-2: #444441;
+  --color-muted-3: #3d3d3a;
+  --color-muted-4: #363633;
+  --color-muted-5: #2f2f2c;
+  --color-muted-6: #282825;
+  --color-faint: #5f5f5a;
+  --color-lime: #3d5a00;
+  --color-lime-dim: #4f6b00;
+  --color-red: #cc0000;
+  --color-orange: #b34500;
+  --color-amber: #b45309;
+}
+
+:root[data-surface="workspace"][data-theme="dark"] {
+  --color-bg: #0e0e0e;
+  --color-nav: #080808;
+  --color-surface: #141414;
+  --color-raised: #1c1c1c;
+  --color-border: #2a2a2a;
+  --color-input: #1a1a1a;
+  --color-text: #efefef;
+  --color-on-accent: #080808;
+  --color-muted: #8a8a8a;
+  --color-muted-2: #9a9a9a;
+  --color-muted-3: #777777;
+  --color-muted-4: #aaaaaa;
+  --color-muted-5: #bababa;
+  --color-muted-6: #cccccc;
+  --color-faint: #333333;
+  --color-lime: #c8ff00;
+  --color-lime-dim: #8ab300;
+  --color-red: #ff4444;
+  --color-orange: #ff8c00;
+  --color-amber: #f59e0b;
 }

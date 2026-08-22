@@ -9,5 +9,5 @@ export interface VoiceoverAdapter {
    * responsible for conforming this to whatever time window it needs to fill
    * (e.g. a caption cue's exact start/end).
    */
-  synthesize(text: string, outPath: string): Promise<{ filePath: string; durationSec: number }>;
+  synthesize(text: string, outPath: string, opts?: { voiceId?: string; language?: string; accent?: string; speechStyle?: string }): Promise<{ filePath: string; durationSec: number }>;
 }

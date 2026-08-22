@@ -54,7 +54,12 @@ function isHardProviderFailure(err: unknown): boolean {
 }
 
 async function callAnthropic(opts: LlmFailoverOptions): Promise<LlmFailoverResult> {
-  const client = new Anthropic({ apiKey: requireEnvVar("ANTHROPIC_API_KEY") });
+  const client = new Anthropic({
+    apiKey: requireEnvVar("ANTHROPIC_API_KEY"),
+    // H-5 FIX: Explicit timeout (90s) prevents the default 10-minute hang
+    timeout: 90_000,
+    maxRetries: 2,
+  });
   const message = await client.messages.create({
     model: opts.anthropicModel,
     max_tokens: opts.maxTokens,

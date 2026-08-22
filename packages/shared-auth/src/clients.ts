@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BrandKit, Platform } from "@vvugc/shared-schema";
@@ -49,12 +49,32 @@ function acquireLock(dbPath: string, timeoutMs = 5000): void {
 
 function readAll(dbPath: string): AgencyClient[] {
   if (!existsSync(dbPath)) return [];
-  return JSON.parse(readFileSync(dbPath, "utf-8"));
+  const raw = readFileSync(dbPath, "utf-8").trim();
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // P1 FIX: Quarantine corrupted file instead of silently losing data.
+    // This prevents a scenario where corrupted JSON is silently treated as
+    // "empty" and then overwritten by a subsequent writeAll() call.
+    const corruptPath = `${dbPath}.corrupt-${Date.now()}`;
+    try {
+      renameSync(dbPath, corruptPath);
+    } catch { /* if rename fails, continue — don't crash the scheduler */ }
+    console.error(
+      `[CRITICAL] clients.ts: Corrupted JSON in ${dbPath} — quarantined to ${corruptPath}. ` +
+      `Returning empty array to prevent crash, but data may have been lost.`
+    );
+    return [];
+  }
 }
 
 function writeAll(dbPath: string, clients: AgencyClient[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(clients, null, 2));
+  // P1 FIX: Atomic write — temp file + rename to prevent 0-byte corruption
+  const tmp = `${dbPath}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(clients, null, 2));
+  renameSync(tmp, dbPath);
 }
 
 export interface AgencyClientStore {

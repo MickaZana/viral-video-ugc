@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -43,14 +43,8 @@ function lock(path: string): void {
       while (Date.now() - start < LOCK_RETRY_MS) { /* spin-wait */ }
     }
   }
-  // Last resort: force-remove the lock and try once more
-  rmSync(lockPath, { force: true });
-  try {
-    closeSync(openSync(lockPath, "wx"));
-    return;
-  } catch {
-    throw new Error(`Failed to acquire lock on ${path} after ${LOCK_TIMEOUT_MS}ms — another process may be holding it`);
-  }
+  // P1 FIX: Do NOT force-delete another process's lock — fail loudly instead.
+  throw new Error(`Failed to acquire lock on ${path} after ${LOCK_TIMEOUT_MS}ms — another process may be holding it. Stale locks (>${STALE_LOCK_MS}ms) are recovered automatically.`);
 }
 
 /** Local fallback for development. Production selects the PostgreSQL backend. */
@@ -62,7 +56,11 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
     try {
       const jobs = read();
       const result = fn(jobs);
-      writeFileSync(path, JSON.stringify(jobs, null, 2));
+      // P1 FIX: Atomic write — write to temp file, then rename. Prevents
+      // 0-byte corruption if the process is killed mid-write.
+      const tmp = `${path}.${randomUUID()}.tmp`;
+      writeFileSync(tmp, JSON.stringify(jobs, null, 2));
+      renameSync(tmp, path);
       return result;
     } finally {
       rmSync(`${path}.lock`, { force: true });

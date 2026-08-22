@@ -7,7 +7,9 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "eslint .",
-    "cli": "pnpm --filter @vvugc/orchestrator cli"
+    "cli": "pnpm --filter @vvugc/orchestrator cli",
+    "feedback": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/collect-feedback.ts",
+    "backup": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/backup-runs.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9",

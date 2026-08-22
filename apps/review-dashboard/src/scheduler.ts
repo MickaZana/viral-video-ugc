@@ -13,11 +13,18 @@ export interface SchedulerTickResult {
   failed: Array<{ clientId: string; error: string }>;
 }
 
-export async function runDueClientSchedules(now = new Date()): Promise<SchedulerTickResult> {
+/**
+ * H-3 FIX: Accept an optional `orgId` parameter.
+ * When called from `/scheduler/run-due` with a session-authenticated request,
+ * only schedules belonging to that org are processed. When called without orgId
+ * (internal timer or operator), all due schedules are processed.
+ */
+export async function runDueClientSchedules(orgId?: string, now = new Date()): Promise<SchedulerTickResult> {
   const { VVUGC_RUNS_DIR } = loadEnv();
   const store = createAgencyClientStore(join(VVUGC_RUNS_DIR, "agency-clients.json"));
   const jobStore = createPipelineJobStore(join(VVUGC_RUNS_DIR, "pipeline-jobs.json"));
-  const due = store.claimDue(now);
+  const allDue = store.claimDue(now);
+  const due = orgId ? allDue.filter((client) => client.orgId === orgId) : allDue;
   const enqueued: PipelineJob[] = [];
   const failed: Array<{ clientId: string; error: string }> = [];
 

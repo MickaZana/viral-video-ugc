@@ -4,6 +4,7 @@ import { loadEnv, requireEnvVar } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
+import { mapToPromptEnrichment } from "../visual-mapping.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
 const REPLICATE_API_BASE = "https://api.replicate.com/v1";
@@ -54,12 +55,18 @@ export function createReplicateAdapter(outDir: string): VideoGenAdapter {
       const model = loadEnv().REPLICATE_MODEL || DEFAULT_MODEL;
       const headers = { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" };
 
+      // Cinema Controls: enrich prompt with visual direction
+      const enrichedPrompt = req.visualDirection ? `${req.prompt}. ${mapToPromptEnrichment(req.visualDirection)}` : req.prompt;
       const input: Record<string, unknown> = {
-        prompt: req.prompt,
+        prompt: enrichedPrompt,
         aspect_ratio: req.aspectRatio,
         duration: req.durationSec
       };
-      if (req.referenceImageUrl) input.image = req.referenceImageUrl;
+      // Soul ID: identityRef takes priority over generic referenceImageUrl
+      if (req.identityRef?.primaryImageUrl) {
+        input.image = req.identityRef.primaryImageUrl;
+      } else if (req.referenceImageUrl) input.image = req.referenceImageUrl;
+      else if (req.referenceImageDataUri) input.image = req.referenceImageDataUri;
 
       // No `Prefer: wait` here — live-tested against a real account and found it
       // holds the connection open server-side until the video finishes, which for

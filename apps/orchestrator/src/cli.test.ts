@@ -22,7 +22,7 @@ function baseOptions(overrides: Partial<Parameters<typeof parseRunOptions>[0]> =
     locale: "en",
     duration: 25,
     maxCandidates: 5,
-    videoVendor: "higgsfield",
+    videoVendor: "kling",
     dryRun: false,
     autoPost: false,
     ...overrides

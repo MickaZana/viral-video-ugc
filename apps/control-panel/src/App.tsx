@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   loadAccount,
   saveAccount,
@@ -19,11 +19,14 @@ import { SignIn } from './pages/SignIn'
 import { ThisWeek } from './pages/ThisWeek'
 import { IntelSource } from './pages/IntelSource'
 import { StudioRun } from './pages/StudioRun'
+import { BatchStudio } from './pages/BatchStudio'
+import { BatchProgress } from './pages/BatchProgress'
 import { LibraryItem } from './pages/LibraryItem'
 import { ReviewPage } from './pages/ReviewPage'
 import { ReviewDetail } from './pages/ReviewDetail'
 import { Brand, BrandClient } from './pages/Brand'
 import { Settings } from './pages/Settings'
+import { Landing } from './Landing'
 
 const THEME_KEY = 'ugu-theme'
 type Theme = 'dark' | 'light'
@@ -35,26 +38,41 @@ function initialTheme(): Theme {
   } catch {
     // ignore storage errors
   }
-  return 'dark'
+  return 'light'
 }
 
 export function App() {
   const [account, setAccount] = useState<PublicAccount | null>(() => loadAccount())
   const [checking, setChecking] = useState(true)
   const [theme, setTheme] = useState<Theme>(initialTheme)
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+
+  // Use light theme for landing page (unauthenticated), stored theme for workspace
+  const effectiveTheme = account ? theme : 'light'
+
+  // Set theme synchronously BEFORE first render so it applies to landing page
+  // without waiting for useEffect. This is critical for accessibility tests.
+  if (typeof window !== 'undefined') {
+    const html = document.documentElement
+    html.dataset.theme = effectiveTheme
+  }
 
   useEffect(() => {
     const html = document.documentElement
-    html.dataset.theme = theme
+    html.dataset.theme = effectiveTheme
     html.classList.add('theme-transition')
-    try {
-      localStorage.setItem(THEME_KEY, theme)
-    } catch {
-      // ignore storage errors
+    // Only persist theme when authenticated (workspace theme preference)
+    if (account) {
+      try {
+        localStorage.setItem(THEME_KEY, theme)
+      } catch {
+        // ignore storage errors
+      }
     }
     const t = window.setTimeout(() => html.classList.remove('theme-transition'), 350)
     return () => window.clearTimeout(t)
-  }, [theme])
+  }, [effectiveTheme, theme, account])
 
   useEffect(() => {
     let cancelled = false
@@ -97,34 +115,68 @@ export function App() {
     )
   }
 
+  const authMode = searchParams.get('mode')
+  const showingAuth = !account && ['signin', 'signup', 'forgot', 'reset'].includes(authMode ?? '')
+
+  if (showingAuth) {
+    return <SignIn onAuthed={setAccount} />
+  }
+
+  const effectiveAccount: PublicAccount = account || {
+    id: 'guest',
+    email: 'guest@micany.com',
+    orgId: 'guest-org',
+    role: 'member',
+    orgName: 'Demo Workspace'
+  }
+
   return (
     <Routes>
       <Route
         element={
-          account ? (
-            <WorkspaceLayout account={account} onLogout={handleLogout} />
-          ) : (
-            <SignIn onAuthed={setAccount} />
-          )
+          <WorkspaceLayout
+            account={effectiveAccount}
+            isGuest={!account}
+            onLogout={handleLogout}
+            onSignIn={() => navigate({ pathname: '/', search: '?mode=signin' })}
+          />
         }
       >
-        <Route index element={<ThisWeek />} />
+        <Route
+          index
+          element={
+            account ? (
+              <ThisWeek />
+            ) : (
+              <Landing
+                onGetStarted={() => {
+                  navigate({ pathname: '/', search: '?mode=signup' })
+                }}
+                onSignIn={() => {
+                  navigate({ pathname: '/', search: '?mode=signin' })
+                }}
+              />
+            )
+          }
+        />
         <Route path="intel" element={<Spy />} />
         <Route path="intel/remix" element={<Remix />} />
         <Route path="intel/:sourceId" element={<IntelSource />} />
         <Route path="studio" element={<VideoGenerator />} />
         <Route path="studio/script/:id" element={<Rewriter />} />
+        <Route path="studio/batch" element={<BatchStudio />} />
+        <Route path="studio/batch/:batchId" element={<BatchProgress />} />
         <Route path="studio/runs/:runId" element={<StudioRun />} />
-        <Route path="library" element={<History />} />
-        <Route path="library/:id" element={<LibraryItem />} />
         <Route path="review" element={<ReviewPage />} />
         <Route path="review/:id" element={<ReviewDetail />} />
+        <Route path="library" element={<History />} />
+        <Route path="library/:id" element={<LibraryItem />} />
         <Route path="brand" element={<Brand />} />
         <Route path="brand/clients/:id" element={<BrandClient />} />
         <Route path="billing" element={<Billing />} />
         <Route
           path="settings"
-          element={<Settings theme={theme} onTheme={setTheme} email={account?.email ?? ''} />}
+          element={<Settings theme={theme} onTheme={setTheme} email={account?.email ?? 'guest@micany.com'} />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

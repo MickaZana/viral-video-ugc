@@ -8,6 +8,8 @@ export const paths = {
   studio: '/studio',
   studioScript: (id: string) => `/studio/script/${encodeURIComponent(id)}`,
   studioRun: (runId: string) => `/studio/runs/${encodeURIComponent(runId)}`,
+  studioBatch: '/studio/batch',
+  studioBatchProgress: (batchId: string) => `/studio/batch/${encodeURIComponent(batchId)}`,
   library: '/library',
   libraryItem: (id: string) => `/library/${encodeURIComponent(id)}`,
   review: '/review',

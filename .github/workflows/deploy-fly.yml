@@ -1,0 +1,95 @@
+# Deploy to Fly.io — manual workflow_dispatch only.
+#
+# Builds from source on Fly's remote builders using the appropriate fly.*.toml.
+# See docs/deploy-fly.md for the full first-deploy walkthrough.
+#
+# Prerequisites:
+# - flyctl installed (this workflow uses superfly/flyctl-actions/setup-flyctl)
+# - FLY_API_TOKEN set as a repo secret (from `fly tokens create deploy`)
+# - The Fly app already created and volumes provisioned (see docs/deploy-fly.md)
+
+name: Deploy to Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to deploy"
+        required: true
+        type: choice
+        options:
+          - review-dashboard
+          - marketing-site
+      region:
+        description: "Override primary region (leave empty for default from .toml)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Determine config file
+        id: config
+        run: |
+          if [[ "${{ inputs.app }}" == "review-dashboard" ]]; then
+            echo "toml=fly.review-dashboard.toml" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ inputs.app }}" == "marketing-site" ]]; then
+            echo "toml=fly.marketing-site.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ARGS="--config ${{ steps.config.outputs.toml }}"
+
+          if [[ -n "${{ inputs.region }}" ]]; then
+            ARGS="${ARGS} --region ${{ inputs.region }}"
+          fi
+
+          echo "Deploying with: flyctl deploy ${ARGS}"
+          flyctl deploy ${ARGS}
+
+      - name: Verify health
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Extract the app name from the toml
+          APP_NAME=$(grep '^app = ' ${{ steps.config.outputs.toml }} | sed "s/app = '\\(.*\\)'/\\1/")
+          echo "Checking health of app: ${APP_NAME}"
+
+          # Wait for the deployment to be healthy
+          flyctl status --app "${APP_NAME}"
+
+          # Hit the healthz endpoint
+          URL="https://${APP_NAME}.fly.dev/healthz"
+          echo "Probing: ${URL}"
+          for i in 1 2 3 4 5; do
+            if curl -sf "${URL}" > /dev/null 2>&1; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "Attempt ${i}/5 failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
+
+      - name: Summary
+        run: |
+          APP_NAME=$(grep '^app = ' ${{ steps.config.outputs.toml }} | sed "s/app = '\\(.*\\)'/\\1/")
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **App:** ${APP_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://${APP_NAME}.fly.dev" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

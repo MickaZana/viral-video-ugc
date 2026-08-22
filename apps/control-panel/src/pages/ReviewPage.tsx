@@ -13,6 +13,14 @@ import {
   formatRelative
 } from '../components/primitives'
 import { paths } from '../lib/paths'
+import {
+  exportSingleItemJson,
+  exportSingleItemScript,
+  downloadSingleVideo,
+  exportBulkItemsJson,
+  exportBulkItemsCsv,
+  downloadBulkVideos
+} from '../lib/export'
 
 const COLUMNS: { key: ReviewItem['status'] | 'published'; label: string }[] = [
   { key: 'pending', label: 'Needs QA' },
@@ -30,16 +38,18 @@ type SortKey = 'score' | 'createdAt'
  */
 export function ReviewPage() {
   const navigate = useNavigate()
-  const queue = useApi(() => api.queue())
+  const queue = useApi(() => api.queue(hideMock ? { dryRun: false } : undefined))
   const stats = useApi(() => api.stats())
   const liveMode = stats.data?.isLLMLive
-  const items = queue.data ?? []
+  const items = useMemo(() => queue.data ?? [], [queue.data])
   const [quick, setQuick] = useState<ReviewItem | null>(null)
-  const [hideMock, setHideMock] = useState(true)
+  const [hideMock, setHideMock] = useState(false)
   const [sort, setSort] = useState<SortKey>('score')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Track items that have been actioned this session (optimistic UI)
+  const [localOverrides, setLocalOverrides] = useState<Map<string, ReviewItem['status']>>(new Map())
 
   const handleDownload = useCallback((id: string) => {
     const url = api.mediaUrl(id)
@@ -53,22 +63,32 @@ export function ReviewPage() {
 
   const visible = useMemo(() => {
     const filtered = hideMock ? items.filter((i) => !i.dryRun) : items
-    const sorted = [...filtered]
+    // Apply optimistic local overrides so items move columns immediately
+    const withOverrides = filtered.map((i) => {
+      const override = localOverrides.get(i.id)
+      return override ? { ...i, status: override } : i
+    })
+    const sorted = [...withOverrides]
     if (sort === 'score') sorted.sort((a, b) => b.score - a.score)
     else sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     return sorted
-  }, [items, hideMock, sort])
+  }, [items, hideMock, sort, localOverrides])
 
   const handleApprove = useCallback(
     async (id: string) => {
       setBusyId(id)
       setError(null)
+      // Optimistic: immediately move item to 'approved' column
+      setLocalOverrides((prev) => new Map(prev).set(id, 'approved'))
       try {
         await api.approve(id)
       } catch (e) {
+        // Revert optimistic update on failure
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
         setError(e instanceof Error ? e.message : String(e))
       } finally {
         setBusyId(null)
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
         queue.reload()
       }
     },
@@ -79,12 +99,17 @@ export function ReviewPage() {
     async (id: string) => {
       setBusyId(id)
       setError(null)
+      // Optimistic: immediately move item to 'rejected' column
+      setLocalOverrides((prev) => new Map(prev).set(id, 'rejected'))
       try {
         await api.reject(id)
       } catch (e) {
+        // Revert optimistic update on failure
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
         setError(e instanceof Error ? e.message : String(e))
       } finally {
         setBusyId(null)
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
         queue.reload()
       }
     },
@@ -118,6 +143,26 @@ export function ReviewPage() {
         return
       } finally {
         setBusyId(null)
+        queue.reload()
+      }
+    },
+    [queue]
+  )
+
+  const handleSendBack = useCallback(
+    async (id: string) => {
+      setBusyId(id)
+      setError(null)
+      // Optimistic: move item back to 'pending'
+      setLocalOverrides((prev) => new Map(prev).set(id, 'pending'))
+      try {
+        await api.sendBack(id)
+      } catch (e) {
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusyId(null)
+        setLocalOverrides((prev) => { const next = new Map(prev); next.delete(id); return next })
         queue.reload()
       }
     },
@@ -192,7 +237,7 @@ export function ReviewPage() {
         </div>
       )}
       {/* Triage toolbar — keep the board focused on what matters */}
-      <div className="flex flex-wrap items-center gap-4 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+      <div className="toolbar-row flex flex-wrap items-center gap-4 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
         <label className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-[var(--color-muted-2)] cursor-pointer select-none">
           <input
             type="checkbox"
@@ -213,21 +258,41 @@ export function ReviewPage() {
             <option value="createdAt">Newest</option>
           </select>
         </div>
-        {mockCount > 0 && (
-          <span className="text-[10px] font-mono text-[var(--color-orange)]">
-            {hideMock
-              ? `${mockCount} mock run${mockCount === 1 ? '' : 's'} hidden — toggle to show`
-              : `${mockCount} mock run${mockCount === 1 ? '' : 's'} shown`}
-          </span>
+        {hideMock ? (
+          <span className="text-[10px] font-mono text-[var(--color-orange)]">Mock runs hidden — toggle to show</span>
+        ) : (
+          mockCount > 0 && (
+            <span className="text-[10px] font-mono text-[var(--color-orange)]">
+              {mockCount} mock run{mockCount === 1 ? '' : 's'} shown
+            </span>
+          )
         )}
         {liveMode === false && (
           <span className="text-[10px] font-mono text-[var(--color-orange)]">
             Mock mode — Publish &amp; Regenerate live disabled (set VVUGC_LLM_LIVE=true)
           </span>
         )}
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => exportBulkItemsJson(visible, 'vvugc_review_queue')}
+            disabled={visible.length === 0}
+            className="px-3 py-1 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
+            title="Export all visible queue items as JSON"
+          >
+            ↓ JSON
+          </button>
+          <button
+            onClick={() => exportBulkItemsCsv(visible, 'vvugc_review_queue')}
+            disabled={visible.length === 0}
+            className="px-3 py-1 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
+            title="Export all visible queue items as CSV"
+          >
+            ↓ CSV
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="review-grid grid gap-4">
         {COLUMNS.map((col) => {
           const list = group(col.key)
           return (
@@ -260,25 +325,33 @@ export function ReviewPage() {
                   const isMock = Boolean(item.dryRun)
                   const canPublish = item.status === 'approved' && !item.publishedPostId && !isMock
                   return (
-                  <div key={item.id} className="px-4 py-3 space-y-2">
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(item.id)}
-                        onChange={() => toggleSelect(item.id)}
-                        aria-label={`Select ${item.id}`}
-                        style={{ accentColor: 'var(--color-lime)' }}
-                        className="mt-1 shrink-0"
-                      />
-                      <button onClick={() => navigate(paths.reviewItem(item.id))} className="text-left flex-1 min-w-0">
-                        <p className="text-sm text-[var(--color-text)]">{item.script.hook}</p>
-                        <p className="text-[10px] text-[var(--color-muted-3)] mt-1">
-                          {item.niche} · {formatRelative(item.createdAt)}
-                        </p>
-                      </button>
-                    </div>
+                    <div key={item.id} className="px-4 py-3 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelect(item.id)}
+                          aria-label={`Select ${item.id}`}
+                          style={{ accentColor: 'var(--color-lime)' }}
+                          className="mt-1 shrink-0"
+                        />
+                        <button onClick={() => navigate(paths.reviewItem(item.id))} className="text-left flex-1 min-w-0">
+                          <p className="text-sm text-[var(--color-text)]">{item.script.hook}</p>
+                          <p className="text-[10px] text-[var(--color-muted-3)] mt-1">
+                            {item.niche} · {formatRelative(item.createdAt)}
+                          </p>
+                        </button>
+                      </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <PlatformBadge platform={item.platform} />
+                        {item.template && (
+                          <span
+                            className="text-[9px] font-mono px-1.5 py-0.5 border border-[var(--color-lime)] text-[var(--color-lime)]"
+                            title={item.template.description}
+                          >
+                            {item.template.name}
+                          </span>
+                        )}
                         <div className="w-16">
                           <ScoreBar score={item.score} />
                         </div>
@@ -310,6 +383,15 @@ export function ReviewPage() {
                               ✗ Reject
                             </button>
                           </>
+                        )}
+                        {(item.status === 'approved' || item.status === 'rejected') && !item.publishedPostId && (
+                          <button
+                            onClick={() => handleSendBack(item.id)}
+                            disabled={isBusy}
+                            className="px-2 py-1.5 text-[10px] font-black uppercase tracking-widest border border-[var(--color-muted-3)] text-[var(--color-muted-3)] hover:border-[var(--color-text)] hover:text-[var(--color-text)] transition-colors disabled:opacity-50"
+                          >
+                            ↩ Send Back
+                          </button>
                         )}
                         {canPublish && (
                           <button

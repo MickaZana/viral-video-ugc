@@ -25,9 +25,14 @@ import type {
   RunSummary,
   Stats,
   TrackedCreator,
-  TrendsResponse
+  TrendsResponse,
+  ProductProfile,
+  ProductsResponse,
+  CreatorProfile
+  , UGCTemplate
 } from './types'
 import { loadCsrf } from './auth'
+import type { BatchPlan, BatchProgress, BatchRequest } from '@vvugc/shared-schema'
 
 const API_BASE = '/api'
 
@@ -119,6 +124,8 @@ export interface StartRequest {
   dryRun?: boolean
   live?: boolean
   brief?: DiscoverBrief
+  productProfileId?: string
+  templateId?: string
 }
 export interface StartResponse {
   job: { id: string; status: string }
@@ -233,7 +240,8 @@ export const api = {
   },
   /** Runs the real pipeline for the org's client. Dry-run (safe, no vendor spend)
    *  is the backend default; pass dryRun:false to attempt a live run. */
-  run(body: { clientId: string; dryRun: boolean }): Promise<RunResponse> {
+  templates(): Promise<{ templates: UGCTemplate[] }> { return request('/templates') },
+  run(body: { clientId: string; dryRun: boolean; productProfileId?: string; creatorProfileId?: string; templateId?: string; visualDirection?: Record<string, string> }): Promise<RunResponse> {
     return request<RunResponse>('/accounts/run', {
       method: 'POST',
       body: JSON.stringify(body)
@@ -252,22 +260,66 @@ export const api = {
         clientId: body.clientId,
         dryRun: body.dryRun,
         live: body.live,
-        brief: body.brief
+        brief: body.brief,
+        productProfileId: body.productProfileId
+        , templateId: body.templateId
       })
     })
   },
 
   // ---- Data ----
+  products(clientId?: string): Promise<ProductsResponse> {
+    const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''
+    return request<ProductsResponse>(`/accounts/products${qs}`)
+  },
+  creatorProfiles(clientId?: string): Promise<{ creators: CreatorProfile[] }> { const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''; return request<{ creators: CreatorProfile[] }>(`/accounts/creators${qs}`) },
+  creatorPreflight(id: string, videoVendor: string, clientId?: string): Promise<{ creatorId: string; vendor: string; warnings: string[]; blocking: boolean }> { const qs = new URLSearchParams({ videoVendor }); if (clientId) qs.set('clientId', clientId); return request<{ creatorId: string; vendor: string; warnings: string[]; blocking: boolean }>(`/accounts/creators/${id}/preflight?${qs.toString()}`) },
+  createCreator(body: Partial<CreatorProfile> & { displayName: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>('/accounts/creators', { method: 'POST', body: JSON.stringify(body) }) },
+  updateCreator(id: string, body: Partial<CreatorProfile> & { displayName: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>(`/accounts/creators/${id}`, { method: 'PUT', body: JSON.stringify(body) }) },
+  archiveCreator(id: string): Promise<void> { return request<void>(`/accounts/creators/${id}`, { method: 'DELETE' }) },
+  uploadCreatorImage(id: string, body: { fileName: string; mimeType: string; dataBase64: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>(`/accounts/creators/${id}/images`, { method: 'POST', body: JSON.stringify(body) }) },
+  deleteCreatorImage(id: string, imageId: string): Promise<void> { return request<void>(`/accounts/creators/${id}/images/${imageId}`, { method: 'DELETE' }) },
+
+  // Soul ID
+  trainCreatorIdentity(creatorId: string): Promise<CreatorProfile> {
+    return request<CreatorProfile>(`/accounts/creators/${creatorId}/train`, { method: 'POST' })
+  },
+  getCreatorIdentity(creatorId: string): Promise<{ faceEmbeddingStatus: string; primaryReferenceImageUrl?: string; referenceImageCount: number; avatarMode: string }> {
+    return request(`/accounts/creators/${creatorId}/identity`)
+  },
+
+  createProduct(body: Partial<ProductProfile> & { name: string; clientId?: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>('/accounts/products', { method: 'POST', body: JSON.stringify(body) })
+  },
+  ingestProductUrl(sourceUrl: string, clientId?: string): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>('/accounts/products/ingest-url', { method: 'POST', body: JSON.stringify({ sourceUrl, clientId }) })
+  },
+  updateProduct(id: string, body: Partial<ProductProfile> & { name: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>(`/accounts/products/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  },
+  deleteProduct(id: string): Promise<void> {
+    return request<void>(`/accounts/products/${id}`, { method: 'DELETE' })
+  },
+  uploadProductImage(id: string, body: { fileName: string; mimeType: string; dataBase64: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>(`/accounts/products/${id}/images`, { method: 'POST', body: JSON.stringify(body) })
+  },
+  deleteProductImage(id: string, imageId: string): Promise<void> {
+    return request<void>(`/accounts/products/${id}/images/${imageId}`, { method: 'DELETE' })
+  },
   stats(): Promise<Stats> {
     return request<Stats>('/stats')
   },
-  queue(filter?: QueueFilter): Promise<ReviewItem[]> {
+  async queue(filter?: QueueFilter): Promise<ReviewItem[]> {
     const params = new URLSearchParams()
     if (filter?.status) params.set('status', filter.status)
     if (filter?.platform) params.set('platform', String(filter.platform))
     if (filter?.dryRun !== undefined) params.set('dryRun', String(filter.dryRun))
     const qs = params.toString()
-    return request<ReviewItem[]>(`/queue${qs ? `?${qs}` : ''}`)
+    // C-2 compat: server now returns { items, hasMore, total } instead of bare array
+    const raw = await request<ReviewItem[] | { items: ReviewItem[]; hasMore: boolean; total: number }>(
+      `/queue${qs ? `?${qs}` : ''}`
+    )
+    return Array.isArray(raw) ? raw : raw.items
   },
   queueItem(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}`)
@@ -303,6 +355,10 @@ export const api = {
   reject(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/reject`, { method: 'POST' })
   },
+  /** Send an approved/rejected item back to pending (undo decision). */
+  sendBack(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/send-back`, { method: 'POST' })
+  },
   /** Publish a previously-approved item to its connected platform account.
    *  Refuses (via the backend) for mock/dry-run items or anything not approved. */
   publish(id: string): Promise<ReviewItem> {
@@ -331,6 +387,32 @@ export const api = {
    *  same session/Basic-Auth gate as every other data route. */
   mediaUrl(id: string): string {
     return `${API_BASE}/media/${encodeURIComponent(id)}`
+  },
+
+  // ---- Batch variation generation ----
+  /** Plan a batch — returns cost breakdown, warnings, variation count. */
+  batchPlan(body: BatchRequest): Promise<BatchPlan> {
+    return request<BatchPlan>('/accounts/batch/plan', { method: 'POST', body: JSON.stringify(body) })
+  },
+  /** Confirm and enqueue a planned batch. */
+  batchEnqueue(body: { plan: BatchPlan; request: BatchRequest }): Promise<{
+    batchId: string
+    variationCount: number
+    totalEstimatedCost: number
+    isDryRun: boolean
+    overage: boolean
+    overagePriceUsdPerRun?: number
+    message: string
+  }> {
+    return request('/accounts/batch/enqueue', { method: 'POST', body: JSON.stringify(body) })
+  },
+  /** Get current batch progress (polling fallback). */
+  batchProgress(batchId: string): Promise<BatchProgress> {
+    return request<BatchProgress>(`/accounts/batch/${encodeURIComponent(batchId)}/progress`)
+  },
+  /** Cancel a running batch. */
+  batchCancel(batchId: string): Promise<void> {
+    return request(`/accounts/batch/${encodeURIComponent(batchId)}/cancel`, { method: 'POST' })
   }
 }
 

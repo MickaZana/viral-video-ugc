@@ -22,7 +22,7 @@ describe("RunConfigSchema", () => {
     expect(parsed.brandVoice).toBe("neutral, energetic, concise");
     expect(parsed.targetDurationSec).toBe(25);
     expect(parsed.maxCandidates).toBe(10);
-    expect(parsed.videoVendor).toBe("higgsfield");
+    expect(parsed.videoVendor).toBe("kling");
     expect(parsed.dryRun).toBe(false);
     expect(parsed.autoPost).toBe(false);
   });

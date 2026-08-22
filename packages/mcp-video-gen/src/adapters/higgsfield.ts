@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
+import { mapToPromptEnrichment } from "../visual-mapping.js";
 import type { McpToolCaller, VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
 /**
@@ -41,11 +42,26 @@ export function createHiggsfieldAdapter(callMcpTool: McpToolCaller, outDir: stri
   return {
     vendor: "higgsfield",
     async generate(req: VideoGenRequest): Promise<RawClip> {
-      const medias = req.referenceImageUrl ? [{ value: await importMedia(callMcpTool, req.referenceImageUrl), role: "image" }] : undefined;
+      // Soul ID: if identityRef is present, import ALL reference images (primary + additional)
+      // as medias for maximum face consistency. Higgsfield supports up to 9 references.
+      let medias: Array<{ value: string; role: string }> | undefined;
+
+      if (req.identityRef?.primaryImageUrl) {
+        const allUrls = [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls].slice(0, 9);
+        const imported = await Promise.all(
+          allUrls.map((url) => importMedia(callMcpTool, url))
+        );
+        medias = imported.map((mediaId) => ({ value: mediaId, role: "image" }));
+      } else if (req.referenceImageUrl) {
+        medias = [{ value: await importMedia(callMcpTool, req.referenceImageUrl), role: "image" }];
+      }
+
+      // Cinema Controls: enrich prompt with visual direction
+      const enrichedPrompt = req.visualDirection ? `${req.prompt}. ${mapToPromptEnrichment(req.visualDirection)}` : req.prompt;
 
       const submitResult = await callMcpTool("generate_video", {
         model: DEFAULT_MODEL,
-        prompt: req.prompt,
+        prompt: enrichedPrompt,
         duration: req.durationSec,
         aspect_ratio: req.aspectRatio,
         ...(medias ? { medias } : {})

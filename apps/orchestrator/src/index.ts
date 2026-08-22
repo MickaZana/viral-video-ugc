@@ -13,3 +13,4 @@ export { runCycle, type RunCycleOptions } from "./conductor.js";
 export { runAcceptance, type AcceptanceEvidence } from "./acceptance.js";
 export { previewRemix } from "./remix.js";
 export { fetchRemixTranscript, parseSourceUrl, candidateFromSource } from "./remix-source.js";
+export { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, validateTemplateScript } from "./templates.js";

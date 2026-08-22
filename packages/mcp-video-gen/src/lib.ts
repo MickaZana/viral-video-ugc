@@ -6,9 +6,13 @@ import { createRunwayAdapter } from "./adapters/runway.js";
 import { createPikaAdapter } from "./adapters/pika.js";
 import { createGeminiAdapter } from "./adapters/gemini.js";
 import { createReplicateAdapter } from "./adapters/replicate.js";
+import { createSeedanceAdapter } from "./adapters/seedance.js";
+import { createGrokVideoAdapter } from "./adapters/grok-video.js";
 import { createMockAdapter } from "./adapters/mock.js";
 
 export type { VideoGenAdapter, VideoGenRequest, McpToolCaller } from "./adapters/VideoGenAdapter.js";
+export { VIDEO_VENDOR_CAPABILITIES, creatorCapabilityWarnings } from "./capabilities.js";
+export { mapToKlingParams, mapToSeedanceParams, mapToPromptEnrichment } from "./visual-mapping.js";
 
 export function getVideoGenAdapter(
   vendor: RawClip["vendor"],
@@ -35,5 +39,9 @@ export function getVideoGenAdapter(
       return createGeminiAdapter(opts.outDir);
     case "replicate":
       return createReplicateAdapter(opts.outDir);
+    case "seedance":
+      return createSeedanceAdapter(opts.outDir);
+    case "grok_video":
+      return createGrokVideoAdapter(opts.outDir);
   }
 }

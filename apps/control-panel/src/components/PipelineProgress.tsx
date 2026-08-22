@@ -149,8 +149,6 @@ export function PipelineProgress({ active, runId, onComplete }: PipelineProgress
     if (!active || connected) return
 
     const stepDurations = [2000, 1500, 3000, 4000, 12000, 2500, 1500, 500, 0]
-    let accumulated = 0
-
     const interval = setInterval(() => {
       const currentElapsed = Date.now() - startTimeRef.current
 

@@ -21,7 +21,7 @@ export interface ReviewQueueStore {
   insertReviewItem(item: ReviewItem): Promise<void> | void;
   listReviewItems(filter?: ReviewItemFilter): Promise<ReviewItem[]> | ReviewItem[];
   getReviewItem(id: string): Promise<ReviewItem | undefined> | ReviewItem | undefined;
-  setReviewItemStatus(id: string, status: "approved" | "rejected"): Promise<void> | void;
+  setReviewItemStatus(id: string, status: "approved" | "rejected" | "pending"): Promise<void> | void;
   setReviewItemsStatus(ids: string[], status: "approved" | "rejected"): Promise<string[]> | string[];
   /** Overwrites the stored item with the same id — used by scene/script regeneration
    *  (apps/orchestrator/src/regenerate.ts) to replace videoPath/clips/score/etc. in place

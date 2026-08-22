@@ -117,11 +117,11 @@ export function StatCard({
 }) {
   return (
     <div className="bg-[var(--color-bg)] p-6 space-y-2">
-      <p className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted)]">{label}</p>
+      <p className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-text)]">{label}</p>
       <p className="text-5xl font-black leading-none font-mono" style={{ color: accent }}>
         {value}
       </p>
-      {sub && <p className="text-[11px] font-mono text-[var(--color-muted-2)]">{sub}</p>}
+      {sub && <p className="text-[11px] font-mono text-[var(--color-text-dim)]">{sub}</p>}
     </div>
   )
 }

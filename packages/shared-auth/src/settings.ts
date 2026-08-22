@@ -1,4 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Platform } from "@vvugc/shared-schema";
 
@@ -59,7 +60,7 @@ function readAllUnlocked(dbPath: string): AccountSettings[] {
 
 function writeAllUnlocked(dbPath: string, settings: AccountSettings[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(settings, null, 2));
+  { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(settings, null, 2)); renameSync(_atomicTmp, dbPath); };
 }
 
 export interface SettingsStore {

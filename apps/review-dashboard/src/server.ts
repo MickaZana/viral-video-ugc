@@ -18,28 +18,51 @@ import { getPublishAdapter } from "@vvugc/mcp-publish";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { join, resolve, sep } from "node:path";
-import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { listRuns } from "./runs.js";
 import { listTrackedCreators } from "./creators.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { registerAccountRoutes } from "./accounts.js";
 import { renderAccountPage } from "./account-page.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
+// import { registerBatchRoutes } from "./batch-routes.js";
+// import { registerSoulIdRoutes } from "./soul-id-routes.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
+import { DEMO_PREVIEW_STATS, DEMO_PREVIEW_CREATORS, DEMO_PREVIEW_RUNS, DEMO_PREVIEW_QUEUE } from "./demo-preview-data.js";
+import { getAuthContext, getOrgId, type AuthedRequest } from "./auth-context.js";
 import { pruneRetainedLogs } from "./retention.js";
 import { MODEL_CATALOG, groupModelsByResult } from "./models.js";
-import { createSocialConnectionStore } from "@vvugc/shared-auth";
+import { createAccountStore, createSocialConnectionStore, resolveOrgId } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
 import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
 import { isLLMLive } from "./llm-gate.js";
 
 const require = createRequire(import.meta.url);
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const logger = pino({ name: "vvugc-review-dashboard" });
 const startedAt = Date.now();
 const credentials = resolveCredentials(logger);
 const { metricsMiddleware, metricsHandler } = createAppMetrics("review-dashboard");
+
+// --- C-1 Tenant Isolation Infrastructure ---
+const operatorAccountStore = createAccountStore(join(loadEnv().VVUGC_RUNS_DIR, "accounts.json"));
+
+/**
+ * Resolves the calling user's orgId for tenant scoping.
+ * - Session-authenticated (control-panel SPA): returns their org's ID
+ * - Operator (Basic Auth): returns undefined (cross-org visibility intentional)
+ */
+function resolveRequestOrg(req: Request & { accountId?: string }): string | undefined {
+  if (!req.accountId) return undefined;
+  const account = operatorAccountStore.findById(req.accountId);
+  if (!account) return undefined;
+  return resolveOrgId(account);
+}
+
+const MAX_PAGE_LIMIT = 200;
+const DEFAULT_PAGE_LIMIT = 50;
 
 async function clientPublishAccessToken(item: { orgId?: string; clientId?: string; platform: string }): Promise<string | undefined> {
   if (!item.orgId || !item.clientId) return undefined;
@@ -177,7 +200,27 @@ app.use((req: Request & { id?: string }, res, next) => {
 // file or missing credentials don't fail the probe. Registered before the auth
 // middleware below on purpose — every other route requires it.
 app.get("/healthz", (_req, res) => {
-  res.json({ status: "ok", uptimeSeconds: Math.round((Date.now() - startedAt) / 1000) });
+  const uptimeSeconds = Math.round((Date.now() - startedAt) / 1000);
+  // Deep health check: verify database/store connectivity, not just process liveness.
+  // listReviewItems is always async (supports Postgres + JSON-file backends).
+  listReviewItems("pending")
+    .then(() => res.json({ status: "ok", uptimeSeconds, db: "connected" }))
+    .catch(() => res.status(503).json({ status: "degraded", uptimeSeconds, db: "unreachable" }));
+});
+
+// P1: Readiness probe — verifies all dependencies required for serving traffic.
+// Separate from /healthz (liveness) so orchestrators can distinguish "process alive
+// but not ready" from "process dead". /healthz = cheap liveness, /readyz = deep check.
+app.get("/readyz", async (_req, res) => {
+  try {
+    await listReviewItems({ status: "pending" });
+    const { VVUGC_RUNS_DIR } = loadEnv();
+    const runsOk = existsSync(VVUGC_RUNS_DIR);
+    if (!runsOk) throw new Error("VVUGC_RUNS_DIR not accessible");
+    res.json({ status: "ready", db: "connected", storage: "accessible" });
+  } catch (err) {
+    res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : "unknown" });
+  }
 });
 
 // Prometheus scrape target — aggregate operational data (request counts/timings,
@@ -207,6 +250,10 @@ const authRateLimiter = rateLimit({
 // from the dashboard's own operator Basic Auth; neither one weakens the other.
 const { requireSession, verifySessionRequest } = registerAccountRoutes(app, { logger });
 registerBillingRoutes(app, requireSession);
+// registerBatchRoutes(app, requireSession);
+// Soul ID: identity training and status endpoints
+// Uses a lightweight in-memory creator store adapter for now (same pattern as batch routes)
+// registerSoulIdRoutes(app, { get: () => undefined, update: () => undefined } as any, requireSession);
 
 // The self-service account page — public (session-cookie auth handled client-side),
 // deliberately reachable without the operator Basic Auth below, same reasoning as
@@ -240,6 +287,16 @@ app.get("/tokens.css", (_req, res) => {
   res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
 });
 
+app.get(["/favicon.png", "/favicon.ico", "/logo.png"], (_req, res) => {
+  const publicDir = resolve(__dirname, "../public");
+  const fallback = resolve(publicDir, "logo.png");
+  if (existsSync(fallback)) {
+    res.type("png").sendFile(fallback);
+  } else {
+    res.status(404).end();
+  }
+});
+
 // Read-only public preview endpoints for the marketing landing page's "live
 // preview" frame (control-panel's Landing.tsx). They mirror the same data the
 // authenticated tabs render, but deliberately expose only non-sensitive
@@ -248,36 +305,30 @@ app.get("/tokens.css", (_req, res) => {
 // paths). They're registered here, BEFORE the auth gate, so anonymous visitors
 // can click around the landing page's preview; they return nothing a caller
 // couldn't already see summarized in the marketing copy.
-const PREVIEW_QUEUE_LIMIT = 12;
 app.get(
   "/preview/stats",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
-    res.json({
-      pending: items.filter((i) => i.status === "pending").length,
-      approved: items.filter((i) => i.status === "approved").length,
-      rejected: items.filter((i) => i.status === "rejected").length,
-      estimatedCostUsd: listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0)
-    });
-  })
+  (_req, res) => {
+    // P0: Public preview uses static synthetic data — never real customer data
+    res.json(DEMO_PREVIEW_STATS);
+  }
 );
 
 app.get("/preview/creators", (_req, res) => {
-  res.json({ creators: listTrackedCreators().slice(0, 8) });
+  // P0: Public preview uses static synthetic data — never real customer data
+  res.json(DEMO_PREVIEW_CREATORS);
 });
 
 app.get("/preview/runs", (_req, res) => {
-  res.json(listRuns().slice(0, 6));
+  // P0: Public preview uses static synthetic data — never real customer data
+  res.json(DEMO_PREVIEW_RUNS);
 });
 
 app.get(
   "/preview/queue",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
-    // Bounded slice of the queue, full item shape — the tabs render the whole
-    // ReviewItem (script, flags, clips, captions), so strip nothing here.
-    res.json(items.slice(0, PREVIEW_QUEUE_LIMIT));
-  })
+  (_req, res) => {
+    // P0: Public preview uses static synthetic data — never real customer data
+    res.json(DEMO_PREVIEW_QUEUE);
+  }
 );
 
 // The control-panel SPA — the product workspace / landing (see the
@@ -329,8 +380,10 @@ app.use((req: Request & { accountId?: string; auditActor?: string }, res: Respon
 
 app.post(
   "/scheduler/run-due",
-  asyncHandler(async (_req, res) => {
-    res.json(await runDueClientSchedules());
+  asyncHandler(async (req: Request & { accountId?: string }, res) => {
+    // H-3 FIX: Session users can only trigger their own org's schedules
+    const orgId = resolveRequestOrg(req);
+    res.json(await runDueClientSchedules(orgId));
   })
 );
 
@@ -355,28 +408,62 @@ app.get(
     const dryRunRaw = req.query.dryRun;
     const dryRun =
       dryRunRaw === "true" ? true : dryRunRaw === "false" ? false : undefined;
-    res.json(
-      await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun })
-    );
+
+    // Batch-metadata filters (Atom E: Review Grouping) — applied in-memory
+    // after the store query since ReviewItemFilter doesn't include these yet.
+    const batchIdFilter = typeof req.query.batchId === "string" ? req.query.batchId : undefined;
+    const productProfileIdFilter = typeof req.query.productProfileId === "string" ? req.query.productProfileId : undefined;
+    const creatorProfileIdFilter = typeof req.query.creatorProfileId === "string" ? req.query.creatorProfileId : undefined;
+    const templateIdFilter = typeof req.query.templateId === "string" ? req.query.templateId : undefined;
+
+    // C-1: Tenant isolation
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+
+    // C-2: Pagination
+    const limit = Math.min(Math.max(Number(req.query.limit) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    let items = await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun, orgId });
+
+    if (batchIdFilter || productProfileIdFilter || creatorProfileIdFilter || templateIdFilter) {
+      items = items.filter((item) => {
+        const meta = item as Record<string, unknown>;
+        if (batchIdFilter && meta.batchId !== batchIdFilter) return false;
+        if (productProfileIdFilter && meta.productProfileId !== productProfileIdFilter) return false;
+        if (creatorProfileIdFilter && meta.creatorProfileId !== creatorProfileIdFilter) return false;
+        if (templateIdFilter && meta.templateId !== templateIdFilter) return false;
+        return true;
+      });
+    }
+
+    // C-2: Paginate after in-memory filters
+    const page = items.slice(offset, offset + limit + 1);
+    const hasMore = page.length > limit;
+    res.json({ items: page.slice(0, limit), hasMore, total: items.length });
   })
 );
 
 app.get(
   "/stats",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
+  asyncHandler(async (req, res) => {
+    // P0: Tenant-scoped stats — both review items AND runs are filtered by org
+    const orgId = resolveRequestOrg(req as AuthedRequest);
+    const items = await listReviewItems(orgId ? { orgId } : undefined);
     const pending = items.filter((i) => i.status === "pending").length;
     const approved = items.filter((i) => i.status === "approved").length;
     const rejected = items.filter((i) => i.status === "rejected").length;
-    const estimatedCostUsd = listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
+    // P0 FIX: estimatedCostUsd was previously calculated across ALL tenants' runs
+    const estimatedCostUsd = listRuns(orgId).reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
     // Surfaced so the control-panel can disable live-only actions (publish,
     // regenerate-live) when this dashboard is running in mock mode.
     res.json({ pending, approved, rejected, estimatedCostUsd, isLLMLive: isLLMLive() });
   })
 );
 
-app.get("/runs", (_req, res) => {
-  res.json(listRuns());
+app.get("/runs", (req, res) => {
+  // P0: Tenant-scoped — session users only see their org's runs
+  const orgId = resolveRequestOrg(req as AuthedRequest);
+  res.json(listRuns(orgId));
 });
 
 // Model catalog for the Video Generator / model-choice flow: every model the
@@ -391,8 +478,10 @@ app.get("/models", (_req, res) => {
 // Control-panel connection: tracked creators derived from real run manifests.
 // Registered after the Basic Auth gate (same as /queue and /runs) so this is
 // never exposed unauthenticated — the SPA sends the same operator credentials.
-app.get("/creators", (_req, res) => {
-  res.json({ creators: listTrackedCreators() });
+app.get("/creators", (req, res) => {
+  // P0: Tenant-scoped — session users only see creators from their org's runs
+  const orgId = resolveRequestOrg(req as AuthedRequest);
+  res.json({ creators: listTrackedCreators(orgId) });
 });
 
 // Bulk routes must be registered before the "/queue/:id/..." routes below — Express
@@ -406,7 +495,14 @@ app.post(
   asyncHandler(async (req, res) => {
     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "approved") });
+    // C-1: Tenant isolation on bulk operations
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    let ids = parsed.data.ids;
+    if (orgId) {
+      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
+      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
+    }
+    res.json({ updated: await setReviewItemsStatus(ids, "approved") });
   })
 );
 
@@ -415,7 +511,14 @@ app.post(
   asyncHandler(async (req, res) => {
     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "rejected") });
+    // C-1: Tenant isolation on bulk operations
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    let ids = parsed.data.ids;
+    if (orgId) {
+      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
+      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
+    }
+    res.json({ updated: await setReviewItemsStatus(ids, "rejected") });
   })
 );
 
@@ -424,6 +527,9 @@ app.get(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    // C-1: Tenant isolation
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
     res.json(item);
   })
 );
@@ -444,7 +550,11 @@ app.get(
     if (!item || typeof item.videoPath !== "string" || !item.videoPath) {
       return res.status(404).json({ error: "not found" });
     }
-    const absPath = resolve(item.videoPath);
+    // C-1: Tenant isolation (placed after null guard)
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+    // realpathSync resolves symlinks, preventing symlink-based traversal attacks
+    const absPath = existsSync(resolve(item.videoPath)) ? realpathSync(resolve(item.videoPath)) : resolve(item.videoPath);
     const runsRoot = resolve(loadEnv().VVUGC_RUNS_DIR);
     if (absPath !== runsRoot && !absPath.startsWith(runsRoot + sep)) {
       return res.status(404).json({ error: "not found" });
@@ -466,6 +576,8 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
     await setReviewItemStatus(req.params.id, "approved");
     res.json({ ...item, status: "approved" });
   })
@@ -476,8 +588,26 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
     await setReviewItemStatus(req.params.id, "rejected");
     res.json({ ...item, status: "rejected" });
+  })
+);
+
+// Send back: undo an approve/reject decision — returns item to "pending" so
+// the reviewer can reconsider. Cannot undo a published item (that's shipped).
+app.post(
+  "/queue/:id/send-back",
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+    if (item.publishedPostId) return res.status(409).json({ error: "cannot undo — item is already published" });
+    if (item.status === "pending") return res.json(item); // Already pending, no-op
+    await setReviewItemStatus(req.params.id, "pending");
+    res.json({ ...item, status: "pending" });
   })
 );
 
@@ -506,6 +636,8 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
 
     const sceneIndex = Number(req.body?.sceneIndex);
     if (!Number.isInteger(sceneIndex)) {
@@ -538,6 +670,8 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
 
     const { hook, points, cta } = req.body ?? {};
     if (typeof hook !== "string" || !Array.isArray(points) || typeof cta !== "string") {
@@ -572,6 +706,8 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
     if (!item.dryRun) {
       return res.status(409).json({ error: "item is already a live (real) render — nothing to promote" });
     }
@@ -606,6 +742,8 @@ app.post(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
     if (item.status !== "approved") {
       return res.status(409).json({ error: `item must be approved before publishing (current status: ${item.status})` });
     }

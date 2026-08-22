@@ -5,6 +5,15 @@ import type { ReviewItem, RunSummary } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel, PlatformBadge, ScoreBar, StatusBadge, formatCompact, formatRelative, formatUsd } from '../components/primitives'
+import {
+  exportSingleItemJson,
+  exportSingleItemScript,
+  downloadSingleVideo,
+  exportBulkItemsJson,
+  exportBulkItemsCsv,
+  downloadBulkVideos,
+  exportRunsJson
+} from '../lib/export'
 
 import { EmptyState } from '../components/EmptyState'
 import { ReviewModal } from '../components/ReviewModal'
@@ -58,36 +67,85 @@ export function History() {
   }, [queue])
 
   const handleDownload = useCallback((id: string) => {
-    const url = api.mediaUrl(id)
-    const a = document.createElement('a')
-    a.href = url; a.download = `video_${id.slice(0, 8)}.mp4`; a.click()
+    downloadSingleVideo(id)
   }, [])
 
   return (
     <div className="space-y-6">
-      {/* category switcher */}
-      <div className="flex gap-1 border border-[var(--color-border)] bg-[var(--color-surface)] p-1 max-w-xl">
-        {CATS.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setCat(c.id)}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 transition-colors"
-            style={{
-              color: cat === c.id ? 'var(--color-on-accent)' : 'var(--color-muted-2)',
-              backgroundColor: cat === c.id ? 'var(--color-lime)' : 'transparent'
-            }}
-          >
-            <span className="text-xs">{c.icon}</span>
-            <span className="text-[10px] font-mono uppercase tracking-widest">{c.label}</span>
-            <span
-              className="text-[10px] font-mono"
-              style={{ color: cat === c.id ? 'var(--color-on-accent)' : 'var(--color-muted-4)' }}
+      {/* Top bar: Category switcher + Bulk Export Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="toolbar-row flex flex-wrap gap-1 border border-[var(--color-border)] bg-[var(--color-surface)] p-1 max-w-xl w-full">
+          {CATS.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCat(c.id)}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 transition-colors"
+              style={{
+                color: cat === c.id ? 'var(--color-on-accent)' : 'var(--color-muted-2)',
+                backgroundColor: cat === c.id ? 'var(--color-lime)' : 'transparent'
+              }}
             >
-              {counts[c.id]}
-            </span>
-          </button>
-        ))}
+              <span className="text-xs">{c.icon}</span>
+              <span className="text-[10px] font-mono uppercase tracking-widest">{c.label}</span>
+              <span
+                className="text-[10px] font-mono"
+                style={{ color: cat === c.id ? 'var(--color-on-accent)' : 'var(--color-muted-4)' }}
+              >
+                {counts[c.id]}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Global Export Toolbar */}
+        <div className="flex items-center gap-2">
+          {cat === 'workflows' ? (
+            <button
+              onClick={() => exportRunsJson(runList)}
+              disabled={runList.length === 0}
+              className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
+              title="Export all workflow run logs as JSON"
+            >
+              ↓ Export Runs (JSON)
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => exportBulkItemsJson(items, `vvugc_${cat}`)}
+                disabled={items.length === 0}
+                className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
+                title="Export all items as JSON"
+              >
+                ↓ Export All (JSON)
+              </button>
+              <button
+                onClick={() => exportBulkItemsCsv(items, `vvugc_${cat}`)}
+                disabled={items.length === 0}
+                className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors disabled:opacity-40"
+                title="Export all items as CSV spreadsheet"
+              >
+                ↓ Export CSV
+              </button>
+              {cat === 'videos' && (
+                <button
+                  onClick={() => downloadBulkVideos(videos)}
+                  disabled={videos.filter(v => Boolean(v.videoPath)).length === 0}
+                  className="px-3 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors disabled:opacity-40"
+                  title="Download all rendered MP4 videos"
+                >
+                  ↓ Bulk Download Videos
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
+
+      {queue.loading && items.length === 0 && (
+        <div className="p-8 border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs font-mono text-[var(--color-muted-2)] uppercase tracking-widest animate-pulse">
+          Loading library assets &amp; demos…
+        </div>
+      )}
 
       {cat === 'videos' && <VideoDemos items={videos} onDownload={handleDownload} onPreview={setReviewItem} onApprove={handleApprove} onReject={handleReject} actionLoading={actionLoading} />}
       {cat === 'scripts' && <ScriptDemos items={scripts} byRun={byRun} onApprove={handleApprove} onReject={handleReject} onDownload={handleDownload} actionLoading={actionLoading} onPreview={setReviewItem} />}
@@ -167,7 +225,7 @@ function VideoDemos({ items, onDownload, onPreview, onApprove, onReject, actionL
               <ScoreBar score={v.score} />
             </div>
             <StatusBadge status={v.status} />
-            {/* Inline approve/reject — pending items can be actioned without opening the modal */}
+            {/* Inline actions: approve/reject + single download/export buttons */}
             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
               {v.status === 'pending' && (
                 <>
@@ -189,15 +247,29 @@ function VideoDemos({ items, onDownload, onPreview, onApprove, onReject, actionL
                   </button>
                 </>
               )}
-              {v.status !== 'pending' && v.videoPath && (
+              {v.videoPath && (
                 <button
-                  onClick={() => onDownload(v.id)}
+                  onClick={() => downloadSingleVideo(v.id)}
                   className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors"
-                  title="Download video"
+                  title="Download MP4 Video"
                 >
-                  ↓ EXPORT
+                  ↓ MP4
                 </button>
               )}
+              <button
+                onClick={() => exportSingleItemScript(v)}
+                className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-border)] text-[var(--color-muted-2)] hover:border-[var(--color-text)] hover:text-[var(--color-text)] transition-colors"
+                title="Export Script as TXT"
+              >
+                ↓ SCRIPT
+              </button>
+              <button
+                onClick={() => exportSingleItemJson(v)}
+                className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-border)] text-[var(--color-muted-2)] hover:border-[var(--color-text)] hover:text-[var(--color-text)] transition-colors"
+                title="Export Full JSON Data"
+              >
+                ↓ JSON
+              </button>
             </div>
             <span className="text-[10px] font-mono text-[var(--color-muted-4)] w-16 text-right">
               {formatRelative(v.createdAt)}
@@ -279,18 +351,29 @@ function ScriptDemos({ items, byRun, onApprove, onReject, onDownload, actionLoad
                     </button>
                   </>
                 )}
-                {v.status === 'approved' && v.videoPath && (
+                {v.videoPath && (
                   <button
-                    onClick={() => onDownload(v.id)}
+                    onClick={() => downloadSingleVideo(v.id)}
                     className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors"
-                    title="Download video"
+                    title="Download MP4 video"
                   >
-                    ↓ EXPORT
+                    ↓ MP4
                   </button>
                 )}
-                {v.status === 'approved' && !v.videoPath && (
-                  <span className="text-[9px] font-mono text-[var(--color-orange)] uppercase tracking-widest">RENDERING...</span>
-                )}
+                <button
+                  onClick={() => exportSingleItemScript(v)}
+                  className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-border)] text-[var(--color-muted-2)] hover:border-[var(--color-text)] hover:text-[var(--color-text)] transition-colors"
+                  title="Export Script TXT"
+                >
+                  ↓ SCRIPT
+                </button>
+                <button
+                  onClick={() => exportSingleItemJson(v)}
+                  className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 border border-[var(--color-border)] text-[var(--color-muted-2)] hover:border-[var(--color-text)] hover:text-[var(--color-text)] transition-colors"
+                  title="Export JSON"
+                >
+                  ↓ JSON
+                </button>
               </div>
               <span className="text-[10px] font-mono text-[var(--color-muted-4)] w-16 text-right">
                 {formatRelative(v.createdAt)}

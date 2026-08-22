@@ -1,6 +1,6 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { AccountRole } from "./accounts.js";
 
 export interface Invite {
@@ -50,7 +50,7 @@ function readAllUnlocked(dbPath: string): Invite[] {
 
 function writeAllUnlocked(dbPath: string, invites: Invite[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(invites, null, 2));
+  { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(invites, null, 2)); renameSync(_atomicTmp, dbPath); };
 }
 
 export interface InviteStore {

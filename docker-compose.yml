@@ -43,3 +43,23 @@ services:
       - ./runs:/repo/runs
     profiles:
       - cli
+
+  video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.video-worker
+    ports:
+      - "4330:4330"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - VVUGC_LLM_LIVE=${VVUGC_LLM_LIVE:-false}
+      - VIDEO_WORKER_CONCURRENCY=${VIDEO_WORKER_CONCURRENCY:-2}
+      - MCP_SERVER_URL=${MCP_SERVER_URL:-}
+    volumes:
+      - ./runs:/repo/runs
+    depends_on:
+      review-dashboard:
+        condition: service_started
+    restart: unless-stopped

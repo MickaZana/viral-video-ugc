@@ -83,11 +83,11 @@ describe("review-dashboard HTTP API", () => {
     await startServer();
 
     const all = await (await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER })).json();
-    expect(all).toHaveLength(2);
+    expect(all.items).toHaveLength(2);
 
     const approvedOnly = await (await fetch(`${baseUrl}/queue?status=approved`, { headers: AUTH_HEADER })).json();
-    expect(approvedOnly).toHaveLength(1);
-    expect(approvedOnly[0].id).toBe("b");
+    expect(approvedOnly.items).toHaveLength(1);
+    expect(approvedOnly.items[0].id).toBe("b");
   });
 
   it("GET /queue filters by niche and platform query params", async () => {
@@ -98,7 +98,7 @@ describe("review-dashboard HTTP API", () => {
     const filtered = await (
       await fetch(`${baseUrl}/queue?niche=fitness&platform=tiktok`, { headers: AUTH_HEADER })
     ).json();
-    expect(filtered.map((i: ReviewItem) => i.id)).toEqual(["a"]);
+    expect(filtered.items.map((i: ReviewItem) => i.id)).toEqual(["a"]);
   });
 
   it("GET /queue rejects an invalid status query param with 400 instead of silently passing it through", async () => {
@@ -156,9 +156,9 @@ describe("review-dashboard HTTP API", () => {
     const body = await res.json();
     expect(body.updated.sort()).toEqual(["a", "c"]);
 
-    const items = await (await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER })).json();
-    expect(items.find((i: ReviewItem) => i.id === "a").status).toBe("approved");
-    expect(items.find((i: ReviewItem) => i.id === "b").status).toBe("pending");
+    const data = await (await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER })).json();
+    expect(data.items.find((i: ReviewItem) => i.id === "a").status).toBe("approved");
+    expect(data.items.find((i: ReviewItem) => i.id === "b").status).toBe("pending");
   });
 
   it("GET /stats aggregates counts by status and total estimated spend across runs", async () => {

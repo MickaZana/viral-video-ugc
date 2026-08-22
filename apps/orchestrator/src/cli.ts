@@ -65,7 +65,7 @@ program
   .option(
     "--platforms <platforms>",
     "comma-separated target platforms (tiktok/instagram_reels/facebook require approved API " +
-      "access not yet configured — see README's Platform support section; --dry-run works for all of them)",
+    "access not yet configured — see README's Platform support section; --dry-run works for all of them)",
     (val: string) =>
       val.split(",").map((p) => {
         const parsed = PlatformSchema.safeParse(p.trim());
@@ -88,17 +88,17 @@ program
   .option(
     "--video-vendor <vendor>",
     "higgsfield | kling | runway | pika | gemini | replicate — gemini generates a still image per " +
-      "script segment (Gemini API) and Ken-Burns-pans it into a clip, instead of calling a video " +
-      "vendor; replicate is a model-hosting platform (many interchangeable text-to-video models " +
-      "behind one API — see REPLICATE_MODEL)",
-    "higgsfield"
+    "script segment (Gemini API) and Ken-Burns-pans it into a clip, instead of calling a video " +
+    "vendor; replicate is a model-hosting platform (many interchangeable text-to-video models " +
+    "behind one API — see REPLICATE_MODEL)",
+    "kling"
   )
   .option(
     "--voice-vendor <vendor>",
     "elevenlabs | grok — adds narrated voiceover perfectly synced to the burned-in captions " +
-      "(each caption cue's audio is synthesized separately and time-conformed to that exact " +
-      "cue's window, so narration and captions can never drift). Omit to keep the current " +
-      "silent/vendor-native-audio behavior — this is fully opt-in.",
+    "(each caption cue's audio is synthesized separately and time-conformed to that exact " +
+    "cue's window, so narration and captions can never drift). Omit to keep the current " +
+    "silent/vendor-native-audio behavior — this is fully opt-in.",
     undefined
   )
   .option("--dry-run", "run the full pipeline with mocked discovery/transcript/video-gen (no API keys needed)", false)
@@ -106,8 +106,8 @@ program
   .option(
     "--fail-on-zero-results",
     "exit non-zero if the run completes but produces zero review items (a silent-failure case " +
-      "otherwise indistinguishable from a normal empty run) — intended for scheduled/CI runs so " +
-      "the platform's own failure notification catches it, not for interactive local use",
+    "otherwise indistinguishable from a normal empty run) — intended for scheduled/CI runs so " +
+    "the platform's own failure notification catches it, not for interactive local use",
     false
   )
   .action(async (options) => {
@@ -129,7 +129,7 @@ program
     if (config.autoPost) {
       console.warn(
         "WARNING: --auto-post bypasses human review. This scaffold does not implement platform " +
-          "publishing APIs yet — review items will still be written to the queue instead."
+        "publishing APIs yet — review items will still be written to the queue instead."
       );
     }
 
@@ -137,9 +137,9 @@ program
     if (!config.dryRun && unsupportedLivePlatforms.length > 0) {
       console.warn(
         `WARNING: ${unsupportedLivePlatforms.join(", ")} discovery requires approved API access ` +
-          "this scaffold doesn't have configured (TikTok Research API / Meta Graph API — see README's " +
-          "Platform support section). These platforms will produce zero candidates this run; only " +
-          "youtube_shorts is live. Use --dry-run to exercise the full pipeline for all platforms with mock data."
+        "this scaffold doesn't have configured (TikTok Research API / Meta Graph API — see README's " +
+        "Platform support section). These platforms will produce zero candidates this run; only " +
+        "youtube_shorts is live. Use --dry-run to exercise the full pipeline for all platforms with mock data."
       );
     }
 

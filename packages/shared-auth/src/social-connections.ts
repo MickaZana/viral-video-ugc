@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Platform } from "@vvugc/shared-schema";
 
@@ -100,7 +100,7 @@ export function createSocialConnectionStore(dbPath: string, encryptionSecret: st
     try {
       const records = read();
       const result = fn(records);
-      writeFileSync(dbPath, JSON.stringify(records, null, 2));
+      { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(records, null, 2)); renameSync(_atomicTmp, dbPath); };
       return result;
     } finally {
       rmSync(`${dbPath}.lock`, { force: true });
@@ -179,7 +179,7 @@ export function rotateSocialConnectionEncryptionKey(dbPath: string, oldSecret: s
         : undefined,
       updatedAt: new Date().toISOString()
     }));
-    writeFileSync(dbPath, JSON.stringify(rotated, null, 2));
+    { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(rotated, null, 2)); renameSync(_atomicTmp, dbPath); };
     return rotated.length;
   } finally {
     rmSync(`${dbPath}.lock`, { force: true });

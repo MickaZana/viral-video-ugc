@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseCookies } from "./accounts.js";
+import { parseCookies, isPrivateAddress, extractProductFields } from "./accounts.js";
 
 const TEST_USER = "test-user";
 const TEST_PASS = "test-pass";
@@ -41,6 +41,24 @@ describe("parseCookies", () => {
   it("returns an empty object for an undefined or malformed header", () => {
     expect(parseCookies(undefined)).toEqual({});
     expect(parseCookies("not-a-cookie-pair")).toEqual({});
+  });
+});
+
+describe("product profile ingestion guards", () => {
+  it("rejects loopback, link-local, mapped IPv4, and reserved ranges", () => {
+    expect(isPrivateAddress("127.0.0.1")).toBe(true);
+    expect(isPrivateAddress("169.254.1.1")).toBe(true);
+    expect(isPrivateAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateAddress("198.18.0.1")).toBe(true);
+    expect(isPrivateAddress("8.8.8.8")).toBe(false);
+  });
+
+  it("extracts product intelligence fields from a product page", () => {
+    const fields = extractProductFields('<title>Glow Serum</title><meta name="description" content="A serum for dry skin"><p>Designed for sensitive skin. Helps improve hydration. Shop now.</p>', "https://example.com/p");
+    expect(fields.name).toBe("Glow Serum");
+    expect(fields.targetCustomer).toMatch(/sensitive skin/);
+    expect(fields.primaryBenefits?.length).toBeGreaterThan(0);
+    expect(fields.callToAction).toBe("Shop now");
   });
 });
 
@@ -168,6 +186,69 @@ describe("account signup/login/session routes (additive, separate from dashboard
       headers: { Cookie: cookie, Origin: baseUrl, "X-CSRF-Token": me.csrfToken }
     });
     expect(accepted.status).toBe(204);
+  });
+
+  it("serves authenticated built-in templates and previews tenant-scoped inputs without creating a run", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/templates`)).status).toBe(401);
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "templates@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const templates = await fetch(`${baseUrl}/templates`, { headers: { Cookie: cookie } });
+    expect(templates.status).toBe(200);
+    expect((await templates.json()).templates).toHaveLength(7);
+    const founder = await fetch(`${baseUrl}/templates/founder_story`, { headers: { Cookie: cookie } });
+    expect((await founder.json()).template.scriptStructure).toContain("why existing options failed");
+
+    const csrfHeaders = { Cookie: cookie, Origin: baseUrl, "x-csrf-token": me.csrfToken, "Content-Type": "application/json" };
+    const blocked = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify({ templateId: "founder_story" }) });
+    expect(blocked.status).toBe(403);
+    const incomplete = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ templateId: "founder_story", platforms: ["facebook"], durationSec: 20 }) });
+    expect(incomplete.status).toBe(200);
+    const incompleteBody = await incomplete.json();
+    expect(incompleteBody.missingFields).toEqual(expect.arrayContaining(["productProfile", "brandVoice"]));
+    expect(incompleteBody.compatibilityWarnings.length).toBeGreaterThan(0);
+    expect(incompleteBody.plannedScriptBeats).toContain("why existing options failed");
+
+    const createdProduct = await fetch(`${baseUrl}/accounts/products`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ name: "Template Product" }) });
+    expect(createdProduct.status).toBe(201);
+    const product = await createdProduct.json();
+    const preview = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ templateId: "founder_story", productProfileId: product.product.id, brandVoice: "warm", platforms: ["tiktok"], durationSec: 45 }) });
+    expect(preview.status).toBe(200);
+    const previewBody = await preview.json();
+    expect(previewBody.missingFields).toEqual([]);
+    expect(previewBody.requiredInputs.every((entry: { present: boolean }) => entry.present)).toBe(true);
+  });
+
+  it("protects creator routes with session auth and CSRF", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/accounts/creators`)).status).toBe(401);
+    const signupRes = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-route@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signupRes); const signup = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const payload = { displayName: "Ava", avatarMode: "none", compatibleVendors: [], speechStyle: "", tone: "", wardrobe: "", visualStyle: "", language: "en", prohibitedDepictions: [], consentConfirmed: true, active: true };
+    expect((await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify(payload) })).status).toBe(403);
+    const created = await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    expect(created.status).toBe(201); const body = await created.json(); expect(body.creator.referenceImages?.[0]?.filePath).toBeUndefined();
+    const creatorId = body.creator.id;
+    const uploaded = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images`, { method: "POST", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ fileName: "ref.png", mimeType: "image/png", dataBase64: "iVBORw0KGgo=" }) });
+    expect(uploaded.status).toBe(201); const uploadedBody = await uploaded.json(); expect(uploadedBody.creator.referenceImages[0].filePath).toBeUndefined();
+    const other = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images/${uploadedBody.creator.referenceImages[0].id}`, { headers: { Cookie: cookie } }); expect(other.status).toBe(200);
+    const deleted = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images/${uploadedBody.creator.referenceImages[0].id}`, { method: "DELETE", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken } }); expect(deleted.status).toBe(204);
+  });
+
+  it("rejects unaudited consent, invalid signatures, and cross-tenant image access", async () => {
+    await startServer();
+    const firstSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-negative-a@example.com", password: "hunter22" }) });
+    const firstCookie = sessionCookieFrom(firstSignup); const firstMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: firstCookie } })).json();
+    const created = await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: firstCookie, "x-csrf-token": firstMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Unaudited", avatarMode: "none", compatibleVendors: [], speechStyle: "", tone: "", wardrobe: "", visualStyle: "", language: "en", prohibitedDepictions: [], consentConfirmed: false, active: true }) });
+    expect(created.status).toBe(201); const creator = await created.json();
+    const denied = await fetch(`${baseUrl}/accounts/creators/${creator.creator.id}/images`, { method: "POST", headers: { Cookie: firstCookie, "x-csrf-token": firstMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ fileName: "bad.png", mimeType: "image/png", dataBase64: "aGVsbG8=" }) });
+    expect(denied.status).toBe(400);
+
+    const secondSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-negative-b@example.com", password: "hunter22" }) });
+    const secondCookie = sessionCookieFrom(secondSignup);
+    const crossTenant = await fetch(`${baseUrl}/accounts/creators/${creator.creator.id}` , { headers: { Cookie: secondCookie } });
+    expect(crossTenant.status).toBe(404);
   });
 
   it("logout revokes the session — a subsequent /accounts/me with the same cookie is unauthenticated", async () => {

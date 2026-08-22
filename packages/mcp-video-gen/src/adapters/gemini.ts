@@ -4,6 +4,7 @@ import { requireEnvVar } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { DIMENSIONS_BY_ASPECT_RATIO } from "../dimensions.js";
+import { mapToPromptEnrichment } from "../visual-mapping.js";
 import { stillImageToClip } from "../ken-burns.js";
 import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
@@ -45,12 +46,14 @@ export function createGeminiAdapter(outDir: string): VideoGenAdapter {
       const model = process.env.GEMINI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
       const dims = DIMENSIONS_BY_ASPECT_RATIO[req.aspectRatio];
 
+      // Cinema Controls: enrich prompt with visual direction
+      const enrichedPrompt = req.visualDirection ? `${req.prompt}. ${mapToPromptEnrichment(req.visualDirection)}` : req.prompt;
       const res = await fetchWithRetry(`${GEMINI_API_BASE}/interactions`, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          input: [{ type: "text", text: req.prompt }],
+          input: [{ type: "text", text: enrichedPrompt }, ...(req.referenceImageDataUri ? [{ type: "image", image: req.referenceImageDataUri }] : [])],
           response_format: { type: "image", aspect_ratio: req.aspectRatio, image_size: "1K" }
         }),
         timeoutMs: 60_000

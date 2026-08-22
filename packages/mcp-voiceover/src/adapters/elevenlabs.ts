@@ -21,16 +21,16 @@ const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 export function createElevenLabsAdapter(): VoiceoverAdapter {
   return {
     vendor: "elevenlabs",
-    async synthesize(text: string, outPath: string): Promise<{ filePath: string; durationSec: number }> {
+    async synthesize(text: string, outPath: string, opts): Promise<{ filePath: string; durationSec: number }> {
       const apiKey = requireEnvVar("ELEVENLABS_API_KEY");
-      const voiceId = process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
+      const voiceId = opts?.voiceId || process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
 
       const res = await fetchWithRetry(
         `${ELEVENLABS_API_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
         {
           method: "POST",
           headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ text, model_id: "eleven_multilingual_v2" }),
+          body: JSON.stringify({ text: [opts?.accent && `Accent: ${opts.accent}`, opts?.speechStyle, text].filter(Boolean).join("\n"), model_id: "eleven_multilingual_v2", language_code: opts?.language }),
           timeoutMs: 30_000
         }
       );

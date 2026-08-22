@@ -6,6 +6,7 @@ import { History } from './tabs/History'
 import { setPreviewMode } from './lib/api'
 import { HeroFlow } from './components/HeroFlow'
 import { Logo } from './components/Logo'
+import { LegalModals, type LegalModalType } from './components/LegalModals'
 
 // Set preview routing BEFORE this module's components ever render. See the note
 // in Landing() below about why this must not live in a useEffect.
@@ -62,6 +63,7 @@ export function Landing({
   /** When authenticated, this replaces Get Started/Sign In with a return-to-workspace action. */
   onWorkspace?: () => void
 }) {
+  const [legalModal, setLegalModal] = useState<LegalModalType>(null)
   const [preview, setPreview] = useState<PreviewTab>('dashboard')
 
   const goHome = () => window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -126,9 +128,9 @@ export function Landing({
       {/* Hero */}
       <section className="border-b border-[var(--color-raised)]">
         <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 border border-[var(--color-input)] bg-[var(--color-surface)] px-3 py-1.5 mb-8">
+          <div className="inline-flex items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 mb-8">
             <span className="w-1.5 h-1.5 bg-[var(--color-lime)] blink" />
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-4)]">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)]">
               AI-Powered Viral Engine
             </span>
           </div>
@@ -138,9 +140,9 @@ export function Landing({
           >
             Spy The Format.
             <br />
-            <span className="text-[var(--color-lime)]">Make It Yours.</span>
+            <span className="text-[var(--color-text)]">Make It Yours.</span>
           </h1>
-          <p className="mt-6 text-base md:text-lg font-mono text-[var(--color-muted-4)] max-w-2xl mx-auto">
+          <p className="mt-6 text-base md:text-lg font-mono text-[var(--color-muted-3)] max-w-2xl mx-auto">
             Viral Video UGC watches viral creators, rewrites their winning scripts for your niche, and remakes the content — so you
             go viral without guessing.
           </p>
@@ -154,7 +156,7 @@ export function Landing({
             </button>
             <a
               href="#preview"
-              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-faint)] text-[var(--color-muted-6)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors w-full sm:w-auto"
+              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors w-full sm:w-auto"
             >
               See It Live
             </a>
@@ -163,8 +165,8 @@ export function Landing({
           {/* Self-playing screen-flow demo */}
           <div className="mt-16 max-w-4xl mx-auto text-left">
             <div className="flex items-center gap-2 justify-center mb-4">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-lime)]">Production flow</span>
-              <span className="h-px flex-1 max-w-24 bg-[var(--color-input)]" />
+              <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text)]">Production flow</span>
+              <span className="h-px flex-1 max-w-24 bg-[var(--color-border)]" />
               <span className="text-[10px] font-mono text-[var(--color-muted-2)]">auto-plays · pause on hover</span>
             </div>
             <HeroFlow />
@@ -309,15 +311,53 @@ export function Landing({
       </section>
 
       {/* Footer */}
-      <footer className="max-w-6xl mx-auto px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Logo onClick={goHome} size={26} wordmarkClass="text-sm" />
-        </div>
-        <div className="flex items-center gap-6 text-[11px] font-mono text-[var(--color-muted-2)]">
-          <button onClick={onSignIn} className="hover:text-[var(--color-lime)] transition-colors">Sign In</button>
-          <button onClick={onGetStarted} className="hover:text-[var(--color-lime)] transition-colors">Get Started</button>
+      <footer className="border-t border-[var(--color-raised)] bg-[var(--color-surface)] py-12">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex flex-col items-center md:items-start gap-2">
+            <Logo onClick={goHome} size={28} wordmarkClass="text-sm" />
+            <p className="text-[11px] font-mono text-[var(--color-muted-2)]">
+              © 2026 VUGC. A Micany Company product. All rights reserved.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-6 text-[11px] font-mono text-[var(--color-muted-2)]">
+            <button
+              onClick={() => setLegalModal('privacy')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <button
+              onClick={() => setLegalModal('terms')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Terms of Service
+            </button>
+            <button
+              onClick={() => setLegalModal('dsr_gdpr')}
+              className="hover:text-[var(--color-lime)] text-[var(--color-lime)] font-bold transition-colors cursor-pointer"
+            >
+              GDPR &amp; DSR Rights
+            </button>
+            <button
+              onClick={() => setLegalModal('about')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              About Us
+            </button>
+            <button
+              onClick={() => setLegalModal('sitemap')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Site Map
+            </button>
+            <span className="text-[var(--color-border)]">|</span>
+            <button onClick={onSignIn} className="text-[var(--color-text)] hover:text-[var(--color-lime)] transition-colors">Sign In</button>
+            <button onClick={onGetStarted} className="px-3 py-1.5 bg-[var(--color-lime)] text-[var(--color-on-accent)] font-bold uppercase tracking-widest hover:brightness-110 transition-colors">Get Started</button>
+          </div>
         </div>
       </footer>
+
+      <LegalModals activeModal={legalModal} onClose={() => setLegalModal(null)} />
     </div>
   )
 }

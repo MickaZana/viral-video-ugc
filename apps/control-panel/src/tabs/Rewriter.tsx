@@ -66,6 +66,17 @@ export function Rewriter() {
     setPoints(brief.structure.join('\n'))
   }
 
+  /** Loads the template's first hook pattern + structural beats into the editor
+   *  as a starting point for a template-aware rewrite. Used when the run was
+   *  driven by a UGC template rather than a riffed discovery brief. */
+  function applyTemplate() {
+    const item = items.find((i) => i.id === selectedId)
+    const tpl = item?.template
+    if (!tpl) return
+    setHook(tpl.hookPatterns[0] ?? '')
+    setPoints(tpl.scriptStructure.join('\n'))
+  }
+
   async function handleRewrite() {
     if (!selectedId) return
     setLoading(true)
@@ -92,10 +103,10 @@ export function Rewriter() {
 
   const metrics = done && result
     ? [
-        { label: 'Hook Strength', score: result.score, color: 'var(--color-lime)' },
-        { label: 'Originality', score: result.originalityScore ?? 0, color: result.originalityScore !== undefined && result.originalityScore >= 70 ? 'var(--color-lime)' : 'var(--color-orange)' },
-        { label: 'Flags Cleared', score: Math.max(0, 100 - result.flags.length * 15), color: result.flags.length === 0 ? 'var(--color-lime)' : 'var(--color-orange)' }
-      ]
+      { label: 'Hook Strength', score: result.score, color: 'var(--color-lime)' },
+      { label: 'Originality', score: result.originalityScore ?? 0, color: result.originalityScore !== undefined && result.originalityScore >= 70 ? 'var(--color-lime)' : 'var(--color-orange)' },
+      { label: 'Flags Cleared', score: Math.max(0, 100 - result.flags.length * 15), color: result.flags.length === 0 ? 'var(--color-lime)' : 'var(--color-orange)' }
+    ]
     : null
 
   return (
@@ -152,6 +163,33 @@ export function Rewriter() {
           </button>
         </div>
       )}
+
+      {(() => {
+        const selectedItem = items.find((i) => i.id === selectedId)
+        const tpl = selectedItem?.template
+        if (!tpl) return null
+        return (
+          <div className="border border-[var(--color-orange)] bg-[var(--color-surface)] p-5 space-y-2">
+            <p className="text-[10px] uppercase tracking-widest text-[var(--color-orange)]">
+              Template · {tpl.name} <span className="text-[var(--color-muted-3)] ml-2">v{tpl.version} · {tpl.captionStyle} captions</span>
+            </p>
+            <p className="text-sm text-[var(--color-text)]"><span className="text-[var(--color-muted-2)]">Hook pattern:</span> {tpl.hookPatterns[0]}</p>
+            <p className="text-[11px] text-[var(--color-muted-4)]">Structure: {tpl.scriptStructure.join(' → ')}</p>
+            <p className="text-[11px] text-[var(--color-muted-4)]">{tpl.description}</p>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {tpl.scriptStructure.map((b, i) => (
+                <span key={i} className="text-[10px] font-mono px-2 py-0.5 border border-[var(--color-faint)] text-[var(--color-orange)]">{i + 1}. {b}</span>
+              ))}
+            </div>
+            <button
+              onClick={applyTemplate}
+              className="mt-2 px-4 py-2 text-xs font-semibold uppercase tracking-widest border border-[var(--color-orange)] text-[var(--color-orange)] hover:bg-[var(--color-orange)] hover:text-black transition-colors"
+            >
+              Apply template to editor
+            </button>
+          </div>
+        )
+      })()}
 
       <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between mb-3">
