@@ -76,6 +76,50 @@ describe("installLifecycleHandlers", () => {
     expect(exit).toHaveBeenCalledWith(0);
   });
 
+  it("awaits owned-resource drain after HTTP close before declaring shutdown complete", async () => {
+    const logger = makeLogger();
+    const exit = vi.fn();
+    let release!: () => void;
+    const drained = new Promise<void>((resolve) => { release = resolve; });
+    const onDrained = vi.fn(() => drained);
+    installLifecycleHandlers(server, logger, { exit, onDrained, shutdownTimeoutMs: 1_000 });
+
+    process.emit("SIGTERM");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onDrained).toHaveBeenCalledOnce();
+    expect(exit).not.toHaveBeenCalled();
+    expect(logger.info.mock.calls.map((call) => call[1])).not.toContain("shutdown complete");
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(logger.info.mock.calls.map((call) => call[1])).toContain("shutdown complete");
+  });
+
+  it("forces exit when an owned-resource drain never settles", async () => {
+    const logger = makeLogger();
+    const exit = vi.fn();
+    installLifecycleHandlers(server, logger, { exit, shutdownTimeoutMs: 20, onDrained: () => new Promise<void>(() => undefined) });
+
+    process.emit("SIGTERM");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(logger.error.mock.calls.some((call) => call[1] === "graceful shutdown timed out — forcing exit")).toBe(true);
+  });
+
+  it("logs a failed owned-resource drain and exits non-zero without waiting for timeout", async () => {
+    const logger = makeLogger();
+    const exit = vi.fn();
+    installLifecycleHandlers(server, logger, { exit, shutdownTimeoutMs: 1_000, onDrained: async () => { throw new Error("pool close failed"); } });
+
+    process.emit("SIGTERM");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(logger.error.mock.calls.some((call) => call[1] === "shutdown resource drain failed")).toBe(true);
+  });
+
   it("only shuts down once even if multiple signals arrive in quick succession", async () => {
     const logger = makeLogger();
     const exit = vi.fn();

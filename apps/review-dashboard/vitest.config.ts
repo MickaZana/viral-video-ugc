@@ -10,6 +10,17 @@ export default defineConfig({
     // import the shared review-queue store. Parallel files can overwrite that
     // process-global configuration while another server is handling a request,
     // producing false timeout failures and cross-test data leakage.
-    fileParallelism: false
+    fileParallelism: false,
+    // The suite creates and closes Express servers and mutates process-wide
+    // environment variables. On Windows, Tinypool's default worker-thread
+    // shutdown can leave the runner alive after those tests have completed.
+    // Use one forked worker so the process boundary is explicit and teardown is
+    // deterministic, without excluding or weakening any test files.
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        singleFork: true
+      }
+    }
   }
 });

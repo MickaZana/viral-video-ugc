@@ -11,7 +11,7 @@
 
 import pino from "pino";
 import { loadEnv, type Env } from "@vvugc/shared-config";
-import { createFileProviderJobStore } from "@vvugc/review-queue";
+import { createFileProviderJobStore, getConfiguredPostgresProviderJobStore } from "@vvugc/review-queue";
 import { join } from "node:path";
 import { createMcpSession, type McpSessionConfig } from "./mcp-session.js";
 import { createVideoWorker, type WorkerConfig } from "./worker.js";
@@ -39,7 +39,13 @@ async function main() {
   // The dashboard and worker are separate containers.  Their shared runs
   // volume is the durable handoff boundary; an in-memory queue would strand
   // every dashboard-enqueued job in the dashboard process.
-  const store = createFileProviderJobStore(join(env.VVUGC_RUNS_DIR, "provider-jobs.json"));
+  const postgresStore = await getConfiguredPostgresProviderJobStore();
+  // Force both connectivity and migrations before accepting work.  A configured
+  // database that is unreachable must stop this production worker, never cause
+  // it to fall back to an isolated local JSON queue.
+  if (postgresStore) await postgresStore.countByStatus();
+  const store = postgresStore ?? createFileProviderJobStore(join(env.VVUGC_RUNS_DIR, "provider-jobs.json"));
+  logger.info({ persistence: postgresStore ? "postgres" : "file" }, "Provider job store initialized");
 
   // ---------------------------------------------------------------------------
   // MCP Session Configuration

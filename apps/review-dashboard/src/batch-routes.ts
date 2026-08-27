@@ -17,6 +17,7 @@ import {
   type ProviderJobStore,
   type ProviderJobEnqueueInput,
   createInMemoryProviderJobStore,
+  getConfiguredPostgresProviderJobStore,
   listReviewItems,
 } from "@vvugc/review-queue";
 import {
@@ -31,10 +32,6 @@ import {
 import { planBatch, type EntityLookup } from "@vvugc/shared-schema";
 import {
   aggregateUsage,
-  createProductProfileStore,
-  createCreatorProfileStore,
-  createAccountStore,
-  resolveOrgId,
 } from "@vvugc/shared-auth";
 import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
@@ -44,6 +41,8 @@ import { checkRunQuota } from "./quota.js";
 import { createOverageStore } from "./overage.js";
 import { isLLMLive } from "./llm-gate.js";
 import type { AuthedRequest } from "./accounts.js";
+import type { IdentityRepository } from "./accounts.js";
+import type { TenantProfileRepository } from "./tenant-profile-postgres.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 const logger = pino({ name: "vvugc-batch-routes" });
@@ -75,11 +74,20 @@ const batches = new Map<string, BatchRecord>();
 
 // ─── Provider job store singleton (same pattern as jobs.ts) ──────────────────
 let providerJobStore: ProviderJobStore | undefined;
-function getProviderJobStore(): ProviderJobStore {
+async function getProviderJobStore(): Promise<ProviderJobStore> {
   if (!providerJobStore) {
-    providerJobStore = createInMemoryProviderJobStore();
+    // Never let an enabled dashboard route hand memory-resident work to a
+    // PostgreSQL worker. Production missing DATABASE_URL rejects here; local
+    // development remains intentionally in-memory for this still-disabled UI.
+    providerJobStore = await getConfiguredPostgresProviderJobStore()
+      ?? createInMemoryProviderJobStore();
   }
   return providerJobStore;
+}
+
+/** Startup hook for any deployment that elects to enable batch routes. */
+export async function initializeBatchProviderJobStore(): Promise<ProviderJobStore> {
+  return getProviderJobStore();
 }
 
 /** Allow test/DI override. */
@@ -88,17 +96,13 @@ export function setProviderJobStore(store: ProviderJobStore): void {
 }
 
 // ─── Entity Lookup wired to real stores (Atom C) ─────────────────────────────
-function createEntityLookup(orgId: string): EntityLookup {
-  const { VVUGC_RUNS_DIR } = loadEnv();
-  const productStore = createProductProfileStore(join(VVUGC_RUNS_DIR, "product-profiles.json"));
-  const creatorStore = createCreatorProfileStore(join(VVUGC_RUNS_DIR, "creator-profiles.json"));
-
+function createEntityLookup(orgId: string, profiles: TenantProfileRepository): EntityLookup {
   return {
-    productProfileExists(id: string) {
-      return productStore.getForOrg(orgId, id) !== undefined;
+    async productProfileExists(id: string) {
+      return (await profiles.productGet(orgId, id)) !== undefined;
     },
-    creatorProfileExists(id: string) {
-      const creator = creatorStore.getForOrg(orgId, id);
+    async creatorProfileExists(id: string) {
+      const creator = await profiles.creatorGet(orgId, id);
       return creator !== undefined && creator.active;
     },
     templateExists(id: string) {
@@ -114,7 +118,8 @@ function createEntityLookup(orgId: string): EntityLookup {
 // ─── Route Registration ──────────────────────────────────────────────────────
 export function registerBatchRoutes(
   app: Express,
-  requireSession: RequestHandler
+  requireSession: RequestHandler,
+  deps: { identity: IdentityRepository; tenantProfiles: TenantProfileRepository }
 ): void {
   // ═══════════════════════════════════════════════════════════════════════════
   // POST /accounts/batch/plan
@@ -136,17 +141,15 @@ export function registerBatchRoutes(
       const request = parsed.data;
       const batchId = `batch_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
       // P0 FIX: NEVER trust client-supplied orgId. Derive from session.
-      const { VVUGC_RUNS_DIR } = loadEnv();
-      const accountStore = createAccountStore(join(VVUGC_RUNS_DIR, "accounts.json"));
-      const account = accountStore.findById((req as AuthedRequest).accountId!);
+      const account = await deps.identity.findById((req as AuthedRequest).accountId!);
       if (!account) return res.status(401).json({ error: "account not found" });
-      const orgId = resolveOrgId(account);
+      const orgId = account.orgId;
 
       // Tenant isolation: server-derived orgId is authoritative.
       // The request body may contain orgId for backward compat but it's ignored.
       logger.info({ batchId, orgId, variations: "planning" }, "batch plan requested");
 
-      const lookup = createEntityLookup(orgId);
+      const lookup = createEntityLookup(orgId, deps.tenantProfiles);
       const plan = await planBatch({ batchId, request, lookup });
 
       logger.info(
@@ -191,11 +194,9 @@ export function registerBatchRoutes(
       const batchRequest = requestParsed.data;
       const batchId = batchPlan.batchId;
       // P0 FIX: Derive orgId from session, never from request body
-      const { VVUGC_RUNS_DIR: runsDir2 } = loadEnv();
-      const acctStore2 = createAccountStore(join(runsDir2, "accounts.json"));
-      const acct2 = acctStore2.findById((req as AuthedRequest).accountId!);
+      const acct2 = await deps.identity.findById((req as AuthedRequest).accountId!);
       if (!acct2) return res.status(401).json({ error: "account not found" });
-      const orgId = resolveOrgId(acct2);
+      const orgId = acct2.orgId;
       const clientId = batchRequest.clientId;
 
       // ── Gate: VVUGC_LLM_LIVE / dryRun ──────────────────────────────────
@@ -261,7 +262,7 @@ export function registerBatchRoutes(
       batches.set(batchId, batchRecord);
 
       // ── Enqueue provider jobs (one per variation) ───────────────────────
-      const store = getProviderJobStore();
+      const store = await getProviderJobStore();
       const enqueuePromises: Promise<unknown>[] = [];
 
       for (let i = 0; i < batchPlan.variations.length; i++) {
@@ -340,8 +341,8 @@ export function registerBatchRoutes(
       }
 
       // Aggregate job statuses from the provider job store
-      const store = getProviderJobStore();
-      const jobs = await store.listByRun(batchId);
+      const store = await getProviderJobStore();
+      const jobs = await store.listByRun(batch.orgId, batchId);
 
       const counts: Record<BatchVariationStatus, number> = {
         planned: 0,
@@ -416,8 +417,8 @@ export function registerBatchRoutes(
         return res.status(409).json({ error: "batch is already cancelled" });
       }
 
-      const store = getProviderJobStore();
-      const jobs = await store.listByRun(batchId);
+      const store = await getProviderJobStore();
+      const jobs = await store.listByRun(batch.orgId, batchId);
 
       let cancelledCount = 0;
       let cancelRequestedCount = 0;
@@ -463,8 +464,8 @@ export function registerBatchRoutes(
         return res.status(404).json({ error: "batch not found" });
       }
 
-      const store = getProviderJobStore();
-      const jobs = await store.listByRun(batchId);
+      const store = await getProviderJobStore();
+      const jobs = await store.listByRun(batch.orgId, batchId);
 
       // Build a map of candidateId (variationId) → job for quick lookup
       const jobByVariation = new Map(jobs.map((j) => [j.candidateId, j]));

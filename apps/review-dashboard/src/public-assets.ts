@@ -46,10 +46,10 @@ export function createPublicAssetUrl(videoPath: string, ttlMs = 15 * 60 * 1000):
 
   const absPath = resolve(videoPath);
   const runsRoot = resolve(VVUGC_RUNS_DIR);
-  if (absPath !== runsRoot && !absPath.startsWith(runsRoot + sep)) {
+  if (!absPath.startsWith(runsRoot + sep)) {
     throw new Error(`refusing to serve a video outside VVUGC_RUNS_DIR: ${videoPath}`);
   }
-  if (!existsSync(absPath)) {
+  if (!existsSync(absPath) || !statSync(absPath).isFile()) {
     throw new Error(`video file not found: ${videoPath}`);
   }
 
@@ -107,7 +107,7 @@ export function registerPublicAssetRoute(app: Express): void {
   app.get("/public/assets/:token", publicAssetRateLimiter, (req: Request, res: Response) => {
     const token = req.params.token;
     const absPath = typeof token === "string" ? verifyToken(token) : undefined;
-    if (!absPath || !existsSync(absPath)) {
+    if (!absPath || !existsSync(absPath) || !statSync(absPath).isFile()) {
       return res.status(404).json({ error: "not found or expired" });
     }
     const stat = statSync(absPath);

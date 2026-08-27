@@ -142,10 +142,23 @@ const EnvSchema = z.object({
   ASSET_SIGNING_SECRET: z.string().optional(),
   /** Master secret used to encrypt per-client social OAuth tokens at rest. */
   SOCIAL_TOKEN_ENCRYPTION_KEY: z.string().min(32).optional(),
+  /** Dedicated application AEAD key for TOTP secrets stored in Postgres. This
+   * is intentionally distinct from OAuth-token encryption so key rotation and
+   * access can be scoped independently. */
+  MFA_ENCRYPTION_KEY: z.string().min(32).optional(),
   OAUTH_STATE_SECRET: z.string().min(32).optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  /**
+   * Platform evolution feature flags (Phase B.5).
+   * Default: disabled. Enable in development/test to access dormant features.
+   * MUST be evaluated server-side — never trust frontend-supplied values.
+   */
+  VVUGC_AGENCY_CLIENTS_ENABLED: z.string().optional(),
+  VVUGC_API_ENABLED: z.string().optional(),
+  VVUGC_PLATFORM_ADMIN_ENABLED: z.string().optional(),
+  VVUGC_WEBHOOKS_ENABLED: z.string().optional(),
   /**
    * Absolute origin (e.g. "https://myapp.example.com", no trailing slash) the
    * marketing-site is publicly reachable at — needed because og:image/twitter:image
@@ -249,6 +262,7 @@ export function validateProductionEnv(env: Env = loadEnv()): void {
     "DASHBOARD_PASSWORD",
     "ASSET_SIGNING_SECRET",
     "SOCIAL_TOKEN_ENCRYPTION_KEY",
+    "MFA_ENCRYPTION_KEY",
     "OAUTH_STATE_SECRET",
     "PUBLIC_BASE_URL"
   ];

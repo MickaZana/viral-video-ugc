@@ -1,22 +1,25 @@
 import { useState, type FormEvent, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { saveAccount, saveCsrf, type PublicAccount } from '../lib/auth'
 import { api } from '../lib/api'
 import { Logo } from '../components/Logo'
 
-type AuthMode = 'signin' | 'signup' | 'forgot' | 'reset'
+type AuthMode = 'signin' | 'signup' | 'forgot' | 'reset' | 'invite'
+const AUTH_MODES: AuthMode[] = ['signin', 'signup', 'forgot', 'reset', 'invite']
 
 export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void }) {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const inviteToken = searchParams.get('token') ?? ''
   const [mode, setMode] = useState<AuthMode>(() => {
     const m = searchParams.get('mode')
-    return (m === 'signin' || m === 'signup' || m === 'forgot' || m === 'reset') ? m : 'signup'
+    return (AUTH_MODES as string[]).includes(m ?? '') ? (m as AuthMode) : 'signup'
   })
 
   useEffect(() => {
     const m = searchParams.get('mode')
-    if (m === 'signin' || m === 'signup' || m === 'forgot' || m === 'reset') {
-      setMode(m)
+    if ((AUTH_MODES as string[]).includes(m ?? '')) {
+      setMode(m as AuthMode)
     }
   }, [searchParams])
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +109,24 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
     }
   }
 
+  async function handleInviteAccept(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setError(null)
+    setBusy(true)
+    const fd = new FormData(e.currentTarget)
+    try {
+      const res = await api.acceptInvite({
+        token: inviteToken,
+        password: String(fd.get('password') || '')
+      })
+      await finishSession(res.account)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleReset(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
@@ -138,12 +159,22 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
   )
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] flex flex-col items-center justify-center p-6">
+   <div className="min-h-screen w-full bg-[var(--color-bg)] flex flex-col items-center justify-center p-6 overflow-y-auto">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-8">
-          <Logo />
+        <div className="flex items-center gap-3 mb-8">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center justify-center w-8 h-8 border border-[var(--color-border)] text-[var(--color-muted-3)] hover:text-[var(--color-text)] hover:border-[var(--color-text)] transition-colors rounded-md"
+            aria-label="Back to home"
+          >
+            ←
+          </button>
+          <button onClick={() => navigate('/')} className="cursor-pointer" aria-label="Back to home">
+            <Logo />
+          </button>
         </div>
 
+        {mode !== 'invite' && (
         <div className="flex gap-1 mb-4">
           {(
             [
@@ -172,8 +203,26 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
             </button>
           ))}
         </div>
+        )}
 
         <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-2xl">
+          {mode === 'invite' && (
+            <form onSubmit={handleInviteAccept} className="space-y-4">
+              <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">You've been invited — set a password to join</p>
+              {field('password', 'Password (8+ chars)', 'password')}
+              {error && <p className="text-[11px] text-[var(--color-red)]">{error}</p>}
+              <button
+                type="submit"
+                disabled={busy || !inviteToken}
+                className="w-full py-3 font-semibold uppercase tracking-widest text-sm transition-colors hover:brightness-110 disabled:opacity-50"
+                style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+              >
+                Accept invite &amp; join
+              </button>
+              {!inviteToken && <p className="text-[11px] text-[var(--color-red)]">This invite link is missing its token.</p>}
+            </form>
+          )}
+
           {mode === 'signin' && mfaToken && (
             <form onSubmit={handleMfa} className="space-y-4">
               <p className="text-[11px] uppercase tracking-widest text-[var(--color-muted-4)]">Two-factor code</p>
@@ -266,22 +315,72 @@ export function SignIn({ onAuthed }: { onAuthed: (acc: PublicAccount) => void })
 
       {/* Generated video showcase — populated with generated GIFs */}
       <div className="w-full max-w-5xl mt-12">
-        <p className="text-[10px] uppercase tracking-widest text-[var(--color-text)] mb-4 text-center">Generated Content Preview</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
+        <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted-3)] mb-4 text-center">What our pipeline creates</p>
+        <VideoCarousel />
+      </div>
+    </div>
+  )
+}
+
+const CAROUSEL_ITEMS = [
+  { niche: 'Fitness', hook: 'Stop doing crunches', score: 94, dur: '0:28', platform: 'TT' },
+  { niche: 'Skincare', hook: 'Your moisturizer is lying', score: 87, dur: '0:35', platform: 'IG' },
+  { niche: 'Pet gear', hook: 'My anxious dog finally sleeps', score: 91, dur: '0:22', platform: 'TT' },
+  { niche: 'Productivity', hook: 'Delete this app now', score: 96, dur: '0:30', platform: 'YT' },
+  { niche: 'Finance', hook: 'The $5 trick banks hate', score: 89, dur: '0:18', platform: 'TT' },
+  { niche: 'Cooking', hook: 'One pan. Five minutes.', score: 92, dur: '0:25', platform: 'IG' },
+  { niche: 'Fashion', hook: 'Outfit hack nobody knows', score: 85, dur: '0:32', platform: 'TT' },
+  { niche: 'Tech', hook: 'This gadget replaced my phone', score: 93, dur: '0:27', platform: 'YT' },
+  { niche: 'Wellness', hook: 'Morning routine was wrong', score: 88, dur: '0:20', platform: 'IG' },
+  { niche: 'DIY', hook: 'Fix anything with this', score: 90, dur: '0:33', platform: 'TT' },
+]
+
+function VideoCarousel() {
+  const SHAPES = [
+    { w: 'w-40', h: 180, radius: 'rounded-2xl' },
+    { w: 'w-48', h: 240, radius: 'rounded-3xl' },
+    { w: 'w-36', h: 200, radius: 'rounded-xl' },
+    { w: 'w-44', h: 260, radius: 'rounded-[28px]' },
+    { w: 'w-40', h: 190, radius: 'rounded-2xl' },
+    { w: 'w-52', h: 220, radius: 'rounded-[32px]' },
+    { w: 'w-38', h: 210, radius: 'rounded-3xl' },
+    { w: 'w-44', h: 170, radius: 'rounded-xl' },
+    { w: 'w-48', h: 250, radius: 'rounded-[24px]' },
+    { w: 'w-40', h: 200, radius: 'rounded-2xl' },
+  ]
+
+  return (
+    <div className="relative overflow-hidden py-4">
+      <div className="flex gap-4 items-center animate-[scroll_35s_linear_infinite] hover:[animation-play-state:paused]">
+        {[...CAROUSEL_ITEMS, ...CAROUSEL_ITEMS].map((item, i) => {
+          const shape = SHAPES[i % SHAPES.length]
+          return (
             <div
               key={i}
-              className="aspect-[9/16] bg-[var(--color-nav)] border border-[var(--color-border)] flex items-center justify-center overflow-hidden shadow-lg"
+              className={`shrink-0 ${shape.w} ${shape.radius} border border-[var(--color-border)] bg-[var(--color-nav)] overflow-hidden shadow-xl hover:shadow-[0_0_24px_-4px_rgba(212,255,0,0.15)] hover:border-[var(--color-lime)]/50 transition-all duration-300 group hover:-translate-y-1`}
+              style={{ height: `${shape.h}px` }}
             >
-              <div className="text-center">
-                <div className="w-8 h-8 mx-auto mb-2 border border-[var(--color-raised)] bg-[var(--color-surface)] flex items-center justify-center">
-                  <span className="text-[var(--color-muted-5)] text-xs">▶</span>
+              <div className="flex flex-col h-full justify-between p-4">
+                <div>
+                  <span className="text-[8px] font-mono uppercase tracking-widest px-2 py-1 rounded-full border border-[var(--color-raised)] text-[var(--color-muted-4)] bg-[var(--color-surface)]">
+                    {item.platform}
+                  </span>
+                  <p className="text-[11px] font-semibold text-[var(--color-text)] mt-3 leading-tight">{item.hook}</p>
+                  <p className="text-[9px] text-[var(--color-muted-3)] mt-1.5">{item.niche} · {item.dur}</p>
                 </div>
-                <span className="text-[9px] text-[var(--color-muted-5)] uppercase tracking-widest">Clip {i + 1}</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full border border-[var(--color-raised)] bg-[var(--color-surface)] flex items-center justify-center group-hover:border-[var(--color-lime)]/40 group-hover:bg-[var(--color-lime)]/10 transition-all">
+                      <span className="text-[var(--color-muted-5)] text-[9px] group-hover:text-[var(--color-lime)] transition-colors">▶</span>
+                    </div>
+                    <span className="text-[8px] font-mono text-[var(--color-muted-4)]">{item.dur}</span>
+                  </div>
+                  <span className="text-[11px] font-black text-[var(--color-lime)] drop-shadow-[0_0_6px_rgba(212,255,0,0.3)]">{item.score}</span>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
+          )
+        })}
       </div>
     </div>
   )

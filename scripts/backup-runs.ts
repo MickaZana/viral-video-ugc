@@ -17,7 +17,7 @@
  *   BACKUP_RETAIN_DAYS — How many days of backups to keep (default: 7)
  *   BACKUP_EXCLUDE_VIDEOS — Set "true" to skip .mp4 files (smaller backups)
  */
-import { mkdirSync, readdirSync, statSync, unlinkSync, createWriteStream } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { execSync } from "node:child_process";
 import { loadEnv } from "@vvugc/shared-config";
@@ -80,7 +80,6 @@ function fallbackJsonBackup(outPath: string) {
     source: VVUGC_RUNS_DIR,
   };
 
-  const { readFileSync, existsSync } = require("node:fs");
   for (const file of criticalFiles) {
     const path = join(VVUGC_RUNS_DIR, file);
     if (existsSync(path)) {
@@ -110,7 +109,6 @@ function fallbackJsonBackup(outPath: string) {
   }
   backup["run-manifests"] = manifests;
 
-  const { writeFileSync } = require("node:fs");
   writeFileSync(outPath, JSON.stringify(backup, null, 2));
   const size = statSync(outPath).size;
   console.log(`  ✓ JSON backup created: ${(size / 1024).toFixed(1)} KB (${runs.length} run manifests)`);

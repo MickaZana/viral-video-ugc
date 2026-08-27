@@ -101,6 +101,26 @@ export interface PublicAccount {
   orgName?: string
 }
 
+/** Assignable team roles — owner is excluded (an org has exactly one, set at signup). */
+export type AccountRole = 'admin' | 'editor' | 'reviewer' | 'viewer'
+
+export interface SocialConnection {
+  id: string
+  clientId: string
+  platform: string
+  accountLabel: string
+  status: 'connected' | 'expiring' | 'expired'
+  expiresAt?: string
+}
+
+export interface MembersResponse {
+  members: PublicAccount[]
+  role: string
+  /** Server-computed from the actual permission map — routes still enforce this
+   *  independently, so this only controls whether the UI shows manage controls. */
+  canManageTeam: boolean
+}
+
 export interface MeResponse {
   account: PublicAccount
   csrfToken?: string
@@ -186,6 +206,48 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body)
     })
+  },
+  acceptInvite(body: { token: string; password: string }): Promise<{ account: PublicAccount }> {
+    return request<{ account: PublicAccount }>('/accounts/invite/accept', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+
+  // ---- Team ----
+  members(): Promise<MembersResponse> {
+    return request<MembersResponse>('/accounts/members')
+  },
+  inviteMember(body: { email: string; role: AccountRole }): Promise<{ inviteToken: string; expiresAt: string }> {
+    return request<{ inviteToken: string; expiresAt: string }>('/accounts/invite', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  updateMemberRole(id: string, role: AccountRole): Promise<{ member: PublicAccount }> {
+    return request<{ member: PublicAccount }>(`/accounts/members/${encodeURIComponent(id)}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
+    })
+  },
+  removeMember(id: string): Promise<void> {
+    return request<void>(`/accounts/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+
+  // ---- Publishing connections ----
+  socialConnections(clientId: string): Promise<{ connections: SocialConnection[] }> {
+    return request<{ connections: SocialConnection[] }>(`/accounts/social-connections?clientId=${encodeURIComponent(clientId)}`)
+  },
+  /** Starts the Google OAuth consent flow for a client's YouTube channel. Returns
+   *  the hosted authorization URL to redirect the browser to; the callback lands
+   *  back on this client's brand page with ?oauth=google-connected. */
+  startGoogleOAuth(clientId: string): Promise<{ authorizationUrl: string }> {
+    return request<{ authorizationUrl: string }>(`/accounts/clients/${encodeURIComponent(clientId)}/oauth/google/start`, {
+      method: 'POST'
+    })
+  },
+  disconnectSocial(id: string): Promise<void> {
+    return request<void>(`/accounts/social-connections/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   // ---- Billing ----
@@ -377,6 +439,12 @@ export const api = {
   },
   bulkReject(ids: string[]): Promise<{ updated: number }> {
     return request<{ updated: number }>('/queue/bulk/reject', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
+  },
+  bulkPublish(ids: string[]): Promise<{ published: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }> {
+    return request<{ published: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }>('/queue/bulk/publish', {
       method: 'POST',
       body: JSON.stringify({ ids })
     })

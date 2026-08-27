@@ -54,6 +54,7 @@ describe("validateProductionEnv", () => {
         DASHBOARD_PASSWORD: "a-secure-password-longer-than-16",
         ASSET_SIGNING_SECRET: "asset-secret",
         SOCIAL_TOKEN_ENCRYPTION_KEY: "social-encryption-key-at-least-32-characters",
+        MFA_ENCRYPTION_KEY: "mfa-encryption-key-at-least-32-characters",
         OAUTH_STATE_SECRET: "oauth-state-secret-at-least-32-characters",
         PUBLIC_BASE_URL: "https://app.example.com"
       })

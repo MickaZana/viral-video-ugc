@@ -40,6 +40,7 @@ function installFetchMock() {
     if (url.endsWith('/creators')) return jsonResponse({ creators: [] })
     if (url.endsWith('/models')) return jsonResponse({ models: [] })
     if (url.endsWith('/clients') || url.includes('/accounts/clients')) return jsonResponse({ clients: [] })
+    if (url.endsWith('/accounts/members')) return jsonResponse({ members: [ACCOUNT], role: ACCOUNT.role, canManageTeam: true })
     return jsonResponse({})
   }) as unknown as typeof fetch
 }
@@ -112,8 +113,8 @@ describe('App (control panel shell)', () => {
     renderApp()
     await reachWorkspace()
 
-    expect(document.documentElement.dataset.theme).toBe('light')
-    expect(localStorage.getItem('ugu-theme')).toBe('light')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(localStorage.getItem('ugu-theme')).toBe('dark')
 
     await user.click(screen.getByRole('link', { name: /Settings/i }))
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
@@ -124,6 +125,7 @@ describe('App (control panel shell)', () => {
 
     await user.click(screen.getByRole('button', { name: /^light$/i }))
     expect(document.documentElement.dataset.theme).toBe('light')
+    expect(localStorage.getItem('ugu-theme')).toBe('light')
   })
 
   it('navigates to Library via a real route and renders its category switcher', async () => {

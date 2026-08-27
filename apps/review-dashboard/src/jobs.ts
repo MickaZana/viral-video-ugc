@@ -1,7 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 
 import {
   getConfiguredPostgresPipelineJobStore,
@@ -10,10 +9,8 @@ import {
 } from "@vvugc/review-queue";
 import { runCycle } from "@vvugc/orchestrator";
 import { aggregateUsage } from "@vvugc/shared-auth";
-import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
-import { checkRunQuota } from "./quota.js";
-import { createOverageStore } from "./overage.js";
+import { LocalBillingRepository, type BillingRepository } from "./billing-postgres.js";
 import { createProgressCallback, completeRun } from "./run-progress.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
@@ -214,7 +211,8 @@ export function createPipelineJobStore(path: string, options: { forceJson?: bool
 export async function processNextPipelineJob(
   store: PipelineJobStore,
   workerId = `worker-${randomUUID()}`,
-  leaseMs = 60_000
+  leaseMs = 60_000,
+  billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR)
 ): Promise<PipelineJob | undefined> {
   const job = await store.claim(workerId, leaseMs);
   if (!job) return undefined;
@@ -222,27 +220,18 @@ export async function processNextPipelineJob(
   heartbeat.unref();
   try {
     const { VVUGC_RUNS_DIR } = loadEnv();
-    const plan = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json")).get(job.orgId);
-    const quota = checkRunQuota(plan, aggregateUsage(job.orgId, VVUGC_RUNS_DIR));
     // Hybrid billing: a run past the tier's included allowance is allowed and
     // recorded as consumption overage, not blocked.
-    const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
+    const reservation = await billing.reserveRun({ orgId: job.orgId, runId: job.config.runId, clientId: job.config.clientId, durationSec: job.config.targetDurationSec, usageRunCount: aggregateUsage(job.orgId, VVUGC_RUNS_DIR).runs.length });
+    const isOverage = reservation.kind === "overage";
     const onProgress = createProgressCallback(job.config.runId);
     const result = await runCycle(job.config, { onProgress });
     completeRun(job.config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
-    if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
-      createOverageStore(join(VVUGC_RUNS_DIR, "overage.json")).record({
-        orgId: job.orgId,
-        runId: job.config.runId,
-        priceUsdPerRun: quota.overagePriceUsdPerRun,
-        estimatedVendorCostUsd: result.estimatedCostUsd ?? quota.overagePriceUsdPerRun,
-        clientId: job.config.clientId
-      });
-    }
     const current = await store.get(job.orgId, job.id);
-    if (current?.cancelRequested) await store.acknowledgeCancelled(job.id, workerId);
-    else await store.complete(job.id, workerId, result);
+    if (current?.cancelRequested) { await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId, estimatedVendorCostUsd: result.estimatedCostUsd }); await store.acknowledgeCancelled(job.id, workerId); }
+    else { if (isOverage) await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId, estimatedVendorCostUsd: result.estimatedCostUsd }); await store.complete(job.id, workerId, result); }
   } catch (error) {
+    await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId });
     await store.fail(job.id, workerId, String(error));
   } finally {
     clearInterval(heartbeat);
@@ -250,14 +239,14 @@ export async function processNextPipelineJob(
   return store.get(job.orgId, job.id);
 }
 
-export function startPipelineJobWorker(store: PipelineJobStore, intervalMs = 1_000): NodeJS.Timeout {
+export function startPipelineJobWorker(store: PipelineJobStore, intervalMs = 1_000, billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR)): NodeJS.Timeout {
   const workerId = `worker-${process.pid}-${randomUUID()}`;
   void store.recoverExpiredLeases();
   let busy = false;
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
-    void processNextPipelineJob(store, workerId).finally(() => { busy = false; });
+    void processNextPipelineJob(store, workerId, 60_000, billing).finally(() => { busy = false; });
   }, intervalMs);
   timer.unref();
   return timer;

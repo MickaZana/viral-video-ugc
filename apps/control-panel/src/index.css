@@ -1,5 +1,356 @@
 @import 'tailwindcss';
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DARK MODE — Glossy Cinema UI (Higgsfield Cinema Studio 4.0 inspired)
+   
+   Design Language:
+   • NOT flat black — rich, living darkness with depth layers
+   • Subtle animated gradient mesh (simulated via stacked radial gradients)
+   • Glass-morphism cards with inner luminance
+   • Neon yellow CTA with physicality (3D press depth)
+   • Warm beige text — NOT cold white
+   • Every surface has slight translucency suggesting layers behind it
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* --- Base body: layered gradient mesh creating a "living" dark background --- */
+[data-theme="dark"] html,
+[data-theme="dark"] body,
+[data-theme="dark"] #root {
+  background: var(--color-bg, #080a0c);
+  width: 100%;
+}
+
+/* --- Window/app shell: fills viewport --- */
+[data-theme="dark"] .workspace-shell {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--color-bg, #080a0c);
+}
+[data-theme="dark"] .workspace-header {
+  background: var(--color-surface, #161616);
+}
+
+/* --- Workspace content area: subtle depth with top illumination --- */
+[data-theme="dark"] .workspace-content {
+  background:
+    /* Top-center blue aurora */
+    radial-gradient(ellipse 120% 40% at 50% -5%, rgba(77, 141, 255, 0.06) 0%, transparent 50%),
+    /* Bottom-right lime accent */
+    radial-gradient(ellipse 50% 45% at 85% 95%, rgba(212, 255, 0, 0.025) 0%, transparent 45%),
+    /* Center soft warm orb */
+    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(30, 28, 25, 0.4) 0%, transparent 70%),
+    #060809;
+}
+
+/* --- Cards: glass-morphism with inner light + layered depth shadows --- */
+[data-theme="dark"] .card,
+[data-theme="dark"] [class*="border"][class*="bg-[var(--color-surface)]"],
+[data-theme="dark"] [class*="border"][class*="rounded"] {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    /* Inner top highlight — simulates overhead light */
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    /* Inner bottom shadow — grounds the card */
+    0 -1px 0 0 rgba(0, 0, 0, 0.3) inset,
+    /* Main elevation shadow */
+    0 10px 30px -8px rgba(0, 0, 0, 0.6),
+    /* Tight contact shadow */
+    0 2px 8px -2px rgba(0, 0, 0, 0.4),
+    /* Subtle outer glow */
+    0 0 0 1px rgba(255, 255, 255, 0.02);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0.005) 30%, transparent 60%),
+    var(--color-surface);
+  backdrop-filter: blur(1px);
+}
+
+/* --- Sidebar nav: layered depth --- */
+[data-theme="dark"] .workspace-nav {
+  border-radius: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, transparent 40%),
+    linear-gradient(180deg, #111214 0%, #090a0c 100%);
+  box-shadow: 4px 0 20px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* --- Inputs: deeply recessed with subtle inner shadow --- */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  border-color: var(--color-blue, #4d8dff);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 3px rgba(77, 141, 255, 0.12),
+    0 0 20px -4px rgba(77, 141, 255, 0.15);
+}
+
+/* --- Primary CTA buttons: neon glow + 3D physicality (Higgsfield style) --- */
+[data-theme="dark"] button[style*="color-lime"],
+[data-theme="dark"] .btn-primary {
+  border-radius: 10px;
+  background: var(--color-lime, #d4ff00) !important;
+  color: #0a0a0a !important;
+  font-weight: 800;
+  border: none;
+  text-shadow: 0 1px 0 rgba(212, 255, 0, 0.3);
+  box-shadow:
+    /* 3D depth ledge */
+    0 4px 0 0 #7a8f00,
+    /* Neon underglow */
+    0 8px 24px -4px rgba(212, 255, 0, 0.35),
+    /* Wider ambient glow */
+    0 0 50px -10px rgba(212, 255, 0, 0.15),
+    /* Tight shadow for grounding */
+    0 1px 3px 0 rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+[data-theme="dark"] button[style*="color-lime"]:hover,
+[data-theme="dark"] .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 0 0 #7a8f00,
+    0 12px 30px -2px rgba(212, 255, 0, 0.4),
+    0 0 70px -8px rgba(212, 255, 0, 0.2),
+    0 2px 4px 0 rgba(0, 0, 0, 0.5);
+}
+[data-theme="dark"] button[style*="color-lime"]:active,
+[data-theme="dark"] .btn-primary:active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 0 #7a8f00,
+    0 2px 8px -2px rgba(212, 255, 0, 0.2),
+    0 0 20px -4px rgba(212, 255, 0, 0.1);
+  transition-duration: 0.04s;
+}
+
+/* --- Ghost/secondary buttons: blue glass pill --- */
+[data-theme="dark"] .btn-ghost {
+  border-radius: 999px;
+  border: 1px solid rgba(77, 141, 255, 0.4);
+  color: var(--color-blue, #4d8dff);
+  background: rgba(77, 141, 255, 0.04);
+  box-shadow:
+    0 2px 0 0 rgba(0, 0, 0, 0.3),
+    0 0 12px -4px rgba(77, 141, 255, 0.15);
+  transition: all 0.15s ease;
+}
+[data-theme="dark"] .btn-ghost:hover {
+  border-color: rgba(77, 141, 255, 0.6);
+  background: rgba(77, 141, 255, 0.1);
+  box-shadow:
+    0 2px 0 0 rgba(0, 0, 0, 0.3),
+    0 0 20px -4px rgba(77, 141, 255, 0.25),
+    0 4px 16px -4px rgba(77, 141, 255, 0.15);
+}
+
+/* --- Scrollbar: thin, invisible-until-hover --- */
+[data-theme="dark"] ::-webkit-scrollbar { width: 6px; }
+[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* --- Selection highlight --- */
+[data-theme="dark"] ::selection {
+  background: rgba(212, 255, 0, 0.25);
+  color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   LIGHT MODE — Elevated 3D Paper (NOT flat white)
+   
+   Design Language:
+   • Warm off-white with subtle depth — like quality stationery
+   • Cards float above the surface with real shadow layers
+   • Soft beveled edges via inner highlights + bottom shadows
+   • Gentle warm gradient on background — NOT dead flat #fff
+   • Buttons have tactile depth (press animation)
+   • Everything feels "physical" — not a flat webpage
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* --- Base body: warm gradient with subtle texture-feel --- */
+[data-theme="light"] html,
+[data-theme="light"] body {
+  background: #EDE8DC;
+}
+
+/* --- Workspace shell: fills viewport with proper surface color --- */
+[data-theme="light"] .workspace-shell {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--color-bg, #EDE8DC);
+}
+[data-theme="light"] .workspace-header {
+  background: var(--color-nav, #ffffff);
+}
+[data-theme="light"] .workspace-nav {
+  background: var(--color-nav, #ffffff);
+}
+
+/* --- Workspace content area: subtle top-lit feel --- */
+[data-theme="light"] .workspace-content {
+  background:
+    /* Top ambient warm light */
+    radial-gradient(ellipse 100% 50% at 50% -10%, rgba(255, 248, 235, 0.7) 0%, transparent 50%),
+    /* Bottom-right warm shadow */
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(220, 215, 203, 0.3) 0%, transparent 50%),
+    #EDE8DC;
+}
+
+/* --- Cards: elevated paper with layered realistic shadows --- */
+[data-theme="light"] .card,
+[data-theme="light"] [class*="border"][class*="bg-[var(--color-surface)]"],
+[data-theme="light"] [class*="border"][class*="rounded"] {
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    /* Inner top bevel — simulates edge catching light */
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset,
+    /* Inner side highlights */
+    1px 0 0 0 rgba(255, 255, 255, 0.4) inset,
+    -1px 0 0 0 rgba(255, 255, 255, 0.4) inset,
+    /* Main elevation shadow */
+    0 4px 12px -2px rgba(0, 0, 0, 0.08),
+    /* Soft spread shadow */
+    0 8px 24px -6px rgba(0, 0, 0, 0.06),
+    /* Tight contact shadow */
+    0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--color-surface);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+[data-theme="light"] .card:hover,
+[data-theme="light"] [class*="border"][class*="rounded"]:hover {
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset,
+    1px 0 0 0 rgba(255, 255, 255, 0.4) inset,
+    -1px 0 0 0 rgba(255, 255, 255, 0.4) inset,
+    0 6px 16px -2px rgba(0, 0, 0, 0.1),
+    0 12px 32px -8px rgba(0, 0, 0, 0.08),
+    0 2px 4px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* --- Sidebar nav: clean edge, no border-radius --- */
+[data-theme="light"] .workspace-nav {
+  border-radius: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--color-nav, #ffffff);
+  box-shadow: 2px 0 12px -2px rgba(0, 0, 0, 0.04);
+}
+
+/* --- Inputs: slightly recessed with soft inner shadow --- */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.04),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.02),
+    0 1px 0 0 rgba(255, 255, 255, 0.8);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+  border-color: var(--color-blue, #2d6fd4);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.04),
+    0 0 0 3px rgba(45, 111, 212, 0.1),
+    0 0 16px -4px rgba(45, 111, 212, 0.1);
+}
+
+/* --- Primary CTA buttons: tactile depth in light mode --- */
+[data-theme="light"] .btn-primary {
+  border-radius: 10px;
+  background: linear-gradient(180deg, #2a5f1a 0%, #1d4a12 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  border: none;
+  box-shadow:
+    /* 3D depth ledge */
+    0 3px 0 0 #153d0d,
+    /* Elevation shadow */
+    0 4px 12px -2px rgba(29, 74, 18, 0.3),
+    /* Top inner highlight */
+    0 1px 0 0 rgba(255, 255, 255, 0.15) inset;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+[data-theme="light"] .btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 0 0 #153d0d,
+    0 6px 16px -2px rgba(29, 74, 18, 0.35),
+    0 1px 0 0 rgba(255, 255, 255, 0.15) inset;
+}
+[data-theme="light"] .btn-primary:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    0 1px 0 0 #153d0d,
+    0 1px 4px -1px rgba(29, 74, 18, 0.2);
+  transition-duration: 0.04s;
+}
+
+/* --- Ghost buttons: bordered with soft shadow --- */
+[data-theme="light"] .btn-ghost {
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 2px 0 0 rgba(0, 0, 0, 0.02),
+    0 2px 8px -2px rgba(0, 0, 0, 0.06),
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset;
+  transition: all 0.15s ease;
+}
+[data-theme="light"] .btn-ghost:hover:not(:disabled) {
+  border-color: rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 3px 0 0 rgba(0, 0, 0, 0.02),
+    0 4px 12px -2px rgba(0, 0, 0, 0.08),
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+/* --- Scrollbar: subtle warm tone --- */
+[data-theme="light"] ::-webkit-scrollbar { width: 6px; }
+[data-theme="light"] ::-webkit-scrollbar-track { background: transparent; }
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* --- Selection --- */
+[data-theme="light"] ::selection {
+  background: rgba(45, 111, 212, 0.15);
+  color: #111;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   END THEME-SPECIFIC STYLES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
 /* Workspace palette and type tokens live in @vvugc/design-tokens (/tokens.css).
    Inter is the UI face; system stack if the local Inter is missing. JetBrains Mono
    is reserved for telemetry numbers via .font-mono on those values only. */
@@ -15,7 +366,16 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+body, #root {
   margin: 0;
   padding: 0;
   background: var(--color-bg);
@@ -23,8 +383,7 @@ html, body, #root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   height: 100%;
   width: 100%;
-  max-width: 100vw;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* ==========================================================================
@@ -40,10 +399,12 @@ html, body, #root {
 .workspace-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  max-width: 100vw;
-  overflow-x: hidden;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
+
+
 
 .workspace-body {
   display: flex;
@@ -217,6 +578,36 @@ p, span, button, a {
 }
 .flow-in {
   animation: flow-in 0.2s ease both;
+}
+
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-\[scroll_30s_linear_infinite\] {
+  animation: scroll 30s linear infinite;
+}
+
+/* --- Pricing table row hover glow --- */
+#pricing .contents:hover > div {
+  background: rgba(212, 255, 0, 0.03);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+[data-theme="dark"] #pricing .contents:hover > div {
+  background: rgba(212, 255, 0, 0.04);
+  box-shadow: 0 0 20px -8px rgba(212, 255, 0, 0.08) inset;
+}
+[data-theme="light"] #pricing .contents:hover > div {
+  background: rgba(45, 111, 212, 0.03);
+  box-shadow: 0 0 16px -6px rgba(45, 111, 212, 0.06) inset;
+}
+#pricing .contents > div:first-child {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+[data-theme="dark"] #pricing .contents > div:first-child {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 @media (prefers-reduced-motion: reduce) {

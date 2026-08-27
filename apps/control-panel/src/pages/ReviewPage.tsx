@@ -14,12 +14,8 @@ import {
 } from '../components/primitives'
 import { paths } from '../lib/paths'
 import {
-  exportSingleItemJson,
-  exportSingleItemScript,
-  downloadSingleVideo,
   exportBulkItemsJson,
   exportBulkItemsCsv,
-  downloadBulkVideos
 } from '../lib/export'
 
 const COLUMNS: { key: ReviewItem['status'] | 'published'; label: string }[] = [
@@ -48,6 +44,7 @@ export function ReviewPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [previewVideoId, setPreviewVideoId] = useState<string | null>(null)
   // Track items that have been actioned this session (optimistic UI)
   const [localOverrides, setLocalOverrides] = useState<Map<string, ReviewItem['status']>>(new Map())
 
@@ -223,6 +220,25 @@ export function ReviewPage() {
     }
   }, [selectedIds, queue])
 
+  const handleBulkPublish = useCallback(async () => {
+    const ids = Array.from(selectedIds).filter((id) => {
+      const item = visible.find((i) => i.id === id)
+      return item && item.status === 'approved' && !item.publishedPostId && !item.dryRun
+    })
+    if (!ids.length) return
+    setBusyId('__bulk__')
+    setError(null)
+    try {
+      await api.bulkPublish(ids)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusyId(null)
+      setSelectedIds(new Set())
+      queue.reload()
+    }
+  }, [selectedIds, visible, queue])
+
   function group(key: (typeof COLUMNS)[number]['key']) {
     if (key === 'published') return visible.filter((i) => Boolean(i.publishedPostId))
     if (key === 'approved') return visible.filter((i) => i.status === 'approved' && !i.publishedPostId)
@@ -231,6 +247,7 @@ export function ReviewPage() {
 
   return (
     <div className="space-y-4">
+
       {error && (
         <div className="border border-[var(--color-red)] bg-[var(--color-red)]/10 px-4 py-2 text-[11px] font-mono text-[var(--color-red)]">
           {error}
@@ -292,6 +309,24 @@ export function ReviewPage() {
         </div>
       </div>
 
+      {queue.loading && items.length === 0 && (
+        <div className="review-grid grid gap-4" aria-label="Loading review queue" role="status">
+          {COLUMNS.map((col) => (
+            <div key={col.key} className="border border-[var(--color-border)] bg-[var(--color-surface)] animate-pulse">
+              <div className="border-b border-[var(--color-border)] px-4 py-3">
+                <span className="text-[11px] uppercase tracking-widest text-[var(--color-muted-3)]">{col.label}</span>
+              </div>
+              <div className="p-4 space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-16 bg-[var(--color-raised)] rounded-md" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!(queue.loading && items.length === 0) && (
       <div className="review-grid grid gap-4">
         {COLUMNS.map((col) => {
           const list = group(col.key)
@@ -335,6 +370,16 @@ export function ReviewPage() {
                           style={{ accentColor: 'var(--color-lime)' }}
                           className="mt-1 shrink-0"
                         />
+                        {/* Video preview thumbnail */}
+                        {!item.dryRun && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setPreviewVideoId(previewVideoId === item.id ? null : item.id) }}
+                            className="shrink-0 w-10 h-14 rounded-lg bg-black/60 border border-[var(--color-border)] flex items-center justify-center hover:border-[var(--color-blue)] hover:shadow-lg hover:shadow-[var(--color-blue)]/20 transition-all group/play"
+                            title="Preview video"
+                          >
+                            <span className="text-[var(--color-muted-3)] group-hover/play:text-[var(--color-blue)] text-lg transition-colors">▶</span>
+                          </button>
+                        )}
                         <button onClick={() => navigate(paths.reviewItem(item.id))} className="text-left flex-1 min-w-0">
                           <p className="text-sm text-[var(--color-text)]">{item.script.hook}</p>
                           <p className="text-[10px] text-[var(--color-muted-3)] mt-1">
@@ -422,6 +467,18 @@ export function ReviewPage() {
                           </a>
                         )}
                       </div>
+                      {/* Inline video preview player */}
+                      {previewVideoId === item.id && !item.dryRun && (
+                        <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+                          <video
+                            src={api.mediaUrl(item.id)}
+                            controls
+                            autoPlay
+                            className="w-full max-h-[320px] rounded-lg bg-black object-contain"
+                            onError={() => setError(`Video preview unavailable for "${item.script.hook.slice(0, 40)}…"`)}
+                          />
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -433,29 +490,54 @@ export function ReviewPage() {
           )
         })}
       </div>
+      )}
 
       {selectedIds.size > 0 && (
-        <div className="sticky bottom-0 z-40 flex items-center gap-3 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-lg">
+        <div className="sticky bottom-0 z-40 flex items-center gap-3 border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-lg rounded-t-xl">
           <span className="text-[11px] uppercase tracking-widest text-[var(--color-muted-2)]">{selectedIds.size} selected</span>
-          <button
-            onClick={handleBulkApprove}
-            disabled={busyId === '__bulk__'}
-            className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors disabled:opacity-50"
-          >
-            ✓ Approve selected
-          </button>
-          <button
-            onClick={handleBulkReject}
-            disabled={busyId === '__bulk__'}
-            className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-red)] text-[var(--color-red)] hover:bg-[var(--color-red)] hover:text-white transition-colors disabled:opacity-50"
-          >
-            ✗ Reject selected
-          </button>
+          {/* Context-aware bulk actions based on what's selected */}
+          {(() => {
+            const selected = visible.filter((i) => selectedIds.has(i.id))
+            const hasPending = selected.some((i) => i.status === 'pending')
+            const hasPublishable = selected.some((i) => i.status === 'approved' && !i.publishedPostId && !i.dryRun)
+            const publishableCount = selected.filter((i) => i.status === 'approved' && !i.publishedPostId && !i.dryRun).length
+            return (
+              <>
+                {hasPending && (
+                  <>
+                    <button
+                      onClick={handleBulkApprove}
+                      disabled={busyId === '__bulk__'}
+                      className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors disabled:opacity-50"
+                    >
+                      ✓ Approve selected
+                    </button>
+                    <button
+                      onClick={handleBulkReject}
+                      disabled={busyId === '__bulk__'}
+                      className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest border border-[var(--color-red)] text-[var(--color-red)] hover:bg-[var(--color-red)] hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      ✗ Reject selected
+                    </button>
+                  </>
+                )}
+                {hasPublishable && (
+                  <button
+                    onClick={handleBulkPublish}
+                    disabled={busyId === '__bulk__' || liveMode === false}
+                    className="flex-1 px-3 py-2 text-[10px] font-black uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)] hover:brightness-110 transition-colors disabled:opacity-50"
+                  >
+                    {busyId === '__bulk__' ? 'PUBLISHING…' : `↗ Publish ${publishableCount > 1 ? publishableCount + ' ' : ''}selected`}
+                  </button>
+                )}
+              </>
+            )
+          })()}
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-[10px] uppercase tracking-widest text-[var(--color-muted-2)] hover:text-[var(--color-text)]"
+            className="px-3 py-2 text-[10px] uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-muted-2)] hover:text-[var(--color-text)] hover:border-[var(--color-text)] transition-colors"
           >
-            Clear
+            Clear selection
           </button>
         </div>
       )}

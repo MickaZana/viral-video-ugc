@@ -208,6 +208,9 @@ select:focus-visible,
   --color-faint: #5f5f5a;
   --color-lime: #3d5a00;
   --color-lime-dim: #4f6b00;
+  --color-blue: #2d6fd4;
+  --color-blue-dim: #1f5ab0;
+  --color-blue-glow: rgba(45, 111, 212, 0.25);
   --color-red: #cc0000;
   --color-orange: #b34500;
   --color-amber: #b45309;
@@ -234,29 +237,44 @@ select:focus-visible,
   --color-faint: #5f5f5a;
   --color-lime: #3d5a00;
   --color-lime-dim: #4f6b00;
+  --color-blue: #2d6fd4;
+  --color-blue-dim: #1f5ab0;
+  --color-blue-glow: rgba(45, 111, 212, 0.25);
   --color-red: #cc0000;
   --color-orange: #b34500;
   --color-amber: #b45309;
 }
 
+/* ---------------------------------------------------------------------------
+ * DARK THEME — Higgsfield Cinema Studio-inspired.
+ * Glossy black, beige/warm gray text, rounded cards with subtle depth,
+ * neon acid-yellow CTA. The 3D/glow effects are handled via component
+ * styles (border-radius, box-shadow) — here we set the palette only.
+ * ------------------------------------------------------------------------- */
 :root[data-surface="workspace"][data-theme="dark"] {
-  --color-bg: #0e0e0e;
-  --color-nav: #080808;
-  --color-surface: #141414;
-  --color-raised: #1c1c1c;
-  --color-border: #2a2a2a;
+  --color-bg: #080a0c;
+  --color-nav: #0f0f0f;
+  --color-surface: #161616;
+  --color-raised: #1e1e1e;
+  --color-border: #2c2c2c;
   --color-input: #1a1a1a;
-  --color-text: #efefef;
-  --color-on-accent: #080808;
-  --color-muted: #8a8a8a;
-  --color-muted-2: #9a9a9a;
-  --color-muted-3: #777777;
-  --color-muted-4: #aaaaaa;
-  --color-muted-5: #bababa;
-  --color-muted-6: #cccccc;
-  --color-faint: #333333;
-  --color-lime: #c8ff00;
-  --color-lime-dim: #8ab300;
+  --color-text: #e8e0d4;
+  --color-on-accent: #0a0a0a;
+  /* Warm beige/gray muted ramp — not cold blue-gray */
+  --color-muted: #9e9689;
+  --color-muted-2: #b0a89b;
+  --color-muted-3: #8a8279;
+  --color-muted-4: #c4bbb0;
+  --color-muted-5: #d4ccc2;
+  --color-muted-6: #e0d8cf;
+  --color-faint: #363230;
+  /* Neon acid-yellow — Higgsfield GENERATE button color */
+  --color-lime: #d4ff00;
+  --color-lime-dim: #a3c700;
+  /* Logo blue — electric blue from the brand mark, used for secondary/nav buttons */
+  --color-blue: #4d8dff;
+  --color-blue-dim: #3a6fd4;
+  --color-blue-glow: rgba(77, 141, 255, 0.35);
   --color-red: #ff4444;
   --color-orange: #ff8c00;
   --color-amber: #f59e0b;

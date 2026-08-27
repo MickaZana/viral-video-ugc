@@ -11,7 +11,7 @@
  * Usage:
  *   pnpm tsx scripts/collect-feedback.ts
  *   # or via cron:
- *   0 */6 * * * cd /path/to/vvugc && pnpm tsx scripts/collect-feedback.ts
+ *   Run every six hours: cd /path/to/vvugc && pnpm tsx scripts/collect-feedback.ts
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +53,7 @@ let growthMemory: GrowthMemory = existsSync(growthMemoryPath)
   ? GrowthMemorySchema.parse(JSON.parse(readFileSync(growthMemoryPath, "utf-8")))
   : createGrowthMemory();
 
-let performanceRecords: PerformanceRecord[] = existsSync(performanceDbPath)
+const performanceRecords: PerformanceRecord[] = existsSync(performanceDbPath)
   ? JSON.parse(readFileSync(performanceDbPath, "utf-8"))
   : [];
 

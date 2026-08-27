@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import type { Pool as PgPool } from "pg";
 import {
   closeSync,
   existsSync,
@@ -23,6 +24,8 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import type { RawClip, SegmentType } from "@vvugc/shared-schema";
+import { loadEnv } from "@vvugc/shared-config";
+import { runMigrations } from "./migrations.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,7 +114,8 @@ export interface ProviderJobStore {
   enqueue(input: ProviderJobEnqueueInput): Promise<ProviderJob>;
   get(id: string): Promise<ProviderJob | undefined>;
   getByIdempotencyKey(orgId: string, key: string): Promise<ProviderJob | undefined>;
-  listByRun(runId: string): Promise<ProviderJob[]>;
+  /** Tenant-scoped read; run identifiers are not authorization credentials. */
+  listByRun(orgId: string, runId: string): Promise<ProviderJob[]>;
   claim(workerId: string, leaseMs?: number): Promise<ProviderJob | undefined>;
   heartbeat(id: string, workerId: string, leaseMs?: number): Promise<boolean>;
   complete(id: string, workerId: string, result: RawClip, actualVendor: RawClip["vendor"], actualCost: number, providerRequestId?: string): Promise<boolean>;
@@ -123,6 +127,225 @@ export interface ProviderJobStore {
   /** Metrics queries */
   countByStatus(): Promise<Record<ProviderJobStatus, number>>;
   deadLetterList(orgId: string, limit?: number): Promise<ProviderJob[]>;
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL store (the production source of truth)
+// ---------------------------------------------------------------------------
+
+type ProviderJobRow = {
+  id: string; org_id: string; client_id: string; run_id: string; candidate_id: string;
+  platform: string; script_segment_index: number; requested_vendor: RawClip["vendor"];
+  fallback_vendors: RawClip["vendor"][]; attempt: number; max_attempts: number;
+  status: ProviderJobStatus; available_at: Date | string; lease_owner: string | null;
+  lease_expires_at: Date | string | null; cancel_requested: boolean; idempotency_key: string;
+  estimated_cost: number | null; actual_cost: number | null; actual_vendor: RawClip["vendor"] | null;
+  provider_request_id: string | null; last_error: string | null; fallback_reason: string | null;
+  request: ProviderJobRequest; result: RawClip | null;
+  routing_decision: ProviderJob["routingDecision"] | null; created_at: Date | string; updated_at: Date | string;
+};
+
+const toIso = (value: Date | string): string => new Date(value).toISOString();
+function rowToProviderJob(row: ProviderJobRow): ProviderJob {
+  return {
+    id: row.id, orgId: row.org_id, clientId: row.client_id, runId: row.run_id,
+    candidateId: row.candidate_id, platform: row.platform,
+    scriptSegmentIndex: row.script_segment_index, requestedVendor: row.requested_vendor,
+    fallbackVendors: row.fallback_vendors, attempt: row.attempt, maxAttempts: row.max_attempts,
+    status: row.status, availableAt: toIso(row.available_at), leaseOwner: row.lease_owner ?? undefined,
+    leaseExpiresAt: row.lease_expires_at ? toIso(row.lease_expires_at) : undefined,
+    cancelRequested: row.cancel_requested, idempotencyKey: row.idempotency_key,
+    estimatedCost: row.estimated_cost ?? undefined, actualCost: row.actual_cost ?? undefined,
+    actualVendor: row.actual_vendor ?? undefined, providerRequestId: row.provider_request_id ?? undefined,
+    lastError: row.last_error ?? undefined, fallbackReason: row.fallback_reason ?? undefined,
+    request: row.request, result: row.result ?? undefined, routingDecision: row.routing_decision ?? undefined,
+    createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at)
+  };
+}
+
+/**
+ * Durable multi-worker store. Every state-changing operation qualifies the lease
+ * owner where applicable; a stale worker therefore cannot overwrite the result
+ * of a reclaimed job. Claiming uses SKIP LOCKED so concurrent workers receive
+ * distinct rows without serializing the whole queue.
+ */
+export function createPostgresProviderJobStore(pool: PgPool): ProviderJobStore {
+  let ready: Promise<void> | undefined;
+  const ensureSchema = () => ready ??= runMigrations(pool).catch((error) => {
+    ready = undefined;
+    throw error;
+  });
+
+  return {
+    async enqueue(input) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        `INSERT INTO provider_jobs
+          (id, org_id, client_id, run_id, candidate_id, platform, script_segment_index,
+           requested_vendor, fallback_vendors, max_attempts, idempotency_key, estimated_cost, request)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (org_id, idempotency_key) DO UPDATE
+           SET idempotency_key = EXCLUDED.idempotency_key
+         RETURNING *`,
+        [randomUUID(), input.orgId, input.clientId, input.runId, input.candidateId, input.platform,
+          input.scriptSegmentIndex, input.requestedVendor, JSON.stringify(input.fallbackVendors), input.maxAttempts ?? 3,
+          input.idempotencyKey, input.estimatedCost ?? null, JSON.stringify(input.request)]
+      );
+      return rowToProviderJob(rows[0]);
+    },
+
+    async get(id) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>("SELECT * FROM provider_jobs WHERE id=$1", [id]);
+      return rows[0] ? rowToProviderJob(rows[0]) : undefined;
+    },
+
+    async getByIdempotencyKey(orgId, key) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        "SELECT * FROM provider_jobs WHERE org_id=$1 AND idempotency_key=$2", [orgId, key]
+      );
+      return rows[0] ? rowToProviderJob(rows[0]) : undefined;
+    },
+
+    async listByRun(orgId, runId) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        "SELECT * FROM provider_jobs WHERE org_id=$1 AND run_id=$2 ORDER BY script_segment_index, created_at", [orgId, runId]
+      );
+      return rows.map(rowToProviderJob);
+    },
+
+    async claim(workerId, leaseMs = 60_000) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        `WITH candidate AS (
+           SELECT id FROM provider_jobs
+           WHERE status='queued' AND available_at <= now()
+           ORDER BY available_at, created_at
+           FOR UPDATE SKIP LOCKED LIMIT 1
+         )
+         UPDATE provider_jobs j SET status='running', attempt=attempt+1, lease_owner=$1,
+           lease_expires_at=now() + ($2 * interval '1 millisecond'), cancel_requested=false, updated_at=now()
+         FROM candidate WHERE j.id=candidate.id RETURNING j.*`, [workerId, leaseMs]
+      );
+      return rows[0] ? rowToProviderJob(rows[0]) : undefined;
+    },
+
+    async heartbeat(id, workerId, leaseMs = 60_000) {
+      await ensureSchema();
+      const result = await pool.query(
+        `UPDATE provider_jobs SET lease_expires_at=now() + ($3 * interval '1 millisecond'), updated_at=now()
+         WHERE id=$1 AND status='running' AND lease_owner=$2 AND cancel_requested=false`, [id, workerId, leaseMs]
+      );
+      return (result.rowCount ?? 0) === 1;
+    },
+
+    async complete(id, workerId, result, actualVendor, actualCost, providerRequestId) {
+      await ensureSchema();
+      const updated = await pool.query(
+        `UPDATE provider_jobs SET status='completed', result=$3, actual_vendor=$4, actual_cost=$5,
+           provider_request_id=$6, lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
+         WHERE id=$1 AND status='running' AND lease_owner=$2 AND cancel_requested=false`,
+        [id, workerId, JSON.stringify(result), actualVendor, actualCost, providerRequestId ?? null]
+      );
+      return (updated.rowCount ?? 0) === 1;
+    },
+
+    async fail(id, workerId, error, retryable, fallbackReason) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        `UPDATE provider_jobs
+         SET status=CASE WHEN $4=false OR attempt >= max_attempts THEN 'dead_letter' ELSE 'queued' END,
+             available_at=CASE WHEN $4=false OR attempt >= max_attempts THEN available_at
+               ELSE now() + (random() * LEAST(300, power(2, attempt)::int) * interval '1 second') END,
+             last_error=$3, fallback_reason=COALESCE($5, fallback_reason), lease_owner=NULL,
+             lease_expires_at=NULL, updated_at=now()
+         WHERE id=$1 AND status='running' AND lease_owner=$2 RETURNING *`,
+        [id, workerId, error.slice(0, 4000), retryable, fallbackReason ?? null]
+      );
+      return rows[0] ? rowToProviderJob(rows[0]) : undefined;
+    },
+
+    async cancel(id) {
+      await ensureSchema();
+      const updated = await pool.query(
+        `UPDATE provider_jobs
+         SET status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END,
+             cancel_requested=CASE WHEN status='running' THEN true ELSE cancel_requested END, updated_at=now()
+         WHERE id=$1 AND status IN ('queued','running')`, [id]
+      );
+      return (updated.rowCount ?? 0) === 1;
+    },
+
+    async acknowledgeCancelled(id, workerId) {
+      await ensureSchema();
+      const updated = await pool.query(
+        `UPDATE provider_jobs SET status='cancelled', lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
+         WHERE id=$1 AND status='running' AND lease_owner=$2 AND cancel_requested=true`, [id, workerId]
+      );
+      return (updated.rowCount ?? 0) === 1;
+    },
+
+    async recoverExpiredLeases() {
+      await ensureSchema();
+      const result = await pool.query(
+        `UPDATE provider_jobs SET status=CASE WHEN attempt >= max_attempts THEN 'dead_letter' ELSE 'queued' END,
+           available_at=now(), last_error='Worker lease expired before the job completed', lease_owner=NULL,
+           lease_expires_at=NULL, updated_at=now() WHERE status='running' AND lease_expires_at < now()`
+      );
+      return result.rowCount ?? 0;
+    },
+
+    async replay(id) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        `UPDATE provider_jobs SET status='queued', attempt=0, available_at=now(), last_error=NULL,
+           fallback_reason=NULL, cancel_requested=false, lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
+         WHERE id=$1 AND status='dead_letter' RETURNING *`, [id]
+      );
+      return rows[0] ? rowToProviderJob(rows[0]) : undefined;
+    },
+
+    async countByStatus() {
+      await ensureSchema();
+      const counts: Record<ProviderJobStatus, number> = { queued: 0, running: 0, completed: 0, failed: 0, dead_letter: 0, cancelled: 0 };
+      const { rows } = await pool.query<{ status: ProviderJobStatus; count: string }>(
+        "SELECT status, count(*)::text AS count FROM provider_jobs GROUP BY status"
+      );
+      for (const row of rows) counts[row.status] = Number(row.count);
+      return counts;
+    },
+
+    async deadLetterList(orgId, limit = 50) {
+      await ensureSchema();
+      const { rows } = await pool.query<ProviderJobRow>(
+        "SELECT * FROM provider_jobs WHERE org_id=$1 AND status='dead_letter' ORDER BY updated_at DESC LIMIT $2", [orgId, limit]
+      );
+      return rows.map(rowToProviderJob);
+    }
+  };
+}
+
+let configuredPostgresStore: { url: string; store: ProviderJobStore } | undefined;
+
+/** Selects PostgreSQL whenever DATABASE_URL is configured; production cannot use a file queue. */
+export async function getConfiguredPostgresProviderJobStore(): Promise<ProviderJobStore | undefined> {
+  const { DATABASE_URL } = loadEnv();
+  if (!DATABASE_URL) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("DATABASE_URL is required in production — refusing file provider-job persistence.");
+    }
+    return undefined;
+  }
+  if (configuredPostgresStore?.url === DATABASE_URL) return configuredPostgresStore.store;
+  const { Pool } = await import("pg");
+  const store = createPostgresProviderJobStore(new Pool({
+    connectionString: DATABASE_URL,
+    ssl: DATABASE_URL.includes("supabase.") ? { rejectUnauthorized: false } : undefined
+  }));
+  configuredPostgresStore = { url: DATABASE_URL, store };
+  return store;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +396,8 @@ export function createInMemoryProviderJobStore(): ProviderJobStore {
       return jobs.find((j) => j.orgId === orgId && j.idempotencyKey === key);
     },
 
-    async listByRun(runId) {
-      return jobs.filter((j) => j.runId === runId);
+    async listByRun(orgId, runId) {
+      return jobs.filter((j) => j.orgId === orgId && j.runId === runId);
     },
 
     async claim(workerId, leaseMs = 60_000) {
@@ -465,9 +688,9 @@ export function createFileProviderJobStore(filePath: string): ProviderJobStore {
       return job && copy(job);
     },
 
-    async listByRun(runId) {
+    async listByRun(orgId, runId) {
       // Read-only — no lock needed.
-      return read().filter((j) => j.runId === runId).map(copy);
+      return read().filter((j) => j.orgId === orgId && j.runId === runId).map(copy);
     },
 
     async claim(workerId, leaseMs = 60_000) {

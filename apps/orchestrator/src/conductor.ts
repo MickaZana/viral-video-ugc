@@ -14,8 +14,8 @@ import { assembleVideo, ASPECT_RATIO_BY_PLATFORM } from "@vvugc/mcp-assembly";
 import { generateVoiceoverTrack, getVoiceoverAdapter } from "@vvugc/mcp-voiceover";
 import { insertReviewItem } from "@vvugc/review-queue";
 import { scoreOriginality } from "@vvugc/shared-originality";
-import { CostCap, CostCapExceededError, FlowLimiter, Semaphore, type ConcurrencyCapConfig, DEFAULT_CAP_CONFIG } from "@vvugc/shared-analytics";
-import { classifyHook, registerHook, type HookRegistry, HookRegistrySchema } from "@vvugc/shared-analytics";
+import { CostCap, CostCapExceededError, FlowLimiter, type ConcurrencyCapConfig, DEFAULT_CAP_CONFIG } from "@vvugc/shared-analytics";
+import { registerHook, type HookRegistry, HookRegistrySchema } from "@vvugc/shared-analytics";
 import { createGrowthMemory, learnFromJob, type GrowthMemory, GrowthMemorySchema } from "@vvugc/shared-analytics";
 import { buildAdaptivePrompt } from "@vvugc/shared-analytics";
 import { rewriteScript } from "./agents/script-agent.js";
@@ -131,7 +131,6 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     onProgress(`⚠ Cost warning: $${spent.toFixed(2)} spent of $${limit.toFixed(2)} limit (${Math.round(spent/limit*100)}%)`);
   });
   const flowLimiter = new FlowLimiter(capConfig.maxVideosPerFlow);
-  const videoGenSemaphore = new Semaphore(capConfig.maxConcurrentVideoGen);
 
   onProgress(`Run caps: max ${capConfig.maxVideosPerFlow} videos, $${capConfig.maxCostPerRunUsd.toFixed(2)} cost limit, ${capConfig.maxConcurrentVideoGen} concurrent video-gen calls`);
 

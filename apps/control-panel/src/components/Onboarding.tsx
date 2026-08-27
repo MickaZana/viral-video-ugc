@@ -66,8 +66,8 @@ export function Onboarding({ onComplete, onNavigate, onStart }: OnboardingProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-      <div className="w-full max-w-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="flex border-b border-[var(--color-border)]">
+      <div className="w-full max-w-lg border border-[var(--color-border)] bg-[var(--color-surface)] rounded-2xl overflow-hidden shadow-2xl">
+        <div className="flex border-b border-[var(--color-border)] rounded-t-2xl overflow-hidden">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
@@ -142,7 +142,7 @@ export function Onboarding({ onComplete, onNavigate, onStart }: OnboardingProps)
                   <button
                     key={a.tab}
                     onClick={() => goToTab(a.tab)}
-                    className="flex items-center gap-4 p-4 border border-[var(--color-raised)] text-left hover:border-[var(--color-lime)] hover:bg-[var(--color-raised)] transition-colors"
+                    className="flex items-center gap-4 p-4 border border-[var(--color-raised)] rounded-xl text-left hover:border-[var(--color-lime)] hover:bg-[var(--color-raised)] transition-all hover:shadow-lg hover:shadow-[var(--color-lime)]/5"
                   >
                     <div>
                       <p className="text-sm font-semibold uppercase tracking-widest text-[var(--color-text)]">{a.label}</p>

@@ -157,6 +157,9 @@ describe("data export and account deletion", () => {
       body: JSON.stringify({ clientId: (await (await fetch(`${baseUrl}/accounts/clients`, { headers: { Cookie: owner.cookie } })).json()).clients[0].id })
     });
     expect(jobsRes.status).toBe(202);
+    const clientId = (await (await fetch(`${baseUrl}/accounts/clients`, { headers: { Cookie: owner.cookie } })).json()).clients[0].id;
+    expect((await fetch(`${baseUrl}/accounts/products`, { method: "POST", headers: { Cookie: owner.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Export Product", clientId }) })).status).toBe(201);
+    expect((await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: owner.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Export Creator", clientId, avatarMode: "none", consentConfirmed: true }) })).status).toBe(201);
 
     const res = await fetch(`${baseUrl}/accounts/export`, { headers: { Cookie: owner.cookie } });
     expect(res.status).toBe(200);
@@ -168,6 +171,8 @@ describe("data export and account deletion", () => {
     expect(bundle.members.length).toBe(1);
     expect(bundle.settings.niche).toBe("fitness");
     expect(bundle.clients.length).toBe(1);
+    expect(bundle.products.map((product: { name: string }) => product.name)).toContain("Export Product");
+    expect(bundle.creators.map((creator: { displayName: string }) => creator.displayName)).toContain("Export Creator");
     expect(bundle.reviewItems.some((item: { id: string }) => item.id === "export-item-1")).toBe(true);
     expect(bundle.usage.totalRuns).toBe(1);
     expect(bundle.jobs.length).toBe(1);

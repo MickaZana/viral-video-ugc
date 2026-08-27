@@ -1,6 +1,6 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useState } from 'react'
-import { api } from '../lib/api'
+import { api, type SocialConnection } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { paths } from '../lib/paths'
 import type { AgencyClient, ProductProfile, CreatorProfile } from '../lib/types'
@@ -121,8 +121,10 @@ export function Brand() {
 export function BrandClient() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const clients = useApi<{ clients: AgencyClient[] }>(() => api.clients())
   const client = (clients.data?.clients ?? []).find((c) => c.id === id)
+  const justConnected = searchParams.get('oauth') === 'google-connected'
 
   return (
     <div className="space-y-4">
@@ -133,14 +135,85 @@ export function BrandClient() {
         Back to brand
       </button>
       {client ? (
-        <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5 space-y-2">
-          <p className="text-lg font-semibold">{client.name}</p>
-          <p className="text-sm text-[var(--color-muted-2)]">{client.niche}</p>
-          <p className="text-[11px] font-mono text-[var(--color-muted-3)]">{client.id}</p>
-        </div>
+        <>
+          <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5 space-y-2">
+            <p className="text-lg font-semibold">{client.name}</p>
+            <p className="text-sm text-[var(--color-muted-2)]">{client.niche}</p>
+            <p className="text-[11px] font-mono text-[var(--color-muted-3)]">{client.id}</p>
+          </div>
+          {justConnected && (
+            <p className="text-[11px] text-[var(--color-lime)] uppercase tracking-widest">
+              YouTube connected. Ready for the next approved run.
+            </p>
+          )}
+          <PublishingConnections clientId={client.id} />
+        </>
       ) : (
         <p className="text-sm text-[var(--color-muted-2)]">Client not found.</p>
       )}
+    </div>
+  )
+}
+
+function PublishingConnections({ clientId }: { clientId: string }) {
+  const connections = useApi<{ connections: SocialConnection[] }>(() => api.socialConnections(clientId), [clientId])
+  const youtube = (connections.data?.connections ?? []).find((c) => c.platform === 'youtube_shorts')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function connectYouTube() {
+    setBusy(true)
+    setError(null)
+    try {
+      const { authorizationUrl } = await api.startGoogleOAuth(clientId)
+      window.location.href = authorizationUrl
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setBusy(false)
+    }
+  }
+
+  async function disconnect(connectionId: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.disconnectSocial(connectionId)
+      connections.reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5 space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-widest">Publishing</h2>
+      {connections.loading && <p className="text-[11px] text-[var(--color-muted-3)]">Loading connections…</p>}
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span className="text-[var(--color-text)]">YouTube Shorts</span>
+        <span className="text-[11px] text-[var(--color-muted-3)]">
+          {youtube ? `${youtube.accountLabel} · ${youtube.status}` : 'Not connected'}
+        </span>
+        {youtube ? (
+          <button
+            onClick={() => disconnect(youtube.id)}
+            disabled={busy}
+            className="text-[11px] uppercase tracking-widest text-red-500 hover:brightness-110 disabled:opacity-50"
+          >
+            Disconnect
+          </button>
+        ) : (
+          <button
+            onClick={connectYouTube}
+            disabled={busy}
+            className="px-3 py-1.5 text-[11px] uppercase tracking-widest font-bold bg-[var(--color-lime)] text-[var(--color-on-accent)] hover:brightness-110 disabled:opacity-50 transition-colors rounded-md"
+          >
+            Connect YouTube
+          </button>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-red-500">{error}</p>}
     </div>
   )
 }

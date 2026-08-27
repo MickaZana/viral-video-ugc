@@ -17,8 +17,8 @@
     "@vvugc/shared-cost": "workspace:*",
     "@vvugc/shared-metrics": "workspace:*",
     "@vvugc/shared-schema": "workspace:*",
-    "express": "^5.0.1",
-    "pino": "^9.6.0",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
     "prom-client": "^15.1.3"
   },
   "devDependencies": {

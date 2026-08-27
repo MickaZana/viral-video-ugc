@@ -9,7 +9,7 @@ export interface AccountSettings {
   brandVoice: string;
   platforms: Platform[];
   targetDurationSec: number;
-  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate";
+  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video";
   voiceVendor?: "elevenlabs" | "grok";
   /** "weekly" maps to this account being included in the scheduled cron run (see
    *  infra/cron); "manual" means the account only runs when a user clicks "Run now". */
@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS: AccountSettingsInput = {
   niche: "",
   brandVoice: "neutral, energetic, concise",
   platforms: ["youtube_shorts"],
-  targetDurationSec: 25,
+  targetDurationSec: 35,
   videoVendor: "higgsfield",
   cadence: "manual"
 };

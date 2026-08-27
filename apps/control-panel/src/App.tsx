@@ -38,7 +38,7 @@ function initialTheme(): Theme {
   } catch {
     // ignore storage errors
   }
-  return 'light'
+  return 'dark'
 }
 
 export function App() {
@@ -48,8 +48,8 @@ export function App() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  // Use light theme for landing page (unauthenticated), stored theme for workspace
-  const effectiveTheme = account ? theme : 'light'
+  // Always respect user's theme choice — both authenticated and demo workspace
+  const effectiveTheme = theme
 
   // Set theme synchronously BEFORE first render so it applies to landing page
   // without waiting for useEffect. This is critical for accessibility tests.
@@ -105,6 +105,12 @@ export function App() {
     }
     clearSession()
     setAccount(null)
+    // A stale ?mode=signup/signin from the original auth flow otherwise
+    // survives in the URL through the whole authenticated session (nothing
+    // clears it once signed in) and immediately re-triggers showingAuth once
+    // account goes null again — landing a just-signed-out user back on the
+    // signup form instead of the marketing page.
+    navigate({ pathname: '/', search: '' })
   }
 
   if (checking) {
@@ -116,7 +122,7 @@ export function App() {
   }
 
   const authMode = searchParams.get('mode')
-  const showingAuth = !account && ['signin', 'signup', 'forgot', 'reset'].includes(authMode ?? '')
+  const showingAuth = !account && ['signin', 'signup', 'forgot', 'reset', 'invite'].includes(authMode ?? '')
 
   if (showingAuth) {
     return <SignIn onAuthed={setAccount} />
@@ -176,7 +182,7 @@ export function App() {
         <Route path="billing" element={<Billing />} />
         <Route
           path="settings"
-          element={<Settings theme={theme} onTheme={setTheme} email={account?.email ?? 'guest@micany.com'} />}
+          element={<Settings theme={theme} onTheme={setTheme} email={account?.email ?? 'guest@micany.com'} isGuest={!account} onSignIn={() => navigate({ pathname: '/', search: '?mode=signin' })} />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

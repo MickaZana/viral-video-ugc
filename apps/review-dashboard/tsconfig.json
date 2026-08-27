@@ -14,6 +14,7 @@
     { "path": "../orchestrator" },
     { "path": "../../packages/mcp-discovery" },
     { "path": "../../packages/mcp-publish" },
-    { "path": "../../packages/shared-billing" }
+    { "path": "../../packages/shared-billing" },
+    { "path": "../../packages/shared-persistence" }
   ]
 }

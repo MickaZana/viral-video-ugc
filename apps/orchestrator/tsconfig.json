@@ -14,6 +14,7 @@
     { "path": "../../packages/mcp-assembly" },
     { "path": "../../packages/mcp-voiceover" },
     { "path": "../../packages/review-queue" },
-    { "path": "../../packages/shared-originality" }
+    { "path": "../../packages/shared-originality" },
+    { "path": "../../packages/shared-analytics" }
   ]
 }

@@ -1,6 +1,6 @@
-import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ReviewItem } from "@vvugc/shared-schema";
+import { createIsolatedTestDatabase, type IsolatedTestDatabase } from "@vvugc/shared-persistence";
 import { createPostgresStore } from "./postgres-store.js";
 
 // Runs against a real Postgres — set locally (e.g. via `docker run -p 5432:5432
@@ -37,10 +37,12 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
 }
 
 describe.skipIf(!TEST_DATABASE_URL)("review-queue postgres-store", () => {
-  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
-  const store = createPostgresStore(pool);
+  let testDatabase: IsolatedTestDatabase;
+  let store: ReturnType<typeof createPostgresStore>;
 
   beforeAll(async () => {
+    testDatabase = await createIsolatedTestDatabase();
+    store = createPostgresStore(testDatabase.pool);
     // Triggers the store's lazy CREATE TABLE IF NOT EXISTS once. ensureSchema()
     // memoizes its readiness promise for the store's lifetime, so a DROP TABLE
     // per test (instead of TRUNCATE) would desync that memoized promise from
@@ -50,11 +52,11 @@ describe.skipIf(!TEST_DATABASE_URL)("review-queue postgres-store", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE review_items");
+    await testDatabase.pool.query("TRUNCATE review_items");
   });
 
   afterAll(async () => {
-    await pool.end();
+    await testDatabase?.dispose();
   });
 
   it("returns an empty list before any item has been inserted", async () => {

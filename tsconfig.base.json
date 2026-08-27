@@ -6,6 +6,7 @@
     "declaration": true,
     "composite": true,
     "strict": true,
+    "removeComments": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

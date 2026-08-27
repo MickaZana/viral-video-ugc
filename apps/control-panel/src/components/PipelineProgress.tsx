@@ -182,7 +182,13 @@ export function PipelineProgress({ active, runId, onComplete }: PipelineProgress
 
   if (!active && steps.every((s) => s.status === 'pending')) return null
 
-  const completedCount = steps.filter((s) => s.status === 'done').length
+  // 'complete' is a UI-only pseudo-stage, never a real backend stage id — the
+  // SSE path (real progress events) never marks it 'done', but the fallback
+  // timer simulation below does (it iterates all of PIPELINE_STAGES). Exclude
+  // it from both sides of this comparison so completedCount can actually reach
+  // totalStages via either path — counting it on one side only made the
+  // "✓ COMPLETE" header unreachable through the fallback path (9 done ≠ 8).
+  const completedCount = steps.filter((s) => s.id !== 'complete' && s.status === 'done').length
   const totalStages = PIPELINE_STAGES.length - 1 // exclude 'complete' from denominator
   const progress = Math.min(100, Math.round((completedCount / totalStages) * 100))
 

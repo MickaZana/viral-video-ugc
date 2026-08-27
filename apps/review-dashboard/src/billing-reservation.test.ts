@@ -3,16 +3,27 @@
  *
  * Covers what's actually fixable without Postgres (overage idempotency —
  * see the fix in overage.ts), and PROVES the two things that aren't fixable
- * yet rather than hand-waving them:
+ * in the LocalBillingRepository dev/test adapter, rather than hand-waving them:
  *   - Gap 1 (TOCTOU quota race): demonstrated deterministically via the real
  *     checkRunQuota() function against a stale usage snapshot, then confirmed
- *     against the real HTTP route under real concurrency.
+ *     against the real HTTP route under real concurrency, exercising
+ *     LocalBillingRepository (billing-postgres.ts) — the file-backed adapter
+ *     this test's env vars select.
+ * Production has since gained a real fix for this exact gap:
+ * PostgresBillingRepository.reserveRun (billing-postgres.ts) takes a
+ * per-tenant `pg_advisory_xact_lock` and a `SELECT ... FOR UPDATE` inside one
+ * transaction, so two concurrent reservations can no longer both read the
+ * same pre-write usage count — verified in billing-postgres.test.ts's
+ * "serializes concurrent reservations and only bills the run beyond the
+ * allowance" case. Postgres is what
+ * production actually selects at startup (see loadEnv/DATABASE_URL), so this
+ * gap is not live in production; it remains real only for LocalBillingRepository
+ * (explicitly dev/test-only) and for checkRunQuota()'s one other caller,
+ * batch-routes.ts, which is not currently wired into server.ts. These tests
+ * stay in place to keep both of those non-production gaps enforced-by-CI
+ * rather than becoming a stale assumption if either path is ever activated.
  *   - Gap 2 (per-process CostCap): covered separately in
  *     packages/shared-analytics/src/index.test.ts, next to CostCap itself.
- * These two are intentionally NOT "fixed" here — true atomic reservation
- * needs a DB transaction (`SELECT ... FOR UPDATE`), which is blocked until
- * Postgres lands. The tests exist so the gap is enforced-by-CI knowledge,
- * not just a paragraph in a planning doc that goes stale.
  *
  * CostCap/FlowLimiter unit tests already exist in
  * packages/shared-analytics/src/index.test.ts — not duplicated here, with
@@ -51,7 +62,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const res = await fetch(`${baseUrl}/accounts/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password=[REDACTED_PASSWORD] })
+    body: JSON.stringify({ email, password: TEST_PASS })
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
@@ -146,7 +157,7 @@ describe("Phase 7: billing & cost reservation", () => {
       process.env.VVUGC_DB_PATH = join(testDir, "queue.json");
       process.env.VVUGC_RUNS_DIR = runsDir;
       process.env.DASHBOARD_USERNAME = TEST_USER;
-      process.env.DASHBOARD_PASSWORD=[REDACTED_PASSWORD]
+      process.env.DASHBOARD_PASSWORD=TEST_PASS;
       try {
         await startServer();
         const { cookie, orgId } = await signUpAndGetAccount("race@example.com");
@@ -246,7 +257,7 @@ describe("Phase 7: billing & cost reservation", () => {
       process.env.VVUGC_DB_PATH = join(testDir, "queue.json");
       process.env.VVUGC_RUNS_DIR = runsDir;
       process.env.DASHBOARD_USERNAME = TEST_USER;
-      process.env.DASHBOARD_PASSWORD=[REDACTED_PASSWORD]
+      process.env.DASHBOARD_PASSWORD=TEST_PASS;
     });
     afterEach(() => {
       delete process.env.VVUGC_DB_PATH;

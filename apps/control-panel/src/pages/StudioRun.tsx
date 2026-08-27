@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import type { DiscoverBrief } from '../lib/types'
 import { api } from '../lib/api'
@@ -17,6 +17,22 @@ export function StudioRun() {
   const loc = useLocation()
   const stateBrief = (loc.state as { brief?: DiscoverBrief } | null)?.brief
   const [fetchedBrief, setFetchedBrief] = useState<DiscoverBrief | null | undefined>(undefined)
+  // PipelineProgress's own "RUNNING" vs "✓ COMPLETE" header text is driven
+  // entirely by its `active` prop, not by its internal step state — without
+  // tracking completion here and feeding it back in, `active={Boolean(runId)}`
+  // stays true for the page's whole lifetime and the header is stuck on
+  // "RUNNING" forever, even once every stage shows done.
+  const [completed, setCompleted] = useState(false)
+
+  // React Router reuses this component instance across /studio/runs/:runId
+  // navigations (only the param changes) — reset per-run local state
+  // explicitly rather than relying on a remount that won't happen.
+  useEffect(() => {
+    setCompleted(false)
+  }, [runId])
+  // Stable reference — PipelineProgress's SSE effect depends on `onComplete`,
+  // and an inline arrow here would reconnect the EventSource on every render.
+  const handleComplete = useCallback(() => setCompleted(true), [])
 
   useEffect(() => {
     if (stateBrief || !runId) return
@@ -43,7 +59,7 @@ export function StudioRun() {
       <p className="text-[11px] text-[var(--color-muted-2)] uppercase tracking-widest">
         Run <span className="font-mono text-[var(--color-text)]">{runId}</span>
       </p>
-      <PipelineProgress active={Boolean(runId)} runId={runId} />
+      <PipelineProgress active={Boolean(runId) && !completed} runId={runId} onComplete={handleComplete} />
     </div>
   )
 }

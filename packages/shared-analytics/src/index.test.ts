@@ -10,7 +10,6 @@ import {
   classifyHook,
   registerHook,
   recordDecision,
-  recordPerformance,
   importFromDiscovery,
   getTopHooks,
   suggestCategories,

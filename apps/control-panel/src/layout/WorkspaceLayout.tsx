@@ -66,7 +66,7 @@ export function WorkspaceLayout({
   function navClass(active: boolean) {
     return {
       backgroundColor: active ? 'var(--color-raised)' : 'transparent',
-      borderLeft: active ? '2px solid var(--color-lime)' : '2px solid transparent',
+      borderLeft: active ? '2px solid var(--color-blue)' : '2px solid transparent',
       color: active ? 'var(--color-text)' : 'var(--color-muted-2)'
     }
   }
@@ -116,7 +116,7 @@ export function WorkspaceLayout({
               >
                 {({ isActive }) => (
                   <>
-                    <span className="shrink-0" style={{ color: isActive ? 'var(--color-lime)' : 'var(--color-muted-3)' }}>
+                    <span className="shrink-0" style={{ color: isActive ? 'var(--color-blue)' : 'var(--color-muted-3)' }}>
                       <NavIcon name={n.icon} />
                     </span>
                     <span className="nav-label text-[12px] uppercase tracking-widest">{n.label}</span>
@@ -139,7 +139,7 @@ export function WorkspaceLayout({
               >
                 {({ isActive }) => (
                   <>
-                    <span className="shrink-0" style={{ color: isActive ? 'var(--color-lime)' : 'var(--color-muted-3)' }}>
+                    <span className="shrink-0" style={{ color: isActive ? 'var(--color-blue)' : 'var(--color-muted-3)' }}>
                       <NavIcon name={n.icon} />
                     </span>
                     <span className="nav-label text-[12px] uppercase tracking-widest">{n.label}</span>
@@ -165,31 +165,31 @@ export function WorkspaceLayout({
             <div className="flex flex-wrap items-center gap-4">
               <button
                 onClick={() => setLegalModal('privacy')}
-                className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+                className="hover:text-[var(--color-blue)] transition-colors cursor-pointer"
               >
                 Privacy Policy
               </button>
               <button
                 onClick={() => setLegalModal('terms')}
-                className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+                className="hover:text-[var(--color-blue)] transition-colors cursor-pointer"
               >
                 Terms of Service
               </button>
               <button
                 onClick={() => setLegalModal('dsr_gdpr')}
-                className="hover:text-[var(--color-lime)] text-[var(--color-lime)] font-bold transition-colors cursor-pointer"
+                className="hover:text-[var(--color-blue)] text-[var(--color-blue)] font-bold transition-colors cursor-pointer"
               >
                 GDPR &amp; DSR Rights
               </button>
               <button
                 onClick={() => setLegalModal('about')}
-                className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+                className="hover:text-[var(--color-blue)] transition-colors cursor-pointer"
               >
                 About Us
               </button>
               <button
                 onClick={() => setLegalModal('sitemap')}
-                className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+                className="hover:text-[var(--color-blue)] transition-colors cursor-pointer"
               >
                 Site Map
               </button>
@@ -200,7 +200,14 @@ export function WorkspaceLayout({
 
       <LegalModals activeModal={legalModal} onClose={() => setLegalModal(null)} />
 
-      {showOnboarding && (
+      {/* !isGuest: showOnboarding is purely localStorage-gated (Onboarding.tsx),
+          with no account check of its own — without this, a brand-new
+          anonymous visitor's first interaction with the marketing landing
+          page (also rendered inside this same layout) was a full-screen "set
+          up your workspace" modal walking through a pipeline they don't have
+          an account for yet, and offering to start a real run via a
+          session-gated API call that would just 401 for them. */}
+      {showOnboarding && !isGuest && (
         <Onboarding
           onComplete={completeOnboarding}
           onNavigate={(tab) => {

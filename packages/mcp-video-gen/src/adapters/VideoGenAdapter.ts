@@ -1,6 +1,8 @@
 import type { RawClip } from "@vvugc/shared-schema";
 
 export interface VideoGenRequest {
+  /** Stable queue idempotency key, forwarded by workers to adapters that support it. */
+  idempotencyKey?: string;
   scriptSegmentIndex: number;
   prompt: string;
   durationSec: number;
@@ -27,6 +29,12 @@ export interface VideoGenRequest {
     tempo?: "calm" | "dynamic" | "chaotic" | "single_shot";
     filmGrain?: "none" | "subtle" | "heavy";
     era?: "modern" | "90s" | "80s" | "70s" | "film_noir";
+    /** Cinema Studio 4.0: cinematic genre preset that biases overall aesthetics. */
+    genre?: "general" | "action" | "epic" | "drama" | "comedy" | "horror" | "noir" | "sci_fi" | "documentary";
+    /** Cinema Studio 4.0: emotional tone guiding expression/atmosphere. */
+    emotion?: "joy" | "anger" | "fear" | "sadness" | "surprise" | "trust" | "hope" | "tension" | "nostalgia";
+    /** Cinema Studio 4.0: camera hardware emulation affecting texture/bokeh/grain. */
+    cameraType?: "modern" | "35mm_film" | "8mm_film" | "dv_camcorder" | "iphone" | "dslr";
   };
 }
 

@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
@@ -32,6 +33,15 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie")!;
   const { account } = await res.json();
   return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+}
+
+function csrfHeaders(cookie: string): Record<string, string> {
+  const sessionToken = cookie.slice(cookie.indexOf("=") + 1);
+  return {
+    Cookie: cookie,
+    "Content-Type": "application/json",
+    "x-csrf-token": createHash("sha256").update(`vvugc-csrf:${sessionToken}`).digest("base64url")
+  };
 }
 
 function reviewItem(orgId: string, id: string, marker: string): ReviewItem {
@@ -165,16 +175,23 @@ describe("Phase 2 Security Verification", () => {
       // Tenant B tries to approve A's item
       const approveRes = await fetch(`${baseUrl}/queue/item-owned-by-a/approve`, {
         method: "POST",
-        headers: { Cookie: b.cookie, "Content-Type": "application/json" }
+        headers: csrfHeaders(b.cookie)
       });
       expect(approveRes.status).toBe(404);
 
       // Tenant B tries to reject A's item
       const rejectRes = await fetch(`${baseUrl}/queue/item-owned-by-a/reject`, {
         method: "POST",
-        headers: { Cookie: b.cookie, "Content-Type": "application/json" }
+        headers: csrfHeaders(b.cookie)
       });
       expect(rejectRes.status).toBe(404);
+
+      // Tenant B cannot send A's item back either.
+      const sendBackRes = await fetch(`${baseUrl}/queue/item-owned-by-a/send-back`, {
+        method: "POST",
+        headers: csrfHeaders(b.cookie)
+      });
+      expect(sendBackRes.status).toBe(404);
 
       // Tenant B tries to read A's item directly
       const readRes = await fetch(`${baseUrl}/queue/item-owned-by-a`, {

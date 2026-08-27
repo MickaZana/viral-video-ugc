@@ -11,6 +11,10 @@ export interface Invite {
    *  (default "editor"), so an invited teammate lands with exactly the access
    *  intended rather than a one-size "member" bucket. */
   role: AccountRole;
+  /** Future: workspace the invitee is scoped to (agency/client invitations). */
+  workspaceId?: string;
+  /** Future: client the invitee is scoped to (client portal invitations). */
+  clientId?: string;
   invitedByAccountId: string;
   createdAt: string;
   expiresAt: string;

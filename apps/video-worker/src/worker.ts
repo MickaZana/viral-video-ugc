@@ -47,6 +47,8 @@ export interface WorkerConfig {
   providerTimeouts?: Partial<Record<VideoVendor, number>>;
   /** Pre-detected list of vendors with configured credentials. */
   availableVendors?: VideoVendor[];
+  /** Testable/provider-specific adapter injection; production uses the default resolver. */
+  adapterFactory?: (vendor: VideoVendor, logger: pino.Logger) => VideoGenAdapter | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +236,7 @@ export function createVideoWorker(
             dryRun: true,
           });
           const clip = await adapter.generate({
+            idempotencyKey: job.idempotencyKey,
             scriptSegmentIndex: job.scriptSegmentIndex,
             prompt: job.request.prompt,
             durationSec: job.request.durationSec,
@@ -242,7 +245,7 @@ export function createVideoWorker(
             referenceImageDataUri: job.request.referenceImageDataUri,
             identityRef: job.request.identityRef,
           });
-          await store.complete(job.id, workerId, clip, currentVendor, 0);
+          if (!(await settleCompletion(job, clip, currentVendor, 0))) return;
           metrics.jobsCompleted.inc({ vendor: currentVendor, was_fallback: String(currentVendorIndex > 0) });
           jobLogger.info({ vendor: currentVendor, dryRun: true }, "Job completed (dry-run)");
           return;
@@ -266,6 +269,7 @@ export function createVideoWorker(
         const startTime = Date.now();
         try {
           const clip = await adapter.generate({
+            idempotencyKey: job.idempotencyKey,
             scriptSegmentIndex: job.scriptSegmentIndex,
             prompt: job.request.prompt,
             durationSec: job.request.durationSec,
@@ -282,14 +286,13 @@ export function createVideoWorker(
           const actualCost = estimateCost(currentVendor, job.request.durationSec);
           metrics.providerCost.inc({ vendor: currentVendor }, actualCost);
 
-          await store.complete(
-            job.id,
-            workerId,
+          if (!(await settleCompletion(
+            job,
             clip,
             currentVendor,
             actualCost,
             clip.id
-          );
+          ))) return;
 
           const wasFallback = currentVendorIndex > 0;
           metrics.jobsCompleted.inc({ vendor: currentVendor, was_fallback: String(wasFallback) });
@@ -372,6 +375,8 @@ export function createVideoWorker(
   }
 
   function getAdapterForVendor(vendor: VideoVendor, jobLogger: pino.Logger): VideoGenAdapter | undefined {
+    const injected = config.adapterFactory?.(vendor, jobLogger);
+    if (injected) return injected;
     try {
       if (vendor === "higgsfield") {
         const caller = mcpSession.getToolCaller();
@@ -397,6 +402,33 @@ export function createVideoWorker(
       jobLogger.warn({ vendor, err: (err as Error).message?.slice(0, 200) }, "Cannot create adapter");
       return undefined;
     }
+  }
+
+  /**
+   * A provider can finish after an operator cancelled the running lease. In
+   * that case complete() deliberately returns false; immediately acknowledge
+   * the cancellation while we still own the lease so recovery never requeues
+   * the already-paid generation. A lost lease is left to its current owner.
+   */
+  async function settleCompletion(
+    job: ProviderJob,
+    clip: import("@vvugc/shared-schema").RawClip,
+    vendor: VideoVendor,
+    actualCost: number,
+    providerRequestId?: string
+  ): Promise<boolean> {
+    const completed = await store.complete(job.id, workerId, clip, vendor, actualCost, providerRequestId);
+    if (completed) return true;
+    const current = await store.get(job.id);
+    if (current?.status === "running" && current.leaseOwner === workerId && current.cancelRequested) {
+      await store.acknowledgeCancelled(job.id, workerId);
+      jobLoggerFor(job).info("Provider completed after cancellation; cancellation acknowledged without retry");
+    }
+    return false;
+  }
+
+  function jobLoggerFor(job: ProviderJob) {
+    return logger.child({ jobId: job.id, runId: job.runId, vendor: job.requestedVendor });
   }
 
   return { start, stop, isRunning };

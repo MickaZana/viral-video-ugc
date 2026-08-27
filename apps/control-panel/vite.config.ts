@@ -58,7 +58,13 @@ export default defineConfig({
   },
   esbuild: {
     drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
-    legalComments: 'none'
+    legalComments: 'none',
+    // Mangle internal property names matching underscore-prefix convention
+    // (e.g. _internalState, _cache) to make reverse engineering harder.
+    // Public API properties (no underscore prefix) are left intact so
+    // runtime JSON serialization and DOM interactions still work.
+    mangleProps: /^_[a-z]/,
+    reserveProps: /^__/  // preserve React/framework double-underscore props
   },
   build: {
     outDir: 'dist',

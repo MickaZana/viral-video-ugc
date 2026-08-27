@@ -12,6 +12,7 @@
   "dependencies": {
     "@vvugc/shared-schema": "workspace:*",
     "@vvugc/shared-config": "workspace:*",
+    "@vvugc/shared-persistence": "workspace:*",
     "pg": "^8.13.1"
   },
   "devDependencies": {

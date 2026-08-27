@@ -42,12 +42,13 @@ export function createHiggsfieldAdapter(callMcpTool: McpToolCaller, outDir: stri
   return {
     vendor: "higgsfield",
     async generate(req: VideoGenRequest): Promise<RawClip> {
-      // Soul ID: if identityRef is present, import ALL reference images (primary + additional)
-      // as medias for maximum face consistency. Higgsfield supports up to 9 references.
+      // Soul ID: if identityRef is present, import ALL reference images (primary +
+      // additional) as medias for maximum face consistency. Cinema Studio 4.0 supports
+      // up to 50 references; cap there for safety.
       let medias: Array<{ value: string; role: string }> | undefined;
 
       if (req.identityRef?.primaryImageUrl) {
-        const allUrls = [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls].slice(0, 9);
+        const allUrls = [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls].slice(0, 50);
         const imported = await Promise.all(
           allUrls.map((url) => importMedia(callMcpTool, url))
         );

@@ -27,6 +27,8 @@ import { createInMemoryProviderJobStore, type ProviderJobStore, type ProviderJob
 import { createMcpSession } from "./mcp-session.js";
 import { classifyProviderError } from "./retry-policy.js";
 import { resolveChain, buildFallbackList } from "./fallback-chain.js";
+import { createVideoWorker } from "./worker.js";
+import { createWorkerMetrics } from "./metrics.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -181,7 +183,7 @@ describe("ProviderJobStore (in-memory)", () => {
   it("tenant isolation — listByRun only returns matching run", async () => {
     await store.enqueue(makeJob({ runId: "run-A", orgId: "org-1" }));
     await store.enqueue(makeJob({ runId: "run-B", orgId: "org-2" }));
-    const results = await store.listByRun("run-A");
+    const results = await store.listByRun("org-1", "run-A");
     expect(results.length).toBe(1);
     expect(results[0].runId).toBe("run-A");
   });
@@ -416,5 +418,39 @@ describe("Dry-run guarantee", () => {
     });
     expect(clip.vendor).toBe("kling");
     expect(clip.filePath).toContain("mock");
+  });
+});
+
+describe("cancellation during provider completion", () => {
+  it("acknowledges a cancellation after one provider call instead of retrying paid work", async () => {
+    const store = createInMemoryProviderJobStore();
+    const job = await store.enqueue(makeJob({ requestedVendor: "gemini", fallbackVendors: [] }));
+    let adapterCalls = 0;
+    const worker = createVideoWorker(
+      store,
+      createMcpSession({ connect: async () => async () => ({}) }),
+      createWorkerMetrics(),
+      {
+        workerId: "cancel-test-worker", outDir: "/tmp", dryRun: false, concurrency: 1,
+        pollIntervalMs: 5, leaseRecoveryIntervalMs: 5, fallbackConfig: { vendorChain: ["gemini"] },
+        adapterFactory: () => ({
+          vendor: "gemini",
+          async generate(request) {
+            adapterCalls++;
+            expect(request.idempotencyKey).toBe(job.idempotencyKey);
+            // Simulates an operator cancelling while the provider call is in flight.
+            await store.cancel(job.id);
+            return { id: "provider-receipt", vendor: "gemini", scriptSegmentIndex: 0, filePath: "/tmp/clip.mp4", durationSec: 5 };
+          }
+        })
+      }
+    );
+    worker.start();
+    await vi.waitFor(async () => expect((await store.get(job.id))?.status).toBe("cancelled"), { timeout: 1_000 });
+    // Let a few polling/recovery cycles happen: cancelled work must never be leased again.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await worker.stop();
+    expect(adapterCalls).toBe(1);
+    expect((await store.get(job.id))).toMatchObject({ status: "cancelled", attempt: 1, leaseOwner: undefined });
   });
 });

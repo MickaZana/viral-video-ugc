@@ -15,6 +15,9 @@ export interface VisualDirection {
   tempo?: string;
   filmGrain?: string;
   era?: string;
+  genre?: string;
+  emotion?: string;
+  cameraType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +154,37 @@ const TEMPO_LABELS: Record<string, string> = {
   single_shot: "continuous single take",
 };
 
+const GENRE_LABELS: Record<string, string> = {
+  action: "action film visual style with kinetic energy",
+  epic: "epic cinematic grandeur with sweeping scale",
+  drama: "dramatic intimate storytelling aesthetic",
+  comedy: "bright comedy visual tone",
+  horror: "horror film atmosphere with tension and shadows",
+  noir: "noir detective film aesthetic",
+  sci_fi: "science fiction futuristic visual style",
+  documentary: "documentary realism style",
+};
+
+const EMOTION_LABELS: Record<string, string> = {
+  joy: "joyful uplifting atmosphere",
+  anger: "intense angry aggressive energy",
+  fear: "fearful anxious mood",
+  sadness: "melancholic sorrowful tone",
+  surprise: "surprising unexpected energy",
+  trust: "trustworthy calm reassuring feel",
+  hope: "hopeful optimistic warm atmosphere",
+  tension: "tense suspenseful mood",
+  nostalgia: "nostalgic wistful sentimentality",
+};
+
+const CAMERA_TYPE_LABELS: Record<string, string> = {
+  "35mm_film": "shot on 35mm film with organic grain and rich bokeh",
+  "8mm_film": "shot on 8mm film with vintage texture and light leaks",
+  dv_camcorder: "DV camcorder footage with lo-fi digital artifacts",
+  iphone: "shot on iPhone with crisp digital clarity",
+  dslr: "shot on DSLR with shallow depth of field",
+};
+
 export function mapToPromptEnrichment(dir: VisualDirection): string {
   const parts: string[] = [];
 
@@ -174,6 +208,15 @@ export function mapToPromptEnrichment(dir: VisualDirection): string {
   }
   if (dir.tempo) {
     parts.push(TEMPO_LABELS[dir.tempo] ?? dir.tempo);
+  }
+  if (dir.genre && dir.genre !== "general") {
+    parts.push(GENRE_LABELS[dir.genre] ?? dir.genre);
+  }
+  if (dir.emotion) {
+    parts.push(EMOTION_LABELS[dir.emotion] ?? dir.emotion);
+  }
+  if (dir.cameraType && dir.cameraType !== "modern") {
+    parts.push(CAMERA_TYPE_LABELS[dir.cameraType] ?? dir.cameraType);
   }
 
   return parts.join(", ");

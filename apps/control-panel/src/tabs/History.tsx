@@ -147,8 +147,8 @@ export function History() {
         </div>
       )}
 
-      {cat === 'videos' && <VideoDemos items={videos} onDownload={handleDownload} onPreview={setReviewItem} onApprove={handleApprove} onReject={handleReject} actionLoading={actionLoading} />}
-      {cat === 'scripts' && <ScriptDemos items={scripts} byRun={byRun} onApprove={handleApprove} onReject={handleReject} onDownload={handleDownload} actionLoading={actionLoading} onPreview={setReviewItem} />}
+      {cat === 'videos' && <VideoDemos items={videos} onPreview={setReviewItem} onApprove={handleApprove} onReject={handleReject} actionLoading={actionLoading} />}
+      {cat === 'scripts' && <ScriptDemos items={scripts} byRun={byRun} onApprove={handleApprove} onReject={handleReject} actionLoading={actionLoading} onPreview={setReviewItem} />}
       {cat === 'workflows' && <WorkflowDemos runs={runList} />}
 
       {(queue.error || runs.error) && (
@@ -170,9 +170,8 @@ export function History() {
   )
 }
 
-function VideoDemos({ items, onDownload, onPreview, onApprove, onReject, actionLoading }: {
+function VideoDemos({ items, onPreview, onApprove, onReject, actionLoading }: {
   items: ReviewItem[]
-  onDownload: (id: string) => void
   onPreview: (item: ReviewItem) => void
   onApprove: (id: string) => void
   onReject: (id: string) => void
@@ -290,12 +289,11 @@ function VideoDemos({ items, onDownload, onPreview, onApprove, onReject, actionL
   )
 }
 
-function ScriptDemos({ items, byRun, onApprove, onReject, onDownload, actionLoading, onPreview }: {
+function ScriptDemos({ items, byRun, onApprove, onReject, actionLoading, onPreview }: {
   items: ReviewItem[];
   byRun: Map<string, RunSummary>;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
-  onDownload: (id: string) => void;
   actionLoading: string | null;
   onPreview: (item: ReviewItem) => void;
 }) {

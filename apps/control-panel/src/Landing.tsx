@@ -8,10 +8,6 @@ import { HeroFlow } from './components/HeroFlow'
 import { Logo } from './components/Logo'
 import { LegalModals, type LegalModalType } from './components/LegalModals'
 
-// Set preview routing BEFORE this module's components ever render. See the note
-// in Landing() below about why this must not live in a useEffect.
-setPreviewMode(true)
-
 type PreviewTab = 'dashboard' | 'spy' | 'rewriter' | 'history'
 
 const PREVIEW_NAV: { id: PreviewTab; label: string; icon: string }[] = [
@@ -76,8 +72,17 @@ export function Landing({
   // NOTE: this must NOT be done in a useEffect. React runs child effects before
   // parent effects, so the tabs (Dashboard/Spy/...) mounted by this component
   // fire their first data requests before a here-inline effect could run — they'd
-  // hit the auth-gated routes and 401. Setting it synchronously at module scope
-  // guarantees preview routing is active before any tab ever mounts.
+  // hit the auth-gated routes and 401. Calling it inline here, synchronously
+  // during Landing's own render (before React processes its children), gets the
+  // same "before any tab mounts" guarantee a module-scope call would — but tied
+  // to this component actually rendering, not to this file merely being
+  // imported. A module-scope call ran unconditionally on every app bootstrap
+  // (App.tsx imports Landing regardless of whether it ever renders), leaving
+  // preview mode stuck on — and every authenticated page's queue/stats/runs/
+  // creators reads silently serving fake demo data — for any session that
+  // never mounts Landing at all, e.g. every already-signed-in returning user,
+  // whose route resolves straight to the real workspace.
+  setPreviewMode(true)
   useEffect(() => {
     return () => setPreviewMode(false)
   }, [])
@@ -91,9 +96,10 @@ export function Landing({
             <Logo onClick={goHome} />
           </div>
           <nav className="hidden md:flex items-center gap-6 text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-5)]">
-            <a href="#features" className="hover:text-[var(--color-lime)] transition-colors">Features</a>
-            <a href="#preview" className="hover:text-[var(--color-lime)] transition-colors">Preview</a>
-            <a href="#how" className="hover:text-[var(--color-lime)] transition-colors">How it works</a>
+            <a href="#features" className="hover:text-[var(--color-blue)] transition-colors">Features</a>
+            <a href="#preview" className="hover:text-[var(--color-blue)] transition-colors">Preview</a>
+            <a href="#how" className="hover:text-[var(--color-blue)] transition-colors">How it works</a>
+            <a href="#pricing" className="hover:text-[var(--color-blue)] transition-colors">Pricing</a>
           </nav>
           <div className="flex items-center gap-3">
             {authenticated ? (
@@ -108,7 +114,7 @@ export function Landing({
               <>
                 <button
                   onClick={onSignIn}
-                  className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-6)] hover:text-[var(--color-lime)] transition-colors px-3 py-2"
+                  className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-6)] hover:text-[var(--color-blue)] transition-colors px-3 py-2"
                 >
                   Sign In
                 </button>
@@ -156,7 +162,7 @@ export function Landing({
             </button>
             <a
               href="#preview"
-              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors w-full sm:w-auto"
+              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-blue)] text-[var(--color-blue)] hover:bg-[var(--color-blue)]/10 hover:shadow-lg hover:shadow-[var(--color-blue)]/20 transition-all w-full sm:w-auto rounded-full"
             >
               See It Live
             </a>
@@ -307,6 +313,97 @@ export function Landing({
           >
             Get Started Free
           </button>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="border-t border-[var(--color-raised)] py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <h2 className="text-3xl md:text-4xl font-black uppercase mb-4 text-center" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+            Simple pricing
+          </h2>
+          <p className="text-center text-sm text-[var(--color-muted-3)] mb-12 max-w-xl mx-auto">
+            Start free. Scale as your content operation grows. No hidden fees — just runs.
+          </p>
+
+          {/* Plan headers */}
+          <div className="grid grid-cols-4 gap-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
+            {/* Header row */}
+            <div className="p-5 border-b border-r border-[var(--color-border)]" />
+            <div className="p-5 border-b border-r border-[var(--color-border)] text-center">
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)] mb-1">Starter</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$39</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+            <div className="p-5 border-b border-r border-[var(--color-border)] text-center bg-[var(--color-lime)]/5 relative">
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)]">Popular</span>
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-lime)] mb-1">Growth</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$99</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+            <div className="p-5 border-b border-[var(--color-border)] text-center">
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)] mb-1">Agency</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$249</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+
+            {/* Feature rows */}
+            {[
+              ['Pipeline runs / month', '4', '15', '60'],
+              ['All platforms (TT, IG, YT)', true, true, true],
+              ['Max video duration', '15s', '30s', '60s'],
+              ['Batch mode', false, true, true],
+              ['Cinema Studio 4.0 controls', false, true, true],
+              ['Creator Spy intel', true, true, true],
+              ['Script rewriter', true, true, true],
+              ['Auto QA scoring', true, true, true],
+              ['Priority support', false, true, true],
+              ['Multi-client workspaces', false, false, true],
+              ['API access', false, false, true],
+              ['Webhooks', false, false, true],
+              ['Custom branding', false, false, true],
+              ['Dedicated account manager', false, false, true],
+            ].map(([feature, starter, growth, agency], idx) => (
+              <div key={idx} className="contents">
+                <div className="px-5 py-3 border-b border-r border-[var(--color-border)] text-[12px] text-[var(--color-muted-2)] flex items-center">
+                  {feature}
+                </div>
+                {[starter, growth, agency].map((val, ci) => (
+                  <div key={ci} className={`px-5 py-3 border-b border-[var(--color-border)] text-center flex items-center justify-center ${ci < 2 ? 'border-r' : ''} ${ci === 1 ? 'bg-[var(--color-lime)]/5' : ''}`}>
+                    {val === true ? (
+                      <span className="text-[var(--color-lime)] text-lg font-bold">✓</span>
+                    ) : val === false ? (
+                      <span className="text-[var(--color-muted-4)] text-sm">—</span>
+                    ) : (
+                      <span className="text-[12px] font-mono text-[var(--color-text)]">{val}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            {/* CTA row */}
+            <div className="p-5 border-r border-[var(--color-border)]" />
+            <div className="p-5 border-r border-[var(--color-border)] flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors">
+                Get Started
+              </button>
+            </div>
+            <div className="p-5 border-r border-[var(--color-border)] flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)] hover:brightness-110 transition-colors">
+                Get Started
+              </button>
+            </div>
+            <div className="p-5 flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors">
+                Get Started
+              </button>
+            </div>
+          </div>
+
+          <p className="text-center text-[10px] text-[var(--color-muted-4)] mt-6">
+            All plans include overage billing — never hard-blocked. Duration-based pricing applies for extended videos.
+          </p>
         </div>
       </section>
 
