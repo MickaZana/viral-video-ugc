@@ -68,6 +68,10 @@ describe("ASPECT_RATIO_BY_PLATFORM / DIMENSIONS", () => {
     expect(ASPECT_RATIO_BY_PLATFORM.youtube_shorts).toBe("9:16");
     expect(ASPECT_RATIO_BY_PLATFORM.instagram_reels).toBe("9:16");
   });
+
+  it("uses widescreen 16:9 for long-form YouTube", () => {
+    expect(ASPECT_RATIO_BY_PLATFORM.youtube_long).toBe("16:9");
+  });
 });
 
 describe("deriveHashtags", () => {

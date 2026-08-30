@@ -57,6 +57,16 @@ const GEMINI_RATE_TABLE: Record<string, Record<string, number>> = {
   "gemini-2.5-flash": { input_tokens: 0.3 / 1_000_000, output_tokens: 2.5 / 1_000_000 }
 };
 
+// Per-token list pricing for Grok (xAI) text models, used by the orchestrator's LLM
+// failover and direct provider execution. Current published per-1M-token rates converted to per-token.
+const GROK_RATE_TABLE: Record<string, Record<string, number>> = {
+  "grok-2": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
+  "grok-2-latest": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
+  "grok-2-mini": { input_tokens: 0.2 / 1_000_000, output_tokens: 1 / 1_000_000 },
+  "grok-beta": { input_tokens: 5 / 1_000_000, output_tokens: 15 / 1_000_000 },
+  "grok-3": { input_tokens: 3 / 1_000_000, output_tokens: 15 / 1_000_000 }
+};
+
 const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number>> = {
   higgsfield: { clip: 0.4 },
   kling: { clip: 0.35 },
@@ -95,7 +105,7 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {
   let rate: number | undefined;
-  // Anthropic and Gemini text models are priced per-model + per-token; the rest of
+  // Anthropic, Gemini, and Grok text models are priced per-model + per-token; the rest of
   // the table is flat per-unit (per clip/image/character).
   if (vendor === "anthropic") {
     rate = model ? ANTHROPIC_RATE_TABLE[model]?.[unit] : undefined;
@@ -103,6 +113,10 @@ export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: numb
     // Gemini is flat-priced for images, but per-model + per-token for text.
     rate = model ? GEMINI_RATE_TABLE[model]?.[unit] : undefined;
     if (rate === undefined && !model) rate = RATE_TABLE.gemini?.[unit];
+  } else if (vendor === "grok") {
+    // Grok is flat-priced for TTS characters, but per-model + per-token for text.
+    rate = model ? GROK_RATE_TABLE[model]?.[unit] : undefined;
+    if (rate === undefined && !model) rate = RATE_TABLE.grok?.[unit];
   } else {
     rate = RATE_TABLE[vendor]?.[unit];
   }
@@ -141,6 +155,12 @@ export class CostLedger {
   recordGeminiUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
     this.record(stage, "gemini", "input_tokens", usage.input_tokens, undefined, model);
     this.record(stage, "gemini", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
+  /** Same shape as recordAnthropicUsage but attributed to Grok (LLM failover). */
+  recordGrokUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "grok", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "grok", "output_tokens", usage.output_tokens, undefined, model);
   }
 
   getEvents(): CostEvent[] {

@@ -184,6 +184,60 @@ export const RewrittenScriptSchema = z.object({
 });
 export type RewrittenScript = z.infer<typeof RewrittenScriptSchema>;
 
+/** Source asset categories permitted in a long-form tutorial scene. */
+export const LongFormTutorialAssetTypeSchema = z.enum([
+  "screen_recording",
+  "slide",
+  "screenshot",
+  "image",
+  "video"
+]);
+export type LongFormTutorialAssetType = z.infer<typeof LongFormTutorialAssetTypeSchema>;
+
+/** Whether a scene's visual is substantiated evidence or an illustrative workflow. */
+export const LongFormTutorialProofStatusSchema = z.enum([
+  "verified",
+  "illustrative",
+  "required_before_release"
+]);
+export type LongFormTutorialProofStatus = z.infer<typeof LongFormTutorialProofStatusSchema>;
+
+/**
+ * A long-form scene must identify the exact source used for its visual asset so
+ * the tutorial can be reviewed and reproduced without inventing proof footage.
+ */
+export const LongFormTutorialSceneSchema = z.object({
+  narration: z.string().trim().min(1).max(10000),
+  durationSec: z.number().positive(),
+  assetType: LongFormTutorialAssetTypeSchema,
+  assetPath: z.string().trim().min(1).max(2000),
+  source: z.string().trim().min(1).max(2000),
+  proofStatus: LongFormTutorialProofStatusSchema
+});
+export type LongFormTutorialScene = z.infer<typeof LongFormTutorialSceneSchema>;
+
+/**
+ * Isolated contract for 16:9 YouTube tutorials. It intentionally does not
+ * extend RunConfigSchema or RewrittenScriptSchema: Shorts remain capped at 60s.
+ */
+export const LongFormTutorialSchema = z.object({
+  platform: z.literal("youtube_long"),
+  title: z.string().trim().min(1).max(160),
+  durationSec: z.number().int().min(300).max(1800),
+  aspectRatio: z.literal("16:9"),
+  scenes: z.array(LongFormTutorialSceneSchema).min(1).max(100)
+}).superRefine((tutorial, ctx) => {
+  const sceneDurationSec = tutorial.scenes.reduce((total, scene) => total + scene.durationSec, 0);
+  if (sceneDurationSec !== tutorial.durationSec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["scenes"],
+      message: "Scene durations must sum exactly to durationSec"
+    });
+  }
+});
+export type LongFormTutorial = z.infer<typeof LongFormTutorialSchema>;
+
 export const CaptionCueSchema = z.object({
   startSec: z.number().nonnegative(),
   endSec: z.number().nonnegative(),

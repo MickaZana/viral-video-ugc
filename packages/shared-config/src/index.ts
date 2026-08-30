@@ -60,8 +60,10 @@ const EnvSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
   /** Defaults to a stable built-in ElevenLabs voice if unset — see adapters/elevenlabs.ts. */
   ELEVENLABS_VOICE_ID: z.string().optional(),
-  /** xAI's Grok Speech/TTS API — same key as any other xAI API usage, not voiceover-specific. */
+  /** xAI's Grok Speech/TTS or Chat API — same key as any other xAI API usage. */
   XAI_API_KEY: z.string().optional(),
+  /** Grok / xAI API key alias. */
+  GROK_API_KEY: z.string().optional(),
   /** Defaults to xAI's "eve" voice if unset — see adapters/grok.ts. */
   GROK_VOICE_ID: z.string().optional(),
   /** ASR fallback for platforms without public caption tracks — see mcp-transcript/src/asr.ts. */
@@ -246,7 +248,11 @@ type StringEnvKey = Exclude<keyof Env, "TRUST_PROXY_HOPS" | "SECURITY_LOG_RETENT
  */
 export function requireEnvVar(key: StringEnvKey): string {
   const env = loadEnv();
-  const value = env[key];
+  let value = env[key];
+  if (!value) {
+    if (key === "XAI_API_KEY") value = env.GROK_API_KEY;
+    else if (key === "GROK_API_KEY") value = env.XAI_API_KEY;
+  }
   if (!value) {
     throw new Error(
       `Missing required env var "${key}". Set it in .env or your shell before running this stage live (not --dry-run).`

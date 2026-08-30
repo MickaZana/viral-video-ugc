@@ -3,6 +3,8 @@ import {
   AssembledVideoSchema,
   CandidateVideoSchema,
   CaptionCueSchema,
+  LongFormTutorialSchema,
+  PlatformSchema,
   RawClipSchema,
   ReviewItemSchema,
   RewrittenScriptSchema,
@@ -42,6 +44,13 @@ describe("RunConfigSchema", () => {
   it("rejects targetDurationSec outside 15-60", () => {
     expect(() => RunConfigSchema.parse({ ...base, targetDurationSec: 5 })).toThrow();
     expect(() => RunConfigSchema.parse({ ...base, targetDurationSec: 120 })).toThrow();
+  });
+
+  it("accepts youtube_long as a platform without expanding the Shorts duration bound", () => {
+    expect(RunConfigSchema.parse({ ...base, platforms: ["youtube_long"], targetDurationSec: 60 }).platforms).toEqual([
+      "youtube_long"
+    ]);
+    expect(() => RunConfigSchema.parse({ ...base, platforms: ["youtube_long"], targetDurationSec: 61 })).toThrow();
   });
 
   it("rejects a non-datetime createdAt", () => {
@@ -134,6 +143,45 @@ describe("RewrittenScriptSchema", () => {
   it("defaults trendingPhrases to an empty array", () => {
     const parsed = RewrittenScriptSchema.parse(base);
     expect(parsed.trendingPhrases).toEqual([]);
+  });
+
+  it("keeps the Shorts duration maximum at 60 seconds", () => {
+    expect(() => RewrittenScriptSchema.parse({ ...base, durationSec: 61 })).toThrow();
+  });
+});
+
+describe("LongFormTutorialSchema", () => {
+  const base = {
+    platform: "youtube_long",
+    title: "How I use the tutorial pipeline",
+    durationSec: 720,
+    aspectRatio: "16:9",
+    scenes: [
+      {
+        narration: "Open the dashboard and create a new tutorial.",
+        durationSec: 720,
+        assetType: "screen_recording",
+        assetPath: "/assets/dashboard-demo.mp4",
+        source: "Recorded in the local dashboard on 2026-08-30",
+        proofStatus: "illustrative"
+      }
+    ]
+  };
+
+  it("parses a sourced 16:9 YouTube tutorial", () => {
+    expect(LongFormTutorialSchema.parse(base)).toEqual(base);
+    expect(PlatformSchema.parse("youtube_long")).toBe("youtube_long");
+  });
+
+  it("requires a sourced, classified scene and enforces long-form duration and scene bounds", () => {
+    expect(() => LongFormTutorialSchema.parse({ ...base, durationSec: 299 })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, durationSec: 1801 })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, aspectRatio: "9:16" })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [] })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], source: "" }] })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], proofStatus: "unverified" }] })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], durationSec: 0 }] })).toThrow();
+    expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], durationSec: 719 }] })).toThrow();
   });
 });
 

@@ -1,0 +1,184 @@
+{
+  "platform": "youtube_long",
+  "title": "Five AI Tools That Can Help You Deliver Paid Work",
+  "durationSec": 750,
+  "aspectRatio": "16:9",
+  "scenes": [
+    {
+      "narration": "Five AI tools can support useful client deliverables. This is a map of potential workflows, not a money claim.",
+      "durationSec": 15,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/tool-map.png",
+      "source": "Creator-made title slide only; label potential workflows and show no money figures.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "Tools can reduce production time, but choosing a real problem, earning trust, and delivering quality remain human work.",
+      "durationSec": 20,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/clean-browser-tabs.mp4",
+      "source": "Record a real local browser session with five tool tabs; no private account data.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Choose one useful deliverable, make a transparent sample, offer it to a defined buyer, and improve it with feedback.",
+      "durationSec": 50,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/reality-check.png",
+      "source": "Creator-made disclosure slide; no dashboard or revenue claim.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "We will cover edited writing, social content, disclosed narration, digital-product concepts, and sourced research briefs.",
+      "durationSec": 30,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/five-tools-overview.png",
+      "source": "Creator-made overview; tool names checked against current official sites before recording.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "For writing, begin with an approved brief and source material; never ask a model to invent client facts.",
+      "durationSec": 30,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/chatgpt-brief.mp4",
+      "source": "Record a permitted ChatGPT session using fictional or creator-owned source text.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Request an outline first, flag missing information, then draft in sections after the facts are approved.",
+      "durationSec": 30,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/chatgpt-outline.mp4",
+      "source": "Record actual prompt/output; redact account details; show do not invent facts instruction.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "The deliverable needs human editing: check facts, claims, links, accessibility, and any qualified-review requirements.",
+      "durationSec": 35,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/writing-qc-checklist.png",
+      "source": "Creator-made checklist based on the narration.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "A clearly labeled mock offer can explain scope and revision policy without implying a job, client, invoice, or listing.",
+      "durationSec": 35,
+      "assetType": "screenshot",
+      "assetPath": "assets/long-form/mockups/writing-offer-example.png",
+      "source": "Clearly labeled mock offer; never a job, client, invoice, or platform listing.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "For social content, collect a mini brand kit before designing, or use a neutral practice project instead.",
+      "durationSec": 35,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/canva-brand-kit.mp4",
+      "source": "Record a permitted Canva session with fictional/sample brand assets or written permission.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Build a consistent template system, use approved facts and assets, and check contrast, crops, spelling, and readability.",
+      "durationSec": 40,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/canva-template-system.mp4",
+      "source": "Record actual build process using licensed/owned assets; no fabricated testimonials.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "A package can define concepts, revisions, files, and optional scheduling without promising growth, sales, or virality.",
+      "durationSec": 45,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/social-package-scope.png",
+      "source": "Creator-made example scope/disclosure slide; no growth or sales promises.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "Synthetic narration is for appropriate work: confirm the script owner, permitted use, voice authorization, and current license.",
+      "durationSec": 35,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/elevenlabs-authorized-demo.mp4",
+      "source": "Record permitted account with creator-owned script and authorized voice; verify current license.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Do not clone without documented consent, portray synthetic audio as human, or imply public-figure endorsement.",
+      "durationSec": 35,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/voice-consent-rules.png",
+      "source": "Creator-made consent/disclosure checklist.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "Generate short sections, check names and pacing, then deliver a clearly labeled sample made from a self-written script.",
+      "durationSec": 40,
+      "assetType": "video",
+      "assetPath": "assets/long-form/audio/ai-voice-sample-waveform.mp4",
+      "source": "Produce waveform/video from self-written, labeled AI sample; no impersonation.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "For original digital-product concepts, use a specific audience and style direction without artist, brand, character, or franchise references.",
+      "durationSec": 35,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/midjourney-original-prompt.mp4",
+      "source": "Record permitted Midjourney session; prompt avoids artist, brand, character, or franchise references.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Curate a creator-generated collection and retain its generation record while checking commercial-use terms and licenses.",
+      "durationSec": 35,
+      "assetType": "screenshot",
+      "assetPath": "assets/long-form/images/original-printable-collection.png",
+      "source": "Use only creator-generated collection; retain generation/source record and license checks.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "Before listing, verify dimensions, resolution, color, cropping, marketplace rules, and any required AI disclosure.",
+      "durationSec": 40,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/digital-product-qc.png",
+      "source": "Creator-made terms, marketplace policy, file-quality, and disclosure checklist.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "For research, start with a narrow question and request a plan plus a list of claims that need source links.",
+      "durationSec": 40,
+      "assetType": "screen_recording",
+      "assetPath": "assets/long-form/screens/gemini-research-plan.mp4",
+      "source": "Record permitted Gemini session using fictional brief; never show unverified output as fact.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "A research table is only useful when every important fact has a real, reviewable URL and access date.",
+      "durationSec": 30,
+      "assetType": "screenshot",
+      "assetPath": "assets/long-form/mockups/sourced-research-table.png",
+      "source": "Clearly labeled example table; sources must be real, reviewable URLs with access dates.",
+      "proofStatus": "required_before_release"
+    },
+    {
+      "narration": "AI output is not verified research. Check primary sources, state limitations, and seek qualified advice for consequential decisions.",
+      "durationSec": 25,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/research-limitations.png",
+      "source": "Creator-made limitations/source-check slide.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "Choose one lane, make an honest sample, ask for feedback, and track time, replies, revisions, costs, and substantiated results.",
+      "durationSec": 45,
+      "assetType": "slide",
+      "assetPath": "assets/long-form/slides/reality-check-next-seven-days.png",
+      "source": "Creator-made action plan; no earnings claims or projections.",
+      "proofStatus": "illustrative"
+    },
+    {
+      "narration": "Sell a clear outcome, disclose relevant AI use, and improve the final result beyond the first generation.",
+      "durationSec": 25,
+      "assetType": "video",
+      "assetPath": "assets/long-form/video/channel-cta.mp4",
+      "source": "Record creator-owned channel outro; disclose affiliate links in description if any.",
+      "proofStatus": "required_before_release"
+    }
+  ]
+}

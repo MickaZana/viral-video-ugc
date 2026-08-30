@@ -6,6 +6,14 @@ import ffmpegPath from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
 import type { AssembledVideo, CaptionCue, Platform, RawClip, RewrittenScript } from "@vvugc/shared-schema";
 
+// Kept separate from assembleVideo: long-form tutorials have their own scene
+// contract and never pass through the Shorts assembly path.
+export {
+  assembleLongFormTutorial,
+  type AssembleLongFormTutorialOptions,
+  type LongFormAssemblyResult
+} from "./long-form.js";
+
 /**
  * ffmpeg-static's downloaded binary isn't always runnable — in this project's dev
  * sandbox it fails with "Exec format error" despite being a valid PE32+ binary,
@@ -47,6 +55,7 @@ if (resolvedFfprobePath) ffmpeg.setFfprobePath(resolvedFfprobePath);
 export const ASPECT_RATIO_BY_PLATFORM: Record<Platform, AssembledVideo["aspectRatio"]> = {
   tiktok: "9:16",
   youtube_shorts: "9:16",
+  youtube_long: "16:9",
   instagram_reels: "9:16",
   facebook: "1:1"
 };
