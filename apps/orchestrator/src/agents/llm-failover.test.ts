@@ -270,3 +270,238 @@ describe("generateWithFailover / multi-provider failover chain", () => {
     expect(result.trendingPhrases).toEqual(["no cap"]);
   });
 });
+
+const kimiTextResponse = (json: unknown) => ({
+  ok: true,
+  json: async () => ({
+    choices: [{ message: { content: JSON.stringify(json) } }],
+    usage: { prompt_tokens: 90, completion_tokens: 45 }
+  })
+});
+
+describe("generateWithFailover / Kimi (Moonshot AI) as an opt-in preferredProvider", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GROK_API_KEY = "xai-test-key";
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("unexpected live fetch — mock it explicitly for this test");
+    }));
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+    delete process.env.MOONSHOT_API_KEY;
+    delete process.env.KIMI_API_KEY;
+    delete process.env.KIMI_MODEL;
+    vi.unstubAllGlobals();
+  });
+
+  it("does nothing for callers that don't set preferredProvider, even when MOONSHOT_API_KEY is configured (no regression to the 3 existing callers)", async () => {
+    process.env.MOONSHOT_API_KEY = "moonshot-key";
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ hook: "h", points: ["p"], cta: "c" }) }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      stage: "s"
+    });
+
+    expect(result.provider).toBe("anthropic");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("preferredProvider 'kimi' + MOONSHOT_API_KEY configured: tries Kimi first via the OpenAI-compatible shape and never touches Anthropic", async () => {
+    process.env.MOONSHOT_API_KEY = "moonshot-key";
+    const fetchMock = vi.fn().mockResolvedValue(kimiTextResponse({ scenes: ["kimi scene"] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard"
+    });
+
+    expect(result.provider).toBe("kimi");
+    expect(result.model).toBe("kimi-k3");
+    expect(mockCreate).not.toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.moonshot.ai/v1/chat/completions");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer moonshot-key");
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toBe("kimi-k3");
+    expect(body.max_tokens).toBe(100);
+  });
+
+  it("KIMI_MODEL overrides the default kimi-k3 model", async () => {
+    process.env.MOONSHOT_API_KEY = "moonshot-key";
+    process.env.KIMI_MODEL = "kimi-k2.6";
+    let capturedModel: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      capturedModel = JSON.parse(init.body as string).model;
+      return kimiTextResponse({ ok: true });
+    }));
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard"
+    });
+
+    expect(capturedModel).toBe("kimi-k2.6");
+    expect(result.model).toBe("kimi-k2.6");
+  });
+
+  it("preferredProvider 'kimi' with no Moonshot key configured: falls straight through to the standard chain (Anthropic), fetch never called", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard"
+    });
+
+    expect(result.provider).toBe("anthropic");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("preferredProvider 'kimi' configured but Kimi's call fails (500): falls through to the standard chain instead of throwing", async () => {
+    process.env.MOONSHOT_API_KEY = "moonshot-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "Internal Server Error" }));
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard"
+    });
+
+    expect(result.provider).toBe("anthropic");
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("KEY ALIAS: KIMI_API_KEY works the same as MOONSHOT_API_KEY", async () => {
+    process.env.KIMI_API_KEY = "kimi-alias-key";
+    const fetchMock = vi.fn().mockResolvedValue(kimiTextResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard"
+    });
+
+    expect(result.provider).toBe("kimi");
+    expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBe("Bearer kimi-alias-key");
+  });
+
+  it("records Kimi usage on the ledger under the requested stage/model", async () => {
+    process.env.MOONSHOT_API_KEY = "moonshot-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(kimiTextResponse({ ok: true })));
+    const ledger = new CostLedger();
+
+    await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      preferredProvider: "kimi",
+      stage: "ad_storyboard", costLedger: ledger
+    });
+
+    const events = ledger.getEvents();
+    // "kimi" isn't in shared-cost's CostVendor union yet (see recordKimiUsage's comment in
+    // llm-failover.ts) — cast to string here rather than widen the ledger's real type.
+    expect(events.some((e) => e.stage === "ad_storyboard" && (e.vendor as string) === "kimi" && e.model === "kimi-k3")).toBe(true);
+  });
+});
+
+describe("generateWithFailover / multimodal images", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GROK_API_KEY = "xai-test-key";
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("unexpected live fetch — mock it explicitly for this test");
+    }));
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  const oneImage = [{ mediaType: "image/jpeg" as const, base64: "ZmFrZQ==" }];
+
+  it("Anthropic: images become content blocks ahead of a trailing text block", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+    await generateWithFailover({
+      system: "s", userPrompt: "describe this", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      images: oneImage,
+      stage: "ad_deconstruction"
+    });
+
+    const content = mockCreate.mock.calls[0][0].messages[0].content;
+    expect(content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "ZmFrZQ==" } },
+      { type: "text", text: "describe this" }
+    ]);
+  });
+
+  it("Anthropic: with no images, content stays a plain string (byte-identical to the pre-multimodal shape)", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: JSON.stringify({ ok: true }) }], usage: { input_tokens: 1, output_tokens: 1 } });
+
+    await generateWithFailover({
+      system: "s", userPrompt: "plain text prompt", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      stage: "script_rewrite"
+    });
+
+    expect(mockCreate.mock.calls[0][0].messages[0].content).toBe("plain text prompt");
+  });
+
+  it("Gemini fallback: images become inline_data parts ahead of the text part", async () => {
+    mockCreate.mockRejectedValue(sdkError("APIError"));
+    const fetchMock = vi.fn().mockResolvedValue(geminiTextResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateWithFailover({
+      system: "sys", userPrompt: "usr", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      images: oneImage,
+      stage: "ad_deconstruction"
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.contents[0].parts).toEqual([
+      { inline_data: { mime_type: "image/jpeg", data: "ZmFrZQ==" } },
+      { text: "sys\n\nusr" }
+    ]);
+  });
+
+  it("Grok: rejects a request carrying images with a clear error rather than silently dropping them", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+
+    await expect(generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-sonnet-5", geminiModel: "gemini-2.5-pro",
+      images: oneImage,
+      stage: "ad_deconstruction"
+    })).rejects.toThrow(/does not support multimodal/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

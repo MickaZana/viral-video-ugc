@@ -22,7 +22,8 @@ export type CostVendor =
   | "grok_video"
   | "sync_labs"
   | "heygen"
-  | "wan";
+  | "wan"
+  | "kimi";
 
 export interface CostEvent {
   stage: string;
@@ -68,6 +69,18 @@ const GROK_RATE_TABLE: Record<string, Record<string, number>> = {
   "grok-3": { input_tokens: 3 / 1_000_000, output_tokens: 15 / 1_000_000 }
 };
 
+// Per-token list pricing for Kimi (Moonshot AI) text models, used by the orchestrator's
+// Ad Storyboard agent (llm-failover.ts's opt-in "kimi" provider). Sourced from Moonshot's
+// official published rate for kimi-k2.6 ($0.95/$4.00 per 1M input/output tokens) — this
+// codebase's actual default model is "kimi-k3" (Moonshot's newer flagship), whose real
+// published per-token rate was not found/confirmed at the time this table was written;
+// the k2.6 rate is used here as the closest documented estimate. Confirm against current
+// Moonshot pricing (platform.moonshot.ai) before relying on this for kimi-k3 specifically.
+const KIMI_RATE_TABLE: Record<string, Record<string, number>> = {
+  "kimi-k2.6": { input_tokens: 0.95 / 1_000_000, output_tokens: 4.0 / 1_000_000 },
+  "kimi-k3": { input_tokens: 0.95 / 1_000_000, output_tokens: 4.0 / 1_000_000 }
+};
+
 const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number>> = {
   higgsfield: { clip: 0.4 },
   kling: { clip: 0.35 },
@@ -106,7 +119,12 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // per output-second at 480p/720p/1080p. Estimated here as ~$0.50/clip at 720p
   // for a typical short segment clip, same convention as seedance/grok_video above.
   // Confirm against actual usage once live generation is run through this adapter.
-  wan: { clip: 0.5 }
+  wan: { clip: 0.5 },
+  // Kimi is purely per-model + per-token (see KIMI_RATE_TABLE below and its branch
+  // in estimateCostUsd) — no flat-unit use case, unlike grok/gemini which also
+  // have a real TTS/image rate here. Empty only to satisfy this Record's
+  // exhaustiveness; never actually looked up.
+  kimi: {}
 };
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {
@@ -123,6 +141,10 @@ export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: numb
     // Grok is flat-priced for TTS characters, but per-model + per-token for text.
     rate = model ? GROK_RATE_TABLE[model]?.[unit] : undefined;
     if (rate === undefined && !model) rate = RATE_TABLE.grok?.[unit];
+  } else if (vendor === "kimi") {
+    // Kimi is per-model + per-token only — see KIMI_RATE_TABLE's own comment for
+    // what's confirmed vs. estimated.
+    rate = model ? KIMI_RATE_TABLE[model]?.[unit] : undefined;
   } else {
     rate = RATE_TABLE[vendor]?.[unit];
   }
@@ -167,6 +189,12 @@ export class CostLedger {
   recordGrokUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
     this.record(stage, "grok", "input_tokens", usage.input_tokens, undefined, model);
     this.record(stage, "grok", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
+  /** Same shape as recordAnthropicUsage but attributed to Kimi (Ad Storyboard agent's opt-in provider). */
+  recordKimiUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "kimi", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "kimi", "output_tokens", usage.output_tokens, undefined, model);
   }
 
   getEvents(): CostEvent[] {
