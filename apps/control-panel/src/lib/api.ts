@@ -34,7 +34,7 @@ import type {
   , UGCTemplate
 } from './types'
 import { loadCsrf } from './auth'
-import type { BatchPlan, BatchProgress, BatchRequest } from '@vvugc/shared-schema'
+import type { BatchPlan, BatchPlanDraft, BatchProgress, BatchRequest } from '@vvugc/shared-schema'
 
 const API_BASE = '/api'
 
@@ -468,6 +468,16 @@ export const api = {
   },
 
   // ---- Batch variation generation ----
+  /** Natural-language front end to batchPlan below: describe a batch in plain
+   *  language ("a week of fitness content for my protein brand, TikTok and
+   *  Reels") and get back a draft BatchRequest to review/edit before planning.
+   *  Never plans or enqueues anything itself. */
+  batchPlanFromDescription(description: string, clientId?: string): Promise<BatchPlanDraft> {
+    return request<BatchPlanDraft>('/accounts/batch/plan-from-description', {
+      method: 'POST',
+      body: JSON.stringify({ description, clientId })
+    })
+  },
   /** Plan a batch — returns cost breakdown, warnings, variation count. */
   batchPlan(body: BatchRequest): Promise<BatchPlan> {
     return request<BatchPlan>('/accounts/batch/plan', { method: 'POST', body: JSON.stringify(body) })

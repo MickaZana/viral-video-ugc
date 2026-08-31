@@ -5,7 +5,7 @@ import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
 import { paths } from '../lib/paths'
 import type { CreatorProfile, Platform, ProductProfile, UGCTemplate } from '../lib/types'
-import type { BatchPlan, BatchRequest, VendorPolicy as BatchVendorPolicy } from '@vvugc/shared-schema'
+import type { BatchPlan, BatchPlanDraft, BatchRequest, VendorPolicy as BatchVendorPolicy } from '@vvugc/shared-schema'
 
 /* ─── Types for batch plan/enqueue flow ──────────────────────────────── */
 
@@ -83,6 +83,14 @@ export function BatchStudio() {
   const [planError, setPlanError] = useState<string | null>(null)
   const [enqueueing, setEnqueueing] = useState(false)
   const [enqueueError, setEnqueueError] = useState<string | null>(null)
+
+  // Natural-language draft state — a separate front end to the form above.
+  // Never plans or enqueues anything itself; it only fills the form below for
+  // review before the user hits "Plan batch".
+  const [nlDescription, setNlDescription] = useState('')
+  const [nlDrafting, setNlDrafting] = useState(false)
+  const [nlError, setNlError] = useState<string | null>(null)
+  const [nlDraft, setNlDraft] = useState<BatchPlanDraft | null>(null)
 
   // Auto-select first product when loaded
   useEffect(() => {
@@ -222,6 +230,45 @@ export function BatchStudio() {
     }
   }, [account.data?.account, form, products.data?.products, variationCount])
 
+  const handleDraftFromDescription = useCallback(async () => {
+    if (!nlDescription.trim()) return
+    setNlDrafting(true)
+    setNlError(null)
+    setNlDraft(null)
+    try {
+      const draft = await api.batchPlanFromDescription(nlDescription.trim())
+      setNlDraft(draft)
+      setPlan(null)
+
+      const { plan: p } = draft
+      // Batch Studio's platform picker only offers the 4 short-form platforms
+      // above (no youtube_long checkbox) — drop anything the AI draft returned
+      // that this form doesn't have a control for, rather than widen the form.
+      const supportedPlatforms = new Set(PLATFORMS.map((x) => x.value as string))
+      const draftPlatforms = p.platforms.filter((x): x is Platform => supportedPlatforms.has(x))
+      setForm((f) => ({
+        ...f,
+        productId: p.productProfileId || f.productId,
+        templateId: p.templateId ?? f.templateId,
+        creatorIds: p.creatorProfileIds.length ? p.creatorProfileIds : f.creatorIds,
+        platforms: draftPlatforms.length ? draftPlatforms : f.platforms,
+        hookCount: p.hookCount,
+        scriptCount: p.scriptCount,
+        captionStyles: p.captionStyleIds?.length ? p.captionStyleIds : f.captionStyles,
+        ctaVariants: p.ctaVariants?.length ? p.ctaVariants : f.ctaVariants,
+        // The form only offers cheapest/quality (no specific-vendor picker) — a
+        // "specific" draft policy is treated as a quality signal rather than
+        // silently dropped back to cheapest.
+        vendorPolicy: p.vendorPolicy.policy === 'cheapest' ? 'cheapest' : 'quality',
+        targetDurationSec: p.targetDurationSec
+      }))
+    } catch (err) {
+      setNlError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setNlDrafting(false)
+    }
+  }, [nlDescription])
+
   const handleEnqueue = useCallback(async () => {
     if (!plan || !plannedRequest) return
     setEnqueueing(true)
@@ -257,6 +304,50 @@ export function BatchStudio() {
           ← Single run
         </button>
       </div>
+
+      {/* ─── Natural-language draft ──────────────────────────────── */}
+      <Panel title="DESCRIBE YOUR BATCH">
+        <div className="px-5 py-5 space-y-3">
+          <p className="text-[10px] font-mono text-[var(--color-muted-2)]">
+            Describe what you want in plain language — the form below fills in from it; review before planning.
+          </p>
+          <textarea
+            className="w-full bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3 focus:outline-none focus:border-[var(--color-lime)] transition-colors resize-y"
+            rows={2}
+            placeholder='e.g. "a week of energetic fitness content for my protein brand, TikTok and Reels"'
+            value={nlDescription}
+            onChange={(e) => setNlDescription(e.target.value)}
+          />
+          <button
+            onClick={handleDraftFromDescription}
+            disabled={nlDrafting || !nlDescription.trim()}
+            className="px-5 py-2.5 font-black uppercase tracking-widest text-xs transition-colors disabled:opacity-50 border"
+            style={{ borderColor: 'var(--color-lime)', color: 'var(--color-lime)' }}
+          >
+            {nlDrafting ? 'DRAFTING...' : 'DRAFT WITH AI'}
+          </button>
+
+          {nlError && (
+            <p className="text-[11px] font-mono text-[var(--color-red)]">Error: {nlError}</p>
+          )}
+
+          {nlDraft && (
+            <div className="border border-[var(--color-border)] bg-[var(--color-bg)] p-4 space-y-2">
+              <p className="text-[11px] font-mono text-[var(--color-text)]">{nlDraft.plan.rationale}</p>
+              {nlDraft.droppedInvalidIds.length > 0 && (
+                <p className="text-[10px] font-mono text-[var(--color-orange)]">
+                  ⚠ Ignored unrecognized reference(s) from the draft: {nlDraft.droppedInvalidIds.join(', ')}
+                </p>
+              )}
+              {!nlDraft.plan.productProfileId && (
+                <p className="text-[10px] font-mono text-[var(--color-orange)]">
+                  ⚠ Couldn't resolve a product from the description — pick one below.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </Panel>
 
       {/* ─── Form Panel ──────────────────────────────────────────── */}
       <Panel title="BATCH CONFIGURATION">

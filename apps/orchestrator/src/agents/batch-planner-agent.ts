@@ -1,7 +1,25 @@
 import type { CostLedger } from "@vvugc/shared-cost";
-import { CaptionStyleSchema, PlatformSchema, VendorPolicySchema, HARD_LIMITS } from "@vvugc/shared-schema";
-import { z } from "zod";
+import {
+  AiBatchPlanInputSchema,
+  type AiBatchPlanInput,
+  type BatchPlannerContext,
+  type BatchPlannerContextEntity,
+  type BatchPlanDraft
+} from "@vvugc/shared-schema";
 import { generateWithFailover } from "./llm-failover.js";
+
+// Re-exported for backward compat with existing callers of this module —
+// the canonical definitions now live in shared-schema/src/batch.ts (see its
+// own doc comment) so the browser-bundled control-panel app can import these
+// types directly without pulling in this app's node-only dependencies
+// (ffmpeg-static etc.), the same reason BatchRequest/BatchPlan live there.
+export {
+  AiBatchPlanInputSchema,
+  type AiBatchPlanInput,
+  type BatchPlannerContext,
+  type BatchPlannerContextEntity,
+  type BatchPlanDraft
+};
 
 /**
  * Batch Planner Agent: "describe a series, get a week of content" — the
@@ -29,59 +47,6 @@ import { generateWithFailover } from "./llm-failover.js";
  *    referenced entities exist (see batch-planner.ts's EntityLookup). This
  *    agent's output is a draft, not an executable instruction.
  */
-
-/** Subset of BatchRequestSchema's fields this agent is allowed to fill.
- *  Deliberately omits clientId/orgId/requestedBy (server-injected, never
- *  model-produced) and dryRun (the caller decides that, not the description).
- *
- *  productProfileId is intentionally NOT `.min(1)` the way BatchRequestSchema's
- *  own copy of this field is — this is a DRAFT schema, and an empty string here
- *  is a meaningful sentinel ("no valid product could be resolved; the user must
- *  pick one before this draft can become a real BatchRequest"), produced by
- *  validateAgainstContext() when the model's chosen id isn't in the provided
- *  context, and by mockDraft() when the org has no products at all. The real
- *  BatchRequestSchema this draft eventually feeds into still requires a
- *  non-empty id — that constraint is enforced there, at the point something
- *  would actually run, not here at the draft stage. */
-export const AiBatchPlanInputSchema = z.object({
-  productProfileId: z.string(),
-  templateId: z.string().min(1).optional(),
-  creatorProfileIds: z.array(z.string().min(1)).max(HARD_LIMITS.MAX_CREATORS).default([]),
-  hookCount: z.number().int().min(1).max(HARD_LIMITS.MAX_HOOKS).default(3),
-  scriptCount: z.number().int().min(1).max(3).default(1),
-  captionStyleIds: z.array(CaptionStyleSchema).max(3).optional(),
-  ctaVariants: z.array(z.string().min(1).max(300)).max(5).optional(),
-  platforms: z.array(PlatformSchema).min(1).max(HARD_LIMITS.MAX_PLATFORMS),
-  vendorPolicy: VendorPolicySchema.default({ policy: "cheapest" }),
-  targetDurationSec: z.number().int().min(15).max(60).default(25),
-  maxVariations: z.number().int().min(1).max(HARD_LIMITS.MAX_VARIATIONS_PER_BATCH).default(50),
-  maxEstimatedCostUsd: z.number().min(0).max(HARD_LIMITS.MAX_ESTIMATED_SPEND_USD).default(50),
-  locale: z.string().min(2).default("en"),
-  /** Not a BatchRequest field — the agent's own plain-language explanation of
-   *  what it inferred and why, shown to the user above the review form so a
-   *  wrong inference is obvious before they run anything. */
-  rationale: z.string().min(1).max(1000)
-});
-export type AiBatchPlanInput = z.infer<typeof AiBatchPlanInputSchema>;
-
-export interface BatchPlannerContextEntity {
-  id: string;
-  name: string;
-}
-
-export interface BatchPlannerContext {
-  products: BatchPlannerContextEntity[];
-  templates: BatchPlannerContextEntity[];
-  creators: BatchPlannerContextEntity[];
-}
-
-export interface BatchPlanDraft {
-  plan: AiBatchPlanInput;
-  /** Ids the model returned that were dropped because they weren't in the
-   *  provided context (should be empty in the common case — see module doc
-   *  point 2 — but surfaced rather than silently swallowed if it happens). */
-  droppedInvalidIds: string[];
-}
 
 const SYSTEM_PROMPT = `You are a content batch-planning assistant. A user describes, in plain language, a
 batch of short-form video content they want (e.g. "a week of fitness content for my protein

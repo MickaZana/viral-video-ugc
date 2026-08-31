@@ -35,11 +35,11 @@ import {
 } from "@vvugc/shared-auth";
 import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
-import { getUgcTemplate } from "@vvugc/orchestrator";
+import { getUgcTemplate, BUILTIN_UGC_TEMPLATES, planBatchFromDescription, type BatchPlannerContext } from "@vvugc/orchestrator";
 
 import { checkRunQuota } from "./quota.js";
 import { createOverageStore } from "./overage.js";
-import { isLLMLive } from "./llm-gate.js";
+import { isLLMLive, isRealRun } from "./llm-gate.js";
 import type { AuthedRequest } from "./accounts.js";
 import type { IdentityRepository } from "./accounts.js";
 import type { TenantProfileRepository } from "./tenant-profile-postgres.js";
@@ -121,6 +121,54 @@ export function registerBatchRoutes(
   requireSession: RequestHandler,
   deps: { identity: IdentityRepository; tenantProfiles: TenantProfileRepository }
 ): void {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POST /accounts/batch/plan-from-description
+  // Natural-language front end to the structured planner below: turns a plain-
+  // language description ("a week of fitness content for my protein brand,
+  // TikTok and Reels") into a DRAFT AiBatchPlanInput for the caller to review
+  // and edit in the existing BatchStudio form — it never plans or enqueues
+  // anything itself. Same governance gate as every other real-LLM-call route
+  // (isRealRun): without VVUGC_LLM_LIVE + an explicit live intent, this runs
+  // the deterministic dry-run mock draft instead of a real Claude call.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.post(
+    "/accounts/batch/plan-from-description",
+    requireSession,
+    asyncHandler(async (req: AuthedRequest, res) => {
+      const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+      if (!description) {
+        return res.status(400).json({ error: "'description' (non-empty string) is required" });
+      }
+      const clientId = typeof req.body?.clientId === "string" ? req.body.clientId : undefined;
+
+      const account = await deps.identity.findById(req.accountId!);
+      if (!account) return res.status(401).json({ error: "account not found" });
+      const orgId = account.orgId;
+
+      const [products, creators] = await Promise.all([
+        deps.tenantProfiles.productList(orgId, clientId),
+        deps.tenantProfiles.creatorList(orgId, clientId),
+      ]);
+      const context: BatchPlannerContext = {
+        products: products.map((p) => ({ id: p.id, name: p.name })),
+        templates: BUILTIN_UGC_TEMPLATES.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name })),
+        creators: creators.filter((c) => c.active).map((c) => ({ id: c.id, name: c.displayName })),
+      };
+
+      try {
+        const draft = await planBatchFromDescription(description, context, { dryRun: !isRealRun(req) });
+        logger.info(
+          { orgId, dropped: draft.droppedInvalidIds.length, isDryRun: !isRealRun(req) },
+          "batch plan drafted from natural-language description"
+        );
+        res.json(draft);
+      } catch (err) {
+        logger.error({ orgId, err }, "batch plan-from-description failed");
+        res.status(502).json({ error: err instanceof Error ? err.message : "failed to draft a batch plan" });
+      }
+    })
+  );
+
   // ═══════════════════════════════════════════════════════════════════════════
   // POST /accounts/batch/plan
   // Accepts BatchRequest, validates entities, runs the planner, returns

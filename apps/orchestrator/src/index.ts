@@ -14,3 +14,11 @@ export { runAcceptance, type AcceptanceEvidence } from "./acceptance.js";
 export { previewRemix } from "./remix.js";
 export { fetchRemixTranscript, parseSourceUrl, candidateFromSource } from "./remix-source.js";
 export { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, validateTemplateScript } from "./templates.js";
+export {
+  planBatchFromDescription,
+  AiBatchPlanInputSchema,
+  type AiBatchPlanInput,
+  type BatchPlannerContext,
+  type BatchPlannerContextEntity,
+  type BatchPlanDraft
+} from "./agents/batch-planner-agent.js";

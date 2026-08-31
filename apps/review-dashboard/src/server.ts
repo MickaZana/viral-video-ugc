@@ -25,7 +25,7 @@ import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
 import { renderDashboardPage } from "./render.js";
 import { initializeIdentity, parseCookies, registerAccountRoutes } from "./accounts.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
-// import { registerBatchRoutes } from "./batch-routes.js";
+import { registerBatchRoutes } from "./batch-routes.js";
 // import { registerSoulIdRoutes } from "./soul-id-routes.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
@@ -262,7 +262,15 @@ const { requireSession, verifySessionRequest } = registerAccountRoutes(app, {
   billing: billingRepository
 });
 registerBillingRoutes(app, requireSession, { pool: initializedIdentity.database?.pool });
-// registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles! });
+// Batch Studio (structured plan/enqueue/progress/cancel + the natural-language
+// plan-from-description front end) — the control-panel BatchStudio.tsx page
+// already calls these routes; this was left commented out after the P2 orgId
+// bypass fix in e7744ad and never re-enabled, leaving the whole feature 404 in
+// production despite a finished, tested UI pointed at it.
+// initializeIdentity() always populates tenantProfiles on every return branch
+// (LocalTenantProfileRepository or PostgresTenantProfileRepository) — the field
+// is optional only for the InitializedIdentity DI type's other injection points.
+registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles! });
 
 // API v1 namespace — disabled by default (VVUGC_API_ENABLED=false), returns 404 when off.
 app.use("/v1", v1Router);
