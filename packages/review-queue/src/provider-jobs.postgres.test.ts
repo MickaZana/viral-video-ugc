@@ -73,6 +73,12 @@ describe.skipIf(!TEST_DATABASE_URL)("Postgres provider jobs", () => {
     expect(reclaimed?.id).toBe(expired.id);
     expect((await store.fail(expired.id, "reclaimer", "vendor unavailable", true))?.status).toBe("dead_letter");
     expect((await store.replay(expired.id))?.status).toBe("queued");
+    // claim() is FIFO (ORDER BY available_at, created_at) so a real worker
+    // never starves an older job — replayed `expired` is still the oldest
+    // queued row at this point and would otherwise be claimed ahead of the
+    // fresh jobs the rest of this test enqueues below. Retire it explicitly
+    // so the scenarios that follow are actually testing what they claim to.
+    expect(await store.cancel(expired.id)).toBe(true);
 
     const queued = await store.enqueue(input());
     expect(await store.cancel(queued.id)).toBe(true);

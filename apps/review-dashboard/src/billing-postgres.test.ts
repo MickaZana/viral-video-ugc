@@ -33,7 +33,14 @@ describe.skipIf(!TEST_DATABASE_URL)("PostgresBillingRepository", () => {
     expect(reservations.filter((row) => row.kind === "included")).toHaveLength(4);
     expect(reservations.filter((row) => row.kind === "overage")).toHaveLength(1);
     await Promise.all(reservations.map((row) => billing.settleReservation({ orgId, runId: row.runId })));
-    expect(await billing.overageSummary(orgId)).toEqual({ count: 1, totalUsd: 6 });
+    // $6 is the starter tier's flat overagePriceUsdPerRun — but reserveRun's
+    // amountCents runs it through computeOverageCost(basePrice, durationSec),
+    // and no durationSec was passed above, so it took reserveRun's own
+    // default of 30s. 30s falls in DURATION_TIERS' "standard" band (<=30s,
+    // 1.5x multiplier — see shared-billing/src/tiers.ts), so $6 * 1.5 = $9 is
+    // the actually-correct duration-scaled charge, matching the same
+    // computeOverageCost the e2e hybrid-billing test already asserts against.
+    expect(await billing.overageSummary(orgId)).toEqual({ count: 1, totalUsd: 9 });
   });
 
   it("tenant scopes reservations and cascades billing state on organization deletion", async () => {

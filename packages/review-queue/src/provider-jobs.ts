@@ -182,8 +182,8 @@ export function createPostgresProviderJobStore(pool: PgPool): ProviderJobStore {
       const { rows } = await pool.query<ProviderJobRow>(
         `INSERT INTO provider_jobs
           (id, org_id, client_id, run_id, candidate_id, platform, script_segment_index,
-           requested_vendor, fallback_vendors, max_attempts, idempotency_key, estimated_cost, request)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           requested_vendor, fallback_vendors, max_attempts, status, idempotency_key, estimated_cost, request)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'queued',$11,$12,$13)
          ON CONFLICT (org_id, idempotency_key) DO UPDATE
            SET idempotency_key = EXCLUDED.idempotency_key
          RETURNING *`,

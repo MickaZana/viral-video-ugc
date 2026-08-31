@@ -33,8 +33,16 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
 
     // The real effect of 0001_create_review_items + 0002_add_tenant_scope — not
     // just the tracking row. Keep this column list in sync with MIGRATIONS.
+    // information_schema.columns spans every schema in the database, not just
+    // this pool's own — under real file-parallel execution (fileParallelism:
+    // true, see this repo's other Postgres suites concurrently creating their
+    // own same-named review_items table in their own isolated schema) an
+    // unscoped query here picks up columns from those sibling schemas too.
+    // current_schema() is exactly this pool's isolated schema (set via its
+    // search_path in createIsolatedTestDatabase), so scoping to it is what
+    // actually makes this test schema-isolated, not just schema-labeled.
     const tableCheck = await testDatabase.pool.query(
-      "SELECT column_name FROM information_schema.columns WHERE table_name = 'review_items' ORDER BY column_name"
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'review_items' ORDER BY column_name"
     );
     expect(tableCheck.rows.map((r) => r.column_name).sort()).toEqual(
       ["client_id", "created_at", "data", "id", "niche", "org_id", "platform", "status"].sort()
@@ -67,8 +75,11 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
     expect(rows).toHaveLength(MIGRATIONS.length);
 
     for (const table of ["review_items", "pipeline_jobs"]) {
+      // Same cross-schema leak as the column-list check above: unscoped, this
+      // sees other suites' concurrently-created same-named tables in their
+      // own isolated schema and reports a false positive.
       const tableExists = await testDatabase.pool.query(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)",
         [table]
       );
       expect(tableExists.rows[0].exists).toBe(false);
