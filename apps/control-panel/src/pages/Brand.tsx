@@ -3,7 +3,8 @@ import { useState } from 'react'
 import { api, type SocialConnection } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { paths } from '../lib/paths'
-import type { AgencyClient, ProductProfile, CreatorProfile } from '../lib/types'
+import type { AgencyClient, ProductProfile, CreatorProfile, CharacterAttributes, CharacterPortrait } from '../lib/types'
+import { CHARACTER_ATTRIBUTE_OPTIONS } from '../lib/types'
 
 export function Brand() {
   const navigate = useNavigate()
@@ -113,6 +114,7 @@ export function Brand() {
         </div>
       </section>
       <section className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5 space-y-3"><h2 className="text-sm font-semibold uppercase tracking-widest">Creator profiles</h2><p className="text-[11px] text-[var(--color-muted-3)]">Reference-guided creators with explicit vendor compatibility. Soul ID persists face identity across all generations.</p><div className="flex gap-2"><input value={creatorName} onChange={(e) => setCreatorName(e.target.value)} placeholder="Creator display name" className="flex-1 bg-[var(--color-bg)] border border-[var(--color-input)] p-3 text-sm" /><button onClick={() => void createCreator()} disabled={busy || !creatorName.trim()} className="px-4 py-2 text-[11px] uppercase tracking-widest" style={{ backgroundColor: 'var(--color-lime)' }}>Create</button></div><div className="divide-y divide-[var(--color-raised)] border border-[var(--color-border)]">{(creators.data?.creators ?? []).map((creator) => <div key={creator.id} className="px-4 py-3 flex flex-wrap gap-3 items-start"><div className="flex-1"><span className="text-sm block">{creator.displayName}</span><span className="text-[10px] text-[var(--color-muted-3)]">{creator.avatarMode} · {creator.referenceImages.length} photos · {creator.active ? 'active' : 'archived'}</span></div><SoulIdBadge status={(creator as any).faceEmbeddingStatus ?? 'none'} primaryUrl={(creator as any).primaryReferenceImageUrl} /><button onClick={() => void api.trainCreatorIdentity(creator.id).then(() => creators.reload()).catch((e) => setError(e instanceof Error ? e.message : String(e)))} disabled={creator.referenceImages.length < 3 || creator.avatarMode === 'none'} className="px-3 py-1.5 text-[10px] uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title={creator.referenceImages.length < 3 ? 'Need at least 3 reference photos' : creator.avatarMode === 'none' ? 'Set avatarMode to reference_images first' : 'Train persistent face identity'}>Train Identity</button><button onClick={() => { setCreatorEdit(creator.id); setCreatorJson(JSON.stringify(creator, null, 2)) }} className="text-[10px] text-[var(--color-lime)]">Edit</button><button onClick={() => void api.archiveCreator(creator.id).then(() => creators.reload())} className="text-[10px] text-[var(--color-red)]">Archive</button>{creatorEdit === creator.id && <div className="basis-full"><textarea value={creatorJson} onChange={(e) => setCreatorJson(e.target.value)} className="w-full min-h-52 bg-[var(--color-bg)] border border-[var(--color-input)] p-2 text-xs font-mono" /><button onClick={() => void saveCreator(creator)} className="mt-2 px-3 py-2 text-[10px] bg-[var(--color-lime)]">Save</button></div>}</div>)}</div></section>
+      <CharacterBuilderSection onCreated={() => creators.reload()} />
       <section className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5"><h3 className="text-[11px] uppercase tracking-widest mb-3">Reference image manager</h3>{(creators.data?.creators ?? []).map((creator) => <div key={creator.id} className="flex flex-wrap gap-2 items-center mb-2"><span className="text-xs w-32">{creator.displayName}</span><label className="text-[10px] text-[var(--color-lime)] cursor-pointer">Upload<input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCreatorImage(creator.id, f); e.currentTarget.value = '' }} /></label>{creator.referenceImages.map((image) => <span key={image.id} className="relative"><img src={`/accounts/creators/${creator.id}/images/${image.id}`} alt={image.fileName} className="h-10 w-10 object-cover" /><button onClick={() => void api.deleteCreatorImage(creator.id, image.id).then(() => creators.reload())} className="absolute -right-1 -top-1 bg-black text-white text-[9px]">×</button></span>)}</div>)}</section>
     </div>
   )
@@ -243,5 +245,133 @@ function SoulIdBadge({ status, primaryUrl }: { status: string; primaryUrl?: stri
         {s.label}
       </span>
     </div>
+  )
+}
+
+/**
+ * Character Builder — "generate a person from scratch." Deliberately a
+ * standalone flow from the main discover -> script -> video pipeline (no
+ * niche, no platform, no run): pick attributes, generate a small batch of
+ * candidate portraits, pick one, name the new creator, save. The picked
+ * portrait becomes that creator's first reference image via the exact same
+ * upload endpoint a manually-uploaded photo would use — Soul ID / identityRef
+ * consistency downstream doesn't know or care whether the reference image
+ * came from an upload or from here.
+ */
+function CharacterBuilderSection({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [attrs, setAttrs] = useState<CharacterAttributes>({ gender: 'woman', ageRange: 'late_20s' })
+  const [portraits, setPortraits] = useState<CharacterPortrait[]>([])
+  const [selected, setSelected] = useState<number | null>(null)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function setAttr<K extends keyof CharacterAttributes>(key: K, value: CharacterAttributes[K]) {
+    setAttrs((prev) => ({ ...prev, [key]: value }))
+  }
+
+  async function generate() {
+    setBusy(true); setError(null); setPortraits([]); setSelected(null)
+    try {
+      const result = await api.generateCharacterPortraits(attrs, 4)
+      setPortraits(result.portraits)
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function saveAsCreator() {
+    if (selected === null || !name.trim()) return
+    const portrait = portraits[selected]
+    setBusy(true); setError(null)
+    try {
+      const { creator } = await api.createCreator({
+        displayName: name.trim(), description: '', avatarMode: 'reference_images', compatibleVendors: [],
+        speechStyle: '', tone: '', wardrobe: '', visualStyle: '', language: 'en', prohibitedDepictions: [],
+        consentConfirmed: true, active: true
+      })
+      await api.uploadCreatorImage(creator.id, {
+        fileName: `character-builder-${portrait.index}.png`, mimeType: portrait.mimeType, dataBase64: portrait.dataBase64
+      })
+      setOpen(false); setPortraits([]); setSelected(null); setName('')
+      onCreated()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
+  const fieldLabel = (key: string) => key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()
+  const optionLabel = (value: string) => value.replace(/_/g, ' ')
+
+  return (
+    <section className="border border-[var(--color-lime)] bg-[var(--color-surface)] p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-widest">Generate a character from scratch</h2>
+          <p className="text-[11px] text-[var(--color-muted-3)]">A wholly synthetic person, built from attributes — no photo needed to start.</p>
+        </div>
+        <button onClick={() => setOpen((v) => !v)} className="px-3 py-1.5 text-[10px] uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)]">
+          {open ? 'Close' : 'Open'}
+        </button>
+      </div>
+      {open && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {(Object.keys(CHARACTER_ATTRIBUTE_OPTIONS) as (keyof typeof CHARACTER_ATTRIBUTE_OPTIONS)[]).map((key) => (
+              <label key={key} className="text-[10px] uppercase tracking-widest text-[var(--color-muted-3)] space-y-1 block">
+                {fieldLabel(key)}
+                <select
+                  value={(attrs[key] as string) ?? ''}
+                  onChange={(e) => setAttr(key, (e.target.value || undefined) as never)}
+                  className="w-full bg-[var(--color-bg)] border border-[var(--color-input)] p-2 text-xs text-[var(--color-text)] normal-case"
+                >
+                  {key !== 'gender' && key !== 'ageRange' && <option value="">Any</option>}
+                  {CHARACTER_ATTRIBUTE_OPTIONS[key].map((v) => <option key={v} value={v}>{optionLabel(v)}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+          <input
+            value={attrs.additionalDetails ?? ''}
+            onChange={(e) => setAttr('additionalDetails', e.target.value)}
+            placeholder="Additional details (optional) — e.g. small nose stud, freckles"
+            className="w-full bg-[var(--color-bg)] border border-[var(--color-input)] p-3 text-sm"
+          />
+          <button onClick={() => void generate()} disabled={busy} className="px-4 py-2 text-[11px] uppercase tracking-widest disabled:opacity-40" style={{ backgroundColor: 'var(--color-lime)' }}>
+            {busy && portraits.length === 0 ? 'Generating…' : 'Generate 4 portraits'}
+          </button>
+
+          {portraits.length > 0 && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {portraits.map((p) => (
+                  <button
+                    key={p.index}
+                    onClick={() => setSelected(p.index)}
+                    className="border-2 p-1"
+                    style={{ borderColor: selected === p.index ? 'var(--color-lime)' : 'var(--color-border)' }}
+                  >
+                    <img src={`data:${p.mimeType};base64,${p.dataBase64}`} alt={`Candidate ${p.index + 1}`} className="w-full aspect-square object-cover" />
+                  </button>
+                ))}
+              </div>
+              {selected !== null && (
+                <div className="flex gap-2">
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Name this character"
+                    className="flex-1 bg-[var(--color-bg)] border border-[var(--color-input)] p-3 text-sm"
+                  />
+                  <button onClick={() => void saveAsCreator()} disabled={busy || !name.trim()} className="px-4 py-2 text-[11px] uppercase tracking-widest disabled:opacity-40" style={{ backgroundColor: 'var(--color-lime)' }}>
+                    Save as creator
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {error && <p className="text-[11px] text-[var(--color-red)]">{error}</p>}
+        </div>
+      )}
+    </section>
   )
 }

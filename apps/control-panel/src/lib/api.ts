@@ -28,7 +28,9 @@ import type {
   TrendsResponse,
   ProductProfile,
   ProductsResponse,
-  CreatorProfile
+  CreatorProfile,
+  CharacterAttributes,
+  CharacterPortrait
   , UGCTemplate
 } from './types'
 import { loadCsrf } from './auth'
@@ -341,6 +343,14 @@ export const api = {
   archiveCreator(id: string): Promise<void> { return request<void>(`/accounts/creators/${id}`, { method: 'DELETE' }) },
   uploadCreatorImage(id: string, body: { fileName: string; mimeType: string; dataBase64: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>(`/accounts/creators/${id}/images`, { method: 'POST', body: JSON.stringify(body) }) },
   deleteCreatorImage(id: string, imageId: string): Promise<void> { return request<void>(`/accounts/creators/${id}/images/${imageId}`, { method: 'DELETE' }) },
+
+  // Character Builder — "generate a person from scratch," a standalone flow separate
+  // from the main run pipeline. Stateless: returns candidate portraits for the caller to
+  // preview and pick from, then hand the chosen one to uploadCreatorImage above (same as
+  // an uploaded photo).
+  generateCharacterPortraits(attributes: CharacterAttributes, count?: number): Promise<{ portraits: CharacterPortrait[] }> {
+    return request<{ portraits: CharacterPortrait[] }>('/accounts/character-builder/generate', { method: 'POST', body: JSON.stringify({ attributes, count }) })
+  },
 
   // Soul ID
   trainCreatorIdentity(creatorId: string): Promise<CreatorProfile> {

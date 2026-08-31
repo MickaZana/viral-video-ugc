@@ -20,6 +20,7 @@
     "@vvugc/shared-auth": "workspace:*",
     "@vvugc/orchestrator": "workspace:*",
     "@vvugc/mcp-discovery": "workspace:*",
+    "@vvugc/mcp-video-gen": "workspace:*",
     "@vvugc/mcp-publish": "workspace:*",
     "@vvugc/shared-billing": "workspace:*",
     "@vvugc/shared-persistence": "workspace:*",

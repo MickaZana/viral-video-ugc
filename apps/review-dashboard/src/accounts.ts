@@ -27,6 +27,7 @@ import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
 import { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility } from "@vvugc/orchestrator";
 import { discoverPlatform } from "@vvugc/mcp-discovery";
+import { generateCharacterPortraitBatch, CharacterAttributesSchema } from "@vvugc/mcp-video-gen";
 import { isRealRun, isLLMLive, isDiscoveryLive } from "./llm-gate.js";
 import { buildDiscoverResponse } from "./discoveryAnalyze.js";
 import {
@@ -1097,6 +1098,26 @@ export function registerAccountRoutes(
   app.post("/accounts/creators/:creatorId/images", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const existingCreator = await tenantProfiles.creatorGet(orgId, id); if (!existingCreator) return res.status(404).json({ error: "creator not found" }); if (!existingCreator.consentConfirmed || !existingCreator.consentConfirmedAt || !existingCreator.consentConfirmedBy) return res.status(400).json({ error: "audited explicit consent is required before uploading reference images" }); const mimeType = typeof req.body?.mimeType === "string" ? req.body.mimeType : ""; const data = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : ""; const extension = PRODUCT_IMAGE_MIME.get(mimeType); if (!extension || !/^[A-Za-z0-9+/]*={0,2}$/.test(data) || data.length % 4 !== 0) return res.status(400).json({ error: "valid JPEG, PNG, or WebP base64 image required" }); const bytes = Buffer.from(data, "base64"); if (!bytes.length || bytes.length > MAX_PRODUCT_IMAGE_BYTES) return res.status(400).json({ error: "image too large" }); const magicOk = (mimeType === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8) || (mimeType === "image/png" && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) || (mimeType === "image/webp" && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP"); if (!magicOk) return res.status(400).json({ error: "image signature mismatch" }); const imageId = randomUUID(); const relativePath = join("creator-assets", orgId, id, `${imageId}${extension}`); mkdirSync(join(VVUGC_RUNS_DIR, "creator-assets", orgId, id), { recursive: true }); writeFileSync(join(VVUGC_RUNS_DIR, relativePath), bytes, { mode: 0o600 }); const image = CreatorReferenceImageSchema.parse({ id: imageId, fileName: typeof req.body?.fileName === "string" ? req.body.fileName.slice(0, 160) || "reference-image" : "reference-image", mimeType, filePath: relativePath, createdAt: new Date().toISOString() }); const creator = await tenantProfiles.creatorAddImage(orgId, id, image); if (!creator) { unlinkSync(join(VVUGC_RUNS_DIR, relativePath)); return res.status(409).json({ error: "reference image limit reached" }); } res.status(201).json({ creator: publicCreator(creator) }); });
   app.delete("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId; const removed = await tenantProfiles.creatorRemoveImage(orgId, id, imageId); if (!removed) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, removed.filePath); if (existsSync(path)) unlinkSync(path); res.status(204).end(); });
   app.get("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId; const image = (await tenantProfiles.creatorGet(resolveOrgId(account), id))?.referenceImages.find((v) => v.id === imageId); if (!image) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, image.filePath); if (!existsSync(path)) return res.status(404).end(); res.type(image.mimeType).set("Content-Disposition", "inline").sendFile(path); });
+
+  // Character Builder — "generate a person from scratch," a standalone flow separate from
+  // the main discover->script->video pipeline (see mcp-video-gen/src/character-builder.ts's
+  // own doc comment). Stateless: doesn't touch the creator store at all, just returns
+  // candidate portrait images for the client to preview; the client then hands its chosen
+  // one(s) to the EXISTING POST /accounts/creators + POST /accounts/creators/:id/images
+  // routes above, same as if the user had uploaded their own photo. Gated on the same
+  // "clients.manage" permission as creator mutation, since this is real Gemini API spend.
+  app.post("/accounts/character-builder/generate", requireSession, async (req: AuthedRequest, res: Response) => {
+    const account = requirePermission("clients.manage")(req, res); if (!account) return;
+    const parsed = CharacterAttributesSchema.safeParse(req.body?.attributes);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+    const count = typeof req.body?.count === "number" ? req.body.count : undefined;
+    try {
+      const portraits = await generateCharacterPortraitBatch(parsed.data, { count });
+      res.json({ portraits: portraits.map((p) => ({ index: p.index, prompt: p.prompt, mimeType: p.mimeType, dataBase64: p.imageBytes.toString("base64") })) });
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : "character generation failed" });
+    }
+  });
 
   app.get(
     "/accounts/review-items",

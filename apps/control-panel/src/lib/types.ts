@@ -367,3 +367,34 @@ export interface ProductsResponse { products: ProductProfile[] }
 export interface CreatorReferenceImage { id: string; fileName: string; mimeType: string; createdAt: string }
 export interface CreatorProfile { id: string; clientId?: string; displayName: string; description: string; referenceImages: CreatorReferenceImage[]; avatarMode: 'reference_images' | 'vendor_avatar' | 'none'; preferredVideoVendor?: string; compatibleVendors: string[]; voiceVendor?: 'elevenlabs' | 'grok'; voiceId?: string; speechStyle: string; tone: string; wardrobe: string; visualStyle: string; ageRange?: string; language: string; accent?: string; prohibitedDepictions: string[]; defaultLocation?: string; consentConfirmed: boolean; consentConfirmedAt?: string; consentConfirmedBy?: string; active: boolean; createdAt: string; updatedAt: string }
 
+// Character Builder — mirrors packages/mcp-video-gen/src/character-builder.ts's
+// CharacterAttributesSchema/CHARACTER_ATTRIBUTE_OPTIONS. Duplicated here rather than
+// imported: that package pulls in ffmpeg-static/node:fs, which isn't safe to bundle into
+// a browser app — keep both in sync by hand if the backend schema changes.
+export interface CharacterAttributes {
+  characterType?: 'human' | 'stylized_illustration' | 'anime'
+  gender: 'woman' | 'man' | 'non_binary_presenting'
+  ageRange: 'early_20s' | 'late_20s' | '30s' | '40s' | '50_plus'
+  bodyType?: 'slim' | 'athletic' | 'average' | 'curvy' | 'muscular' | 'plus_size'
+  hairStyle?: 'long_straight' | 'long_wavy' | 'long_curly' | 'shoulder_length' | 'short_bob' | 'pixie_cut' | 'buzz_cut' | 'braids' | 'ponytail' | 'bald'
+  hairColor?: 'black' | 'dark_brown' | 'light_brown' | 'blonde' | 'red' | 'auburn' | 'gray' | 'silver' | 'dyed_vivid'
+  skinTone?: 'very_fair' | 'fair' | 'light_medium' | 'medium' | 'tan' | 'deep' | 'very_deep'
+  eyeColor?: 'brown' | 'dark_brown' | 'hazel' | 'green' | 'blue' | 'gray' | 'amber'
+  style?: 'casual_everyday' | 'athletic_activewear' | 'business_professional' | 'streetwear' | 'elegant_formal' | 'cozy_homewear' | 'outdoorsy'
+  renderingStyle?: 'photorealistic' | 'cinematic_photo' | 'editorial_fashion_photo'
+  additionalDetails?: string
+}
+export const CHARACTER_ATTRIBUTE_OPTIONS: { [K in keyof Required<Omit<CharacterAttributes, 'additionalDetails'>>]: string[] } = {
+  characterType: ['human', 'stylized_illustration', 'anime'],
+  gender: ['woman', 'man', 'non_binary_presenting'],
+  ageRange: ['early_20s', 'late_20s', '30s', '40s', '50_plus'],
+  bodyType: ['slim', 'athletic', 'average', 'curvy', 'muscular', 'plus_size'],
+  hairStyle: ['long_straight', 'long_wavy', 'long_curly', 'shoulder_length', 'short_bob', 'pixie_cut', 'buzz_cut', 'braids', 'ponytail', 'bald'],
+  hairColor: ['black', 'dark_brown', 'light_brown', 'blonde', 'red', 'auburn', 'gray', 'silver', 'dyed_vivid'],
+  skinTone: ['very_fair', 'fair', 'light_medium', 'medium', 'tan', 'deep', 'very_deep'],
+  eyeColor: ['brown', 'dark_brown', 'hazel', 'green', 'blue', 'gray', 'amber'],
+  style: ['casual_everyday', 'athletic_activewear', 'business_professional', 'streetwear', 'elegant_formal', 'cozy_homewear', 'outdoorsy'],
+  renderingStyle: ['photorealistic', 'cinematic_photo', 'editorial_fashion_photo']
+}
+export interface CharacterPortrait { index: number; prompt: string; mimeType: string; dataBase64: string }
+

@@ -237,6 +237,9 @@ importers:
       '@vvugc/mcp-publish':
         specifier: workspace:*
         version: link:../../packages/mcp-publish
+      '@vvugc/mcp-video-gen':
+        specifier: workspace:*
+        version: link:../../packages/mcp-video-gen
       '@vvugc/orchestrator':
         specifier: workspace:*
         version: link:../orchestrator
@@ -477,6 +480,9 @@ importers:
       fluent-ffmpeg:
         specifier: ^2.1.3
         version: 2.1.3
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/ffprobe-static':
         specifier: ^2.0.3
