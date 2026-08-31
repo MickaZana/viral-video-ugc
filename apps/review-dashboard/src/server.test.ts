@@ -83,7 +83,12 @@ describe("review-dashboard HTTP API", () => {
     if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("GET /queue returns items, optionally filtered by status", async () => {
+  // Longer timeout: this is the first test in the file to hit insertReviewItem +
+  // startServer's fresh vi.resetModules() re-import, so it eats one-time module-
+  // transform/compile cost the identically-shaped tests right after it don't pay
+  // again — confirmed by timing out at the default 5000ms under load while every
+  // later test in this file (same pattern) consistently finishes in ~1000ms.
+  it("GET /queue returns items, optionally filtered by status", { timeout: 20000 }, async () => {
     await insertReviewItem(makeItem({ id: "a", status: "pending" }));
     await insertReviewItem(makeItem({ id: "b", status: "approved" }));
 

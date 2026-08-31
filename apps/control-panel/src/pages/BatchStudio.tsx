@@ -5,7 +5,7 @@ import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
 import { paths } from '../lib/paths'
 import type { CreatorProfile, Platform, ProductProfile, UGCTemplate } from '../lib/types'
-import type { BatchPlan, BatchPlanDraft, BatchRequest, VendorPolicy as BatchVendorPolicy } from '@vvugc/shared-schema'
+import type { BatchPlan, BatchPlanDraft, BatchRequest, Preset, VendorPolicy as BatchVendorPolicy } from '@vvugc/shared-schema'
 
 /* ─── Types for batch plan/enqueue flow ──────────────────────────────── */
 
@@ -49,6 +49,13 @@ const VISUAL_TREATMENTS = [
 
 const CAPTION_STYLES: CaptionStyle[] = ['clean', 'bold', 'minimal']
 
+const PRESET_CATEGORY_LABELS: Record<string, string> = {
+  ecommerce_dtc: 'E-commerce & DTC',
+  saas_apps: 'SaaS & Apps',
+  beauty_wellness: 'Beauty & Wellness',
+  food_beverage: 'Food & Beverage'
+}
+
 /* ─── Component ──────────────────────────────────────────────────────── */
 
 export function BatchStudio() {
@@ -58,6 +65,7 @@ export function BatchStudio() {
   const products = useApi<{ products: ProductProfile[] }>(() => api.products())
   const creators = useApi<{ creators: CreatorProfile[] }>(() => api.creatorProfiles())
   const templates = useApi<{ templates: UGCTemplate[] }>(() => api.templates())
+  const presets = useApi<{ presets: Preset[] }>(() => api.presets())
   const account = useApi(() => api.me())
 
   // Form state
@@ -230,6 +238,26 @@ export function BatchStudio() {
     }
   }, [account.data?.account, form, products.data?.products, variationCount])
 
+  const [appliedPresetId, setAppliedPresetId] = useState<string | null>(null)
+
+  function applyPreset(preset: Preset) {
+    // Same platform-support filter as the AI draft below — Batch Studio's
+    // picker only offers the 4 short-form platforms, no youtube_long control.
+    const supportedPlatforms = new Set(PLATFORMS.map((x) => x.value as string))
+    const presetPlatforms = preset.platforms.filter((x): x is Platform => supportedPlatforms.has(x))
+    setForm((f) => ({
+      ...f,
+      templateId: preset.templateId,
+      platforms: presetPlatforms.length ? presetPlatforms : f.platforms,
+      captionStyles: [preset.captionStyle],
+      visualTreatments: preset.visualTreatments,
+      vendorPolicy: preset.vendorPolicy,
+      targetDurationSec: preset.targetDurationSec
+    }))
+    setAppliedPresetId(preset.id)
+    setPlan(null)
+  }
+
   const handleDraftFromDescription = useCallback(async () => {
     if (!nlDescription.trim()) return
     setNlDrafting(true)
@@ -304,6 +332,50 @@ export function BatchStudio() {
           ← Single run
         </button>
       </div>
+
+      {/* ─── Curated presets ─────────────────────────────────────── */}
+      <Panel title="START FROM A PRESET">
+        <div className="px-5 py-5 space-y-4">
+          <p className="text-[10px] font-mono text-[var(--color-muted-2)]">
+            Curated template/style/platform combinations for common use cases — fills the form below, still yours to edit.
+          </p>
+          {Object.entries(
+            (presets.data?.presets ?? []).reduce<Record<string, Preset[]>>((acc, p) => {
+              (acc[p.category] ??= []).push(p)
+              return acc
+            }, {})
+          ).map(([category, items]) => (
+            <div key={category}>
+              <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">
+                {PRESET_CATEGORY_LABELS[category] ?? category}
+              </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                {items.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className="text-left border p-3 transition-colors"
+                    style={{
+                      borderColor: appliedPresetId === preset.id ? 'var(--color-lime)' : 'var(--color-border)',
+                      backgroundColor: appliedPresetId === preset.id ? 'var(--color-lime)11' : 'transparent'
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-mono text-[var(--color-text)] font-bold">{preset.name}</span>
+                      {appliedPresetId === preset.id && <span className="text-[9px] font-mono text-[var(--color-lime)]">✓ applied</span>}
+                    </div>
+                    <p className="text-[10px] font-mono text-[var(--color-muted-2)] mt-1">{preset.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {presets.data?.presets?.length === 0 && (
+            <p className="text-[10px] font-mono text-[var(--color-muted-3)]">No presets available.</p>
+          )}
+        </div>
+      </Panel>
 
       {/* ─── Natural-language draft ──────────────────────────────── */}
       <Panel title="DESCRIBE YOUR BATCH">

@@ -22,10 +22,10 @@ import {
 } from "@vvugc/shared-auth";
 import type { Invite } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
-import { BrandKitSchema, PlatformSchema, RunConfigSchema, ProductProfileSchema, ProductImageSchema, CreatorProfileSchema, CreatorReferenceImageSchema, type ProductProfile, type CreatorProfile } from "@vvugc/shared-schema";
+import { BrandKitSchema, PlatformSchema, RunConfigSchema, ProductProfileSchema, ProductImageSchema, CreatorProfileSchema, CreatorReferenceImageSchema, PRESET_CATEGORY_IDS, type ProductProfile, type CreatorProfile, type Preset } from "@vvugc/shared-schema";
 import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
-import { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility } from "@vvugc/orchestrator";
+import { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, BUILTIN_PRESETS, getPreset, listPresetsByCategory } from "@vvugc/orchestrator";
 import { discoverPlatform } from "@vvugc/mcp-discovery";
 import { generateCharacterPortraitBatch, CharacterAttributesSchema } from "@vvugc/mcp-video-gen";
 import { isRealRun, isLLMLive, isDiscoveryLive } from "./llm-gate.js";
@@ -478,6 +478,24 @@ export function registerAccountRoutes(
     const template = getUgcTemplate(id);
     if (!template) return res.status(404).json({ error: "template not found" });
     res.json({ template });
+  });
+  // Curated presets — same globally-defined-but-authenticated shape as templates
+  // above. Optional ?category= filter matches PresetCategory values.
+  app.get("/presets", requireSession, (req: AuthedRequest, res: Response) => {
+    if (!requireAccount(req, res)) return;
+    const rawCategory = typeof req.query.category === "string" ? req.query.category : undefined;
+    if (rawCategory && !(PRESET_CATEGORY_IDS as readonly string[]).includes(rawCategory)) {
+      return res.status(400).json({ error: `unknown category "${rawCategory}"`, validCategories: PRESET_CATEGORY_IDS });
+    }
+    const presets = rawCategory ? listPresetsByCategory(rawCategory as Preset["category"]) : BUILTIN_PRESETS;
+    res.json({ presets });
+  });
+  app.get("/presets/:id", requireSession, (req: AuthedRequest, res: Response) => {
+    if (!requireAccount(req, res)) return;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const preset = getPreset(id);
+    if (!preset) return res.status(404).json({ error: "preset not found" });
+    res.json({ preset });
   });
   app.post("/accounts/preview-template", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requireAccount(req, res);

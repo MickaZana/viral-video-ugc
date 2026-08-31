@@ -34,7 +34,7 @@ import type {
   , UGCTemplate
 } from './types'
 import { loadCsrf } from './auth'
-import type { BatchPlan, BatchPlanDraft, BatchProgress, BatchRequest } from '@vvugc/shared-schema'
+import type { BatchPlan, BatchPlanDraft, BatchProgress, BatchRequest, Preset } from '@vvugc/shared-schema'
 
 const API_BASE = '/api'
 
@@ -305,6 +305,8 @@ export const api = {
   /** Runs the real pipeline for the org's client. Dry-run (safe, no vendor spend)
    *  is the backend default; pass dryRun:false to attempt a live run. */
   templates(): Promise<{ templates: UGCTemplate[] }> { return request('/templates') },
+  /** Curated starting configurations — see PresetSchema's doc comment. */
+  presets(): Promise<{ presets: Preset[] }> { return request('/presets') },
   run(body: { clientId: string; dryRun: boolean; productProfileId?: string; creatorProfileId?: string; templateId?: string; visualDirection?: Record<string, string> }): Promise<RunResponse> {
     return request<RunResponse>('/accounts/run', {
       method: 'POST',

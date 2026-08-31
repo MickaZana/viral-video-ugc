@@ -343,6 +343,7 @@ export type RunResult = z.infer<typeof RunResultSchema>;
 // ─── Batch Variation Generation ─────────────────────────────────────────────
 export * from "./batch.js";
 export * from "./batch-planner.js";
+export * from "./presets.js";
 
 // ─── Cinema Controls ────────────────────────────────────────────────────────
 export * from "./visual-direction.js";

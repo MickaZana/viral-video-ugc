@@ -220,6 +220,33 @@ describe("account signup/login/session routes (additive, separate from dashboard
     expect(previewBody.requiredInputs.every((entry: { present: boolean }) => entry.present)).toBe(true);
   });
 
+  it("serves authenticated curated presets, with category filtering and 404/400 for unknown ids/categories", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/presets`)).status).toBe(401);
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "presets@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+
+    const all = await fetch(`${baseUrl}/presets`, { headers: { Cookie: cookie } });
+    expect(all.status).toBe(200);
+    expect((await all.json()).presets).toHaveLength(16);
+
+    const filtered = await fetch(`${baseUrl}/presets?category=saas_apps`, { headers: { Cookie: cookie } });
+    expect(filtered.status).toBe(200);
+    const filteredBody = await filtered.json();
+    expect(filteredBody.presets).toHaveLength(4);
+    expect(filteredBody.presets.every((p: { category: string }) => p.category === "saas_apps")).toBe(true);
+
+    const badCategory = await fetch(`${baseUrl}/presets?category=not_a_real_category`, { headers: { Cookie: cookie } });
+    expect(badCategory.status).toBe(400);
+
+    const one = await fetch(`${baseUrl}/presets/ecom_unboxing_reveal`, { headers: { Cookie: cookie } });
+    expect(one.status).toBe(200);
+    expect((await one.json()).preset.templateId).toBe("unboxing");
+
+    const missing = await fetch(`${baseUrl}/presets/does-not-exist`, { headers: { Cookie: cookie } });
+    expect(missing.status).toBe(404);
+  });
+
   it("protects creator routes with session auth and CSRF", async () => {
     await startServer();
     expect((await fetch(`${baseUrl}/accounts/creators`)).status).toBe(401);
