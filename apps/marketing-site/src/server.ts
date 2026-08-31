@@ -9,6 +9,7 @@ import { createAppMetrics, installLifecycleHandlers, reportError, requestIdMiddl
 import { loadEnv } from "@vvugc/shared-config";
 import { renderPage, type VideoEntry } from "./render.js";
 import { recordWaitlistSubmission } from "./waitlist.js";
+import { renderPrivacyPolicy, renderTerms, type LegalIdentity } from "./legal.js";
 
 const require = createRequire(import.meta.url);
 const logger = pino({ name: "vvugc-marketing-site" });
@@ -103,6 +104,38 @@ app.get("/", (req, res) => {
 
 app.get("/api/manifest", (_req, res) => {
   res.json(loadManifest());
+});
+
+// /privacy and /terms — renderPrivacyPolicy()/renderTerms() (./legal.ts) were built
+// and unit-tested (legal.test.ts) but never actually routed here; the OAuth-facing
+// content they contain (added for Google's public-privacy-policy-URL requirement on
+// the OAuth consent screen — review-dashboard's Google YouTube-connect flow) has
+// never been reachable at all. LEGAL_ENTITY_NAME/LEGAL_PRIVACY_EMAIL/LEGAL_ADDRESS
+// are real legal/compliance content this codebase has no authority to invent — checked
+// once at module load (below), same "fail at boot, not on first real request" contract
+// as DATABASE_URL's production check in review-dashboard's accounts.ts, rather than
+// publishing a fabricated entity name or a fake contact email. The dev fallback used
+// outside production is deliberately not plausible so it can't be mistaken for real
+// configuration.
+if (process.env.NODE_ENV === "production" && (!process.env.LEGAL_ENTITY_NAME || !process.env.LEGAL_PRIVACY_EMAIL)) {
+  throw new Error(
+    "LEGAL_ENTITY_NAME and LEGAL_PRIVACY_EMAIL are required in production — /privacy and /terms publish real legal content and must not fall back to a placeholder."
+  );
+}
+function resolveLegalIdentity(): LegalIdentity {
+  return {
+    entityName: process.env.LEGAL_ENTITY_NAME || "[Configure LEGAL_ENTITY_NAME]",
+    privacyEmail: process.env.LEGAL_PRIVACY_EMAIL || "configure-LEGAL_PRIVACY_EMAIL@example.invalid",
+    address: process.env.LEGAL_ADDRESS
+  };
+}
+
+app.get("/privacy", (_req, res) => {
+  res.type("html").send(renderPrivacyPolicy(resolveLegalIdentity()));
+});
+
+app.get("/terms", (_req, res) => {
+  res.type("html").send(renderTerms(resolveLegalIdentity()));
 });
 
 // Public, unauthenticated endpoint — without a limit, it's a disk-fill vector
