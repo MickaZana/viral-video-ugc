@@ -406,4 +406,55 @@ describe("review-dashboard HTTP API", () => {
       delete process.env.TRUST_PROXY_HOPS;
     });
   });
+
+  // api-v1-routes.ts's gate is dormant-by-default future-API surface (Platform
+  // Evolution plan, Step 2) — no auth/quota/idempotency behind it yet, so these
+  // only assert the one thing that actually matters today: a real deployment
+  // that never sets VVUGC_API_ENABLED must see /v1 as if it doesn't exist at
+  // all (404, not a more informative 403/501 that would leak the feature's
+  // existence), and only once explicitly opted in does it become reachable.
+  describe("/v1 API gate", () => {
+    afterEach(() => {
+      delete process.env.VVUGC_API_ENABLED;
+    });
+
+    it("returns 404 (indistinguishable from a nonexistent route) for every /v1 route when VVUGC_API_ENABLED is unset", async () => {
+      delete process.env.VVUGC_API_ENABLED;
+      await startServer();
+
+      const getRes = await fetch(`${baseUrl}/v1/runs/abc/status`, { headers: AUTH_HEADER });
+      expect(getRes.status).toBe(404);
+      const postRes = await fetch(`${baseUrl}/v1/runs`, { method: "POST", headers: AUTH_HEADER });
+      expect(postRes.status).toBe(404);
+    });
+
+    it("returns 404 for an explicit VVUGC_API_ENABLED=false too, not just unset", async () => {
+      process.env.VVUGC_API_ENABLED = "false";
+      await startServer();
+
+      const res = await fetch(`${baseUrl}/v1/runs`, { method: "POST", headers: AUTH_HEADER });
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 501 not_implemented for every stub route once VVUGC_API_ENABLED=true", async () => {
+      process.env.VVUGC_API_ENABLED = "true";
+      await startServer();
+
+      const routes: Array<[string, "GET" | "POST"]> = [
+        ["/v1/scripts", "POST"],
+        ["/v1/videos", "POST"],
+        ["/v1/runs", "POST"],
+        ["/v1/runs/abc", "GET"],
+        ["/v1/runs/abc/status", "GET"],
+        ["/v1/voiceovers", "POST"],
+        ["/v1/publish", "POST"]
+      ];
+      for (const [path, method] of routes) {
+        const res = await fetch(`${baseUrl}${path}`, { method, headers: AUTH_HEADER });
+        expect(res.status).toBe(501);
+        const body = await res.json();
+        expect(body.error.code).toBe("not_implemented");
+      }
+    });
+  });
 });
