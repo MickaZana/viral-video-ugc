@@ -37,6 +37,8 @@ import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
 import { getUgcTemplate, BUILTIN_UGC_TEMPLATES, planBatchFromDescription, type BatchPlannerContext } from "@vvugc/orchestrator";
 
+import { createProductEventStore } from "@vvugc/shared-product-analytics";
+
 import { checkRunQuota } from "./quota.js";
 import { createOverageStore } from "./overage.js";
 import { isLLMLive, isRealRun } from "./llm-gate.js";
@@ -121,6 +123,11 @@ export function registerBatchRoutes(
   requireSession: RequestHandler,
   deps: { identity: IdentityRepository; tenantProfiles: TenantProfileRepository }
 ): void {
+  // Same product-events file registerAccountRoutes writes to (accounts.ts) —
+  // the store is a stateless file-backed wrapper, so a second instance pointed
+  // at the same path is safe; see @vvugc/shared-product-analytics.
+  const productEvents = createProductEventStore(join(loadEnv().VVUGC_RUNS_DIR, "product-events.json"));
+
   // ═══════════════════════════════════════════════════════════════════════════
   // POST /accounts/batch/plan-from-description
   // Natural-language front end to the structured planner below: turns a plain-
@@ -211,6 +218,7 @@ export function registerBatchRoutes(
         "batch plan computed"
       );
 
+      productEvents.record({ orgId, accountId: account.id, eventType: "batch_planned", meta: { variationCount: plan.variations.length } });
       res.json(plan);
     })
   );
@@ -360,6 +368,8 @@ export function registerBatchRoutes(
           clientId,
         });
       }
+
+      productEvents.record({ orgId, accountId: acct2.id, eventType: "batch_enqueued", meta: { variationCount: batchPlan.variations.length, isDryRun } });
 
       // Return immediately — async pattern
       res.status(202).json({

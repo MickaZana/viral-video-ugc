@@ -26,6 +26,7 @@ import { BrandKitSchema, PlatformSchema, RunConfigSchema, ProductProfileSchema, 
 import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
 import { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, BUILTIN_PRESETS, getPreset, listPresetsByCategory } from "@vvugc/orchestrator";
+import { createProductEventStore, ProductEventTypeSchema, summarizeUsage } from "@vvugc/shared-product-analytics";
 import { discoverPlatform } from "@vvugc/mcp-discovery";
 import { generateCharacterPortraitBatch, CharacterAttributesSchema } from "@vvugc/mcp-video-gen";
 import { isRealRun, isLLMLive, isDiscoveryLive } from "./llm-gate.js";
@@ -370,6 +371,7 @@ export function registerAccountRoutes(
   const billing = deps.billing ?? new LocalBillingRepository(VVUGC_RUNS_DIR);
   app.use("/accounts/creators/:creatorId/images", (req: AuthedRequest, res: Response, next: NextFunction) => requireSession(req, res, next), async (req: AuthedRequest, res: Response, next: NextFunction) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (creator && !creator.consentConfirmed) return res.status(400).json({ error: "explicit consent is required before uploading reference images" }); next(); });
   const jobStore = createPipelineJobStore(join(VVUGC_RUNS_DIR, "pipeline-jobs.json"));
+  const productEvents = createProductEventStore(join(VVUGC_RUNS_DIR, "product-events.json"));
 
   // Triggering a run is a real (potentially paid, once live credentials are configured)
   // vendor call chain — same "every attempt counts" reasoning as regeneration/publishing.
@@ -496,6 +498,37 @@ export function registerAccountRoutes(
     const preset = getPreset(id);
     if (!preset) return res.status(404).json({ error: "preset not found" });
     res.json({ preset });
+  });
+  // Product/UX usage analytics (@vvugc/shared-product-analytics) — distinct from the
+  // published-content performance loop in @vvugc/shared-analytics. orgId/accountId are
+  // ALWAYS server-derived from the session, never trusted from the request body — a
+  // client can only ever record events under its own org, so the worst a buggy/malicious
+  // client can do is pollute its own org's usage counts, never another org's or anything
+  // with real business consequences (this is telemetry, not an authorization boundary).
+  app.post("/accounts/analytics/event", requireSession, (req: AuthedRequest, res: Response) => {
+    const account = requireAccount(req, res);
+    if (!account) return;
+    const parsedType = ProductEventTypeSchema.safeParse(req.body?.eventType);
+    if (!parsedType.success) {
+      return res.status(400).json({ error: "invalid or missing eventType", validEventTypes: ProductEventTypeSchema.options });
+    }
+    const meta = req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : undefined;
+    try {
+      const event = productEvents.record({ orgId: resolveOrgId(account), accountId: account.id, eventType: parsedType.data, meta });
+      res.status(201).json({ event });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : "failed to record event" });
+    }
+  });
+  // Usage summary for the caller's own org — ?days= (default 30) sets the
+  // activeAccountCount window; totals/mostUsedFeatures always cover all recorded history.
+  app.get("/accounts/analytics/summary", requireSession, (req: AuthedRequest, res: Response) => {
+    const account = requireAccount(req, res);
+    if (!account) return;
+    const days = Number(req.query.days) > 0 ? Number(req.query.days) : 30;
+    const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    const events = productEvents.listByOrg(resolveOrgId(account));
+    res.json(summarizeUsage(events, sinceMs));
   });
   app.post("/accounts/preview-template", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requireAccount(req, res);
@@ -2008,6 +2041,7 @@ export function registerAccountRoutes(
       if (existsSync(creatorAssetRoot)) rmSync(creatorAssetRoot, { recursive: true, force: true });
       await billing.deletePlan(orgId);
       void jobStore.deleteOrg(orgId);
+      productEvents.deleteOrg(orgId);
       void deleteReviewItemsByOrg(orgId);
       deleteSecurityEventsForOrg(orgId);
       purgeOrgRuns(orgId);

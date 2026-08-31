@@ -16,6 +16,8 @@ export function Settings({
   isGuest?: boolean
   onSignIn?: () => void
 }) {
+  useEffect(() => { if (!isGuest) api.trackEvent('settings_viewed') }, [isGuest])
+
   return (
     <div className="space-y-6 w-full">
       <section className="border border-[var(--color-border)] bg-[var(--color-surface)] rounded-lg p-5 space-y-3">

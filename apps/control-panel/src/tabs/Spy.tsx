@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { paths } from '../lib/paths'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TrackedCreator } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
@@ -21,6 +21,8 @@ export function Spy() {
   const creators = useApi(() => api.creators())
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [platform, setPlatform] = useState<PlatformFilter>('all')
+
+  useEffect(() => { api.trackEvent('discovery_viewed') }, [])
 
   const list = creators.data ?? []
   const selected = list.find((c) => platformKey(c) === selectedId) ?? list[0] ?? null

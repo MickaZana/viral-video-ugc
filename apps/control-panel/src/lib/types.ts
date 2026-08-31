@@ -367,6 +367,25 @@ export interface ProductsResponse { products: ProductProfile[] }
 export interface CreatorReferenceImage { id: string; fileName: string; mimeType: string; createdAt: string }
 export interface CreatorProfile { id: string; clientId?: string; displayName: string; description: string; referenceImages: CreatorReferenceImage[]; avatarMode: 'reference_images' | 'vendor_avatar' | 'none'; preferredVideoVendor?: string; compatibleVendors: string[]; voiceVendor?: 'elevenlabs' | 'grok'; voiceId?: string; speechStyle: string; tone: string; wardrobe: string; visualStyle: string; ageRange?: string; language: string; accent?: string; prohibitedDepictions: string[]; defaultLocation?: string; consentConfirmed: boolean; consentConfirmedAt?: string; consentConfirmedBy?: string; active: boolean; createdAt: string; updatedAt: string }
 
+// Product/UX usage events — mirrors packages/shared-product-analytics/src/events.ts's
+// PRODUCT_EVENT_TYPES. Duplicated here rather than imported: that package's barrel
+// index re-exports event-store.ts, which pulls in node:fs/node:crypto — not safe to
+// bundle into a browser app — keep both in sync by hand if the event vocabulary changes.
+export const PRODUCT_EVENT_TYPES = [
+  'discovery_viewed',
+  'remix_started',
+  'run_started',
+  'batch_planned',
+  'batch_enqueued',
+  'review_item_approved',
+  'review_item_rejected',
+  'brand_product_created',
+  'brand_creator_created',
+  'settings_viewed',
+  'billing_viewed'
+] as const
+export type ProductEventType = typeof PRODUCT_EVENT_TYPES[number]
+
 // Character Builder — mirrors packages/mcp-video-gen/src/character-builder.ts's
 // CharacterAttributesSchema/CHARACTER_ATTRIBUTE_OPTIONS. Duplicated here rather than
 // imported: that package pulls in ffmpeg-static/node:fs, which isn't safe to bundle into

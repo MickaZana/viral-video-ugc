@@ -247,6 +247,48 @@ describe("account signup/login/session routes (additive, separate from dashboard
     expect(missing.status).toBe(404);
   });
 
+  it("records and summarizes product/UX usage events, always scoped to the session's own org", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "discovery_viewed" }) })).status).toBe(401);
+
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "analytics@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const csrfHeaders = { Cookie: cookie, Origin: baseUrl, "x-csrf-token": me.csrfToken, "Content-Type": "application/json" };
+
+    const blocked = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    expect(blocked.status).toBe(403);
+
+    const invalidType = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "not_a_real_event" }) });
+    expect(invalidType.status).toBe(400);
+
+    const recorded = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    expect(recorded.status).toBe(201);
+    const recordedBody = await recorded.json();
+    expect(recordedBody.event.eventType).toBe("discovery_viewed");
+    expect(recordedBody.event.id).toBeTruthy();
+
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "settings_viewed", meta: { theme: "dark" } }) });
+
+    const summary = await fetch(`${baseUrl}/accounts/analytics/summary`, { headers: { Cookie: cookie } });
+    expect(summary.status).toBe(200);
+    const summaryBody = await summary.json();
+    expect(summaryBody.totalEvents).toBe(3);
+    expect(summaryBody.featureUsageCounts.discovery_viewed).toBe(2);
+    expect(summaryBody.featureUsageCounts.settings_viewed).toBe(1);
+    expect(summaryBody.mostUsedFeatures[0]).toEqual({ eventType: "discovery_viewed", count: 2 });
+    expect(summaryBody.activeAccountCount).toBe(1);
+
+    // A second org's events never bleed into the first org's summary.
+    const otherSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "other-analytics@example.com", password: "hunter22" }) });
+    const otherCookie = sessionCookieFrom(otherSignup);
+    const otherMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: otherCookie } })).json();
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { Cookie: otherCookie, Origin: baseUrl, "x-csrf-token": otherMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "billing_viewed" }) });
+    const stillFirstOrg = await (await fetch(`${baseUrl}/accounts/analytics/summary`, { headers: { Cookie: cookie } })).json();
+    expect(stillFirstOrg.totalEvents).toBe(3);
+  });
+
   it("protects creator routes with session auth and CSRF", async () => {
     await startServer();
     expect((await fetch(`${baseUrl}/accounts/creators`)).status).toBe(401);

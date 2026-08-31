@@ -24,6 +24,7 @@
     "@vvugc/mcp-publish": "workspace:*",
     "@vvugc/shared-billing": "workspace:*",
     "@vvugc/shared-persistence": "workspace:*",
+    "@vvugc/shared-product-analytics": "workspace:*",
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.0",
     "pino": "^10.3.1",

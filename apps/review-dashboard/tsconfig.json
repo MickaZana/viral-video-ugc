@@ -16,6 +16,7 @@
     { "path": "../../packages/mcp-video-gen" },
     { "path": "../../packages/mcp-publish" },
     { "path": "../../packages/shared-billing" },
-    { "path": "../../packages/shared-persistence" }
+    { "path": "../../packages/shared-persistence" },
+    { "path": "../../packages/shared-product-analytics" }
   ]
 }

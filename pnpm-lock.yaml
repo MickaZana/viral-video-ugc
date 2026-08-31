@@ -261,6 +261,9 @@ importers:
       '@vvugc/shared-persistence':
         specifier: workspace:*
         version: link:../../packages/shared-persistence
+      '@vvugc/shared-product-analytics':
+        specifier: workspace:*
+        version: link:../../packages/shared-product-analytics
       '@vvugc/shared-schema':
         specifier: workspace:*
         version: link:../../packages/shared-schema
@@ -660,6 +663,19 @@ importers:
       '@vvugc/shared-config':
         specifier: workspace:*
         version: link:../shared-config
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.8.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@26.1.1)(jiti@2.7.0)(jsdom@30.0.1)(lightningcss@1.32.0)(supports-color@7.2.0)(tsx@4.23.1)
+
+  packages/shared-product-analytics:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       typescript:
         specifier: ^5.6.3

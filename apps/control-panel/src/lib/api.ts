@@ -30,7 +30,8 @@ import type {
   ProductsResponse,
   CreatorProfile,
   CharacterAttributes,
-  CharacterPortrait
+  CharacterPortrait,
+  ProductEventType
   , UGCTemplate
 } from './types'
 import { loadCsrf } from './auth'
@@ -503,6 +504,17 @@ export const api = {
   /** Cancel a running batch. */
   batchCancel(batchId: string): Promise<void> {
     return request(`/accounts/batch/${encodeURIComponent(batchId)}/cancel`, { method: 'POST' })
+  },
+
+  // ---- Product/UX usage analytics ----
+  /** Best-effort, fire-and-forget usage telemetry — never throws, never awaited by
+   *  callers. A tracking hiccup (network blip, ad blocker) must never break the UI or
+   *  surface an error the user didn't cause. Session-authenticated only: an anonymous
+   *  guest (e.g. Landing.tsx) has nothing to record against yet. */
+  trackEvent(eventType: ProductEventType, meta?: Record<string, string | number | boolean>): void {
+    request('/accounts/analytics/event', { method: 'POST', body: JSON.stringify({ eventType, meta }) }).catch(() => {
+      // Intentionally swallowed — see doc comment above.
+    })
   }
 }
 

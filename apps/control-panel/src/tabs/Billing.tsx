@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BillingResponse } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
@@ -56,6 +56,8 @@ const PLAN_MARKETING: Record<string, {
 export function Billing() {
   const bill = useApi<BillingResponse>(() => api.billing())
   const data = bill.data
+
+  useEffect(() => { api.trackEvent('billing_viewed') }, [])
 
   // Checkout state: which tier has a session being created right now (so the
   // button disables and no double-click starts two sessions), and any honest
