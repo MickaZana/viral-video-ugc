@@ -38,6 +38,7 @@ CTA: ${script.cta}`;
     maxTokens: 1024,
     anthropicModel: model,
     geminiModel: "gemini-2.5-flash",
+    grokModel: process.env.GROK_MODEL || "grok-2",
     stage: "caption_timing",
     costLedger: opts.costLedger
   });

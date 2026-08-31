@@ -71,6 +71,7 @@ Trending phrases used: ${script.trendingPhrases.join(", ") || "none"}`;
     maxTokens: 512,
     anthropicModel: model,
     geminiModel: "gemini-2.5-pro",
+    grokModel: process.env.GROK_MODEL || "grok-2",
     stage: "qa_score",
     costLedger: opts.costLedger
   });

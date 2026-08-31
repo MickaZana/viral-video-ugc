@@ -110,6 +110,7 @@ ${transcript.text}
     maxTokens: 1024,
     anthropicModel: model,
     geminiModel: "gemini-2.5-pro",
+    grokModel: process.env.GROK_MODEL || "grok-2",
     stage: "script_rewrite",
     costLedger: opts.costLedger
   });

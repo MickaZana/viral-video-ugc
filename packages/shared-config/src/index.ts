@@ -29,9 +29,19 @@ const REPO_ROOT = process.env.INIT_CWD ?? process.cwd();
 // that assert on their absence — that's a behavior change no test asked for. Guarding on
 // VITEST (set by Vitest in both the runner and workers) keeps test env hermetic and
 // deterministic while the app itself gets the unified .env it needs.
-if (!process.env.VITEST) {
-  loadDotenv({ path: join(REPO_ROOT, ".env"), quiet: true });
-}
+// Captured separately from the process.env merge above: dotenv's default config()
+// never overwrites a name already present in process.env, so once loaded there is
+// no way to tell "this value came from .env" from "this was already sitting in the
+// ambient shell." XAI_API_KEY/GROK_API_KEY specifically need that distinction (see
+// resolveXaiOrGrokKey below) — a stale personal XAI_API_KEY left set globally on a
+// dev machine must never silently outrank this project's own configured
+// GROK_API_KEY. dotenvFileValues holds only what .env itself declares; same VITEST
+// guard as above (and for the same reason — never load real .env secrets into a
+// test process), which is exactly why the precedence logic itself is factored out
+// below as a pure function tests can exercise with synthetic values instead.
+const dotenvFileValues: Record<string, string> = process.env.VITEST
+  ? {}
+  : loadDotenv({ path: join(REPO_ROOT, ".env"), quiet: true }).parsed ?? {};
 
 const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -243,16 +253,68 @@ export function loadEnv(): Env {
 type StringEnvKey = Exclude<keyof Env, "TRUST_PROXY_HOPS" | "SECURITY_LOG_RETENTION_DAYS">;
 
 /**
+ * XAI_API_KEY and GROK_API_KEY name the same xAI credential. Resolution order:
+ * this project's .env value for the requested name, then .env's value for the
+ * alias name, then whatever's left in the ambient OS/shell environment for
+ * either name. .env always wins over the ambient shell — a stale personal
+ * XAI_API_KEY exported globally on a dev machine (from some other project, an
+ * old trial, a shell profile) must never silently shadow this project's own
+ * configured GROK_API_KEY.
+ *
+ * Pure and exported (rather than reading dotenvFileValues/process.env
+ * directly) so shared-config's own tests can exercise the precedence rule
+ * with synthetic values — the module-level dotenvFileValues is itself
+ * VITEST-guarded to empty (see above), so there'd otherwise be no way to test
+ * this logic without either loading real .env secrets into a test process or
+ * never covering the ".env beats ambient shell" behavior at all.
+ */
+export function resolveXaiOrGrokKeyFrom(
+  key: "XAI_API_KEY" | "GROK_API_KEY",
+  dotenvValues: { XAI_API_KEY?: string; GROK_API_KEY?: string },
+  ambientEnv: { XAI_API_KEY?: string; GROK_API_KEY?: string }
+): string | undefined {
+  const aliasKey = key === "XAI_API_KEY" ? "GROK_API_KEY" : "XAI_API_KEY";
+  return dotenvValues[key] || dotenvValues[aliasKey] || ambientEnv[key] || ambientEnv[aliasKey];
+}
+
+/**
+ * Every distinct known xAI credential value, in the same trust order as
+ * resolveXaiOrGrokKeyFrom (this project's .env first, then the ambient
+ * shell) — for call sites that want to retry a live 403 ("no credits/
+ * permission") against a different key rather than fail outright once the
+ * top pick turns out to be unfunded. Always includes at least the value
+ * requireEnvVar("XAI_API_KEY"|"GROK_API_KEY") would have returned, first.
+ */
+export function xaiGrokKeyCandidatesFrom(
+  dotenvValues: { XAI_API_KEY?: string; GROK_API_KEY?: string },
+  ambientEnv: { XAI_API_KEY?: string; GROK_API_KEY?: string }
+): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  for (const v of [dotenvValues.GROK_API_KEY, dotenvValues.XAI_API_KEY, ambientEnv.GROK_API_KEY, ambientEnv.XAI_API_KEY]) {
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      candidates.push(v);
+    }
+  }
+  return candidates;
+}
+
+/** Real-module-state wrapper around xaiGrokKeyCandidatesFrom — see that function's
+ *  doc for the precedence rule and why the logic itself lives in a pure function. */
+export function xaiGrokKeyCandidates(): string[] {
+  return xaiGrokKeyCandidatesFrom(dotenvFileValues, loadEnv());
+}
+
+/**
  * Adapters call this at the point a vendor call is actually made, not at
  * startup — keeps --dry-run runnable with zero configured API keys.
  */
 export function requireEnvVar(key: StringEnvKey): string {
   const env = loadEnv();
-  let value = env[key];
-  if (!value) {
-    if (key === "XAI_API_KEY") value = env.GROK_API_KEY;
-    else if (key === "GROK_API_KEY") value = env.XAI_API_KEY;
-  }
+  const value = key === "XAI_API_KEY" || key === "GROK_API_KEY"
+    ? resolveXaiOrGrokKeyFrom(key, dotenvFileValues, env)
+    : env[key];
   if (!value) {
     throw new Error(
       `Missing required env var "${key}". Set it in .env or your shell before running this stage live (not --dry-run).`

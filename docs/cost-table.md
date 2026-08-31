@@ -28,3 +28,17 @@ Rates below must match `ANTHROPIC_RATE_TABLE` in `packages/shared-cost/src/index
 | Claude Sonnet 4.5 (`claude-sonnet-4-5`) | $3.00 | $15.00 | *(none — historical only)* | Same $3/$15 tier as Sonnet 5; kept in the rate table only so old cost-ledger JSON on disk still prices correctly |
 | Claude Haiku 4.5 (`claude-haiku-4-5`) | $1.00 | $5.00 | `caption-agent.ts` (`caption_timing`) | Mechanical, high-volume, low-judgment — splits an already-written script into timed cards |
 | Claude Fable 5 (`claude-fable-5`) | $10.00 | $50.00 | `script-agent.ts` (`script_rewrite`) | Estimate — confirm before relying on it. The hook/point/CTA creative bottleneck — highest quality leverage in the pipeline |
+
+## Gemini & Grok failover text model pricing (per million tokens)
+
+Rates below must match `GEMINI_RATE_TABLE` and `GROK_RATE_TABLE` in `packages/shared-cost/src/index.ts`. Used by `apps/orchestrator/src/agents/llm-failover.ts` when falling back or routing to Gemini / Grok.
+
+| Model | Input $/M | Output $/M | Stage / Role | Notes |
+|---|---|---|---|---|
+| Gemini 2.5 Pro (`gemini-2.5-pro`) | $1.25 | $10.00 | `script_rewrite`, `qa_score` fallback | Secondary / fallback model for creative writing and QA |
+| Gemini 2.5 Flash (`gemini-2.5-flash`) | $0.30 | $2.50 | `caption_timing` fallback | Fast, high-volume model for mechanical caption timing |
+| Grok 2 (`grok-2`) | $2.00 | $10.00 | `script_rewrite`, `qa_score`, `caption_timing` fallback (default) | Verified-working chat model on the current xAI tier; `GROK_MODEL` env var overrides this default. `grok-2-latest` 400s ("Model not found") on this account and must not be used. |
+| Grok 2 Mini (`grok-2-mini`) | $0.20 | $1.00 | Lightweight tasks fallback | Low-cost Grok option |
+| Grok Beta (`grok-beta`) | $5.00 | $15.00 | `GROK_MODEL` override | Alternate fallback model id, priced for reference if selected via override |
+| Grok 3 (`grok-3`) | $3.00 | $15.00 | `GROK_MODEL` override | Alternate fallback model id, priced for reference if selected via override |
+
