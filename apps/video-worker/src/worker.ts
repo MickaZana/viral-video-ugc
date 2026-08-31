@@ -450,6 +450,7 @@ function estimateCost(vendor: VideoVendor, durationSec: number): number {
     runway: 0.05 * durationSec,      // ~$0.05/sec (Gen-4 Turbo)
     pika: 0.05 * durationSec,        // ~$0.05/sec via fal.ai
     gemini: 0.04,                    // still image only (flat per image)
+    wan: 0.10 * durationSec,         // ~$0.10/sec at 720p (Replicate alibaba/wan-3)
   };
   return rates[vendor] ?? 0.10;
 }

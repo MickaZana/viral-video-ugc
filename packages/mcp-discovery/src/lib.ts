@@ -19,6 +19,8 @@ export async function discoverPlatform(
       return discoverMeta(niche, limit, "instagram_reels");
     case "facebook":
       return discoverMeta(niche, limit, "facebook");
+    default:
+      throw new Error(`Unsupported platform for discovery: ${platform}`);
   }
 }
 

@@ -40,6 +40,13 @@ const VENDOR_RATES: Record<VideoVendor, number> = {
   replicate: 0.40,
   seedance: 0.30,
   grok_video: 0.20,
+  // Wan 3.0 (Alibaba, via Replicate) is priced per output-second by resolution
+  // ($0.05/$0.10/$0.20 at 480p/720p/1080p), not a flat per-clip rate like this
+  // table assumes for every other vendor — this is a rough placeholder at
+  // 720p for a short segment clip, in the same range as this table's other
+  // entries. Reconcile with shared-cost's more precise duration-aware rate
+  // table once Wan's real per-clip cost is measured from live usage.
+  wan: 0.45,
 };
 
 // ─── Vendor Selection ───────────────────────────────────────────────────────

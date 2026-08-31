@@ -130,14 +130,39 @@ describe("Soul ID — Seedance Adapter", () => {
     });
   });
 
-  it("passes identityRef.primaryImageUrl as image_url", async () => {
+  it("routes to reference-to-video and sends primary + additional images as image_urls (Seedance 2.5)", async () => {
+    // withIdentityRef()'s default fixture has a primary image PLUS 2 additional
+    // images — under Seedance 2.5's endpoint-selection logic that's exactly the
+    // reference-to-video case (identityRef.additionalImageUrls non-empty), not
+    // image-to-video's single image_url field. See seedance.ts's file-header
+    // comment for the full endpoint-selection reasoning.
     const { createSeedanceAdapter } = await import("./seedance.js");
     const adapter = createSeedanceAdapter("/tmp/out");
     await adapter.generate(withIdentityRef());
 
     const submitCall = mockFetch.mock.calls[0];
+    expect(submitCall[0]).toContain("/reference-to-video");
+    const body = JSON.parse(submitCall[1].body);
+    expect(body.image_url).toBeUndefined();
+    expect(body.image_urls).toEqual([
+      "https://storage.example.com/creators/alex/primary.jpg",
+      "https://storage.example.com/creators/alex/ref-2.jpg",
+      "https://storage.example.com/creators/alex/ref-3.jpg",
+    ]);
+  });
+
+  it("routes to image-to-video and sends image_url when identityRef has a primary image but no additional images", async () => {
+    const { createSeedanceAdapter } = await import("./seedance.js");
+    const adapter = createSeedanceAdapter("/tmp/out");
+    await adapter.generate(withIdentityRef({
+      identityRef: { primaryImageUrl: "https://storage.example.com/creators/alex/primary.jpg", additionalImageUrls: [], mode: "reference_images" },
+    }));
+
+    const submitCall = mockFetch.mock.calls[0];
+    expect(submitCall[0]).toContain("/image-to-video");
     const body = JSON.parse(submitCall[1].body);
     expect(body.image_url).toBe("https://storage.example.com/creators/alex/primary.jpg");
+    expect(body.image_urls).toBeUndefined();
   });
 
   it("does not set image_url when identityRef is absent", async () => {
@@ -321,5 +346,121 @@ describe("Soul ID — Cross-cutting", () => {
     // means the vendor manages the avatar internally, but we still pass the ref)
     expect(req.identityRef!.mode).toBe("vendor_avatar");
     expect(req.identityRef!.primaryImageUrl).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startingFrame — image-to-video, distinct from identityRef (Platform Evolution:
+// image-first generation). Precedence: startingFrame > identityRef.primaryImageUrl
+// > referenceImageUrl, on every adapter with a single image input field.
+// ---------------------------------------------------------------------------
+
+function withStartingFrame(overrides: Partial<VideoGenRequest> = {}): VideoGenRequest {
+  return baseRequest({
+    startingFrame: { imageUrl: "https://storage.example.com/generated/nano-banana-frame.png" },
+    ...overrides,
+  });
+}
+
+describe("startingFrame — Kling Adapter", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: { task_id: "task-sf" } }) });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: { task_status: "succeed", task_result: { videos: [{ url: "https://cdn.kling/video.mp4" }] } } }),
+    });
+    mockFetch.mockResolvedValueOnce({ arrayBuffer: async () => new ArrayBuffer(100) });
+  });
+
+  it("uses image2video with startingFrame, taking priority over identityRef", async () => {
+    const { createKlingAdapter } = await import("./kling.js");
+    const adapter = createKlingAdapter("/tmp/out");
+    await adapter.generate(withStartingFrame({
+      identityRef: { primaryImageUrl: "https://storage.example.com/identity.jpg", additionalImageUrls: [], mode: "reference_images" },
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(mockFetch.mock.calls[0][0]).toContain("/videos/image2video");
+    expect(body.image).toBe("https://storage.example.com/generated/nano-banana-frame.png");
+  });
+});
+
+describe("startingFrame — Seedance / Grok Video / Replicate adapters", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("Seedance: startingFrame.imageUrl takes priority over identityRef and referenceImageUrl", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ request_id: "req-sf" }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "COMPLETED" }) });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ video: { url: "https://cdn.fal/video.mp4" } }) });
+    mockFetch.mockResolvedValueOnce({ arrayBuffer: async () => new ArrayBuffer(100) });
+
+    const { createSeedanceAdapter } = await import("./seedance.js");
+    const adapter = createSeedanceAdapter("/tmp/out");
+    await adapter.generate(withStartingFrame({
+      identityRef: { primaryImageUrl: "https://storage.example.com/identity.jpg", additionalImageUrls: [], mode: "reference_images" },
+      referenceImageUrl: "https://storage.example.com/generic-ref.jpg",
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.image_url).toBe("https://storage.example.com/generated/nano-banana-frame.png");
+  });
+
+  it("Grok Video: falls back to identityRef when startingFrame is absent", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: "gen-sf", status: "completed", video: { url: "https://cdn.xai/video.mp4" } }),
+    });
+    mockFetch.mockResolvedValueOnce({ arrayBuffer: async () => new ArrayBuffer(100) });
+
+    const { createGrokVideoAdapter } = await import("./grok-video.js");
+    const adapter = createGrokVideoAdapter("/tmp/out");
+    await adapter.generate(baseRequest({
+      identityRef: { primaryImageUrl: "https://storage.example.com/identity.jpg", additionalImageUrls: [], mode: "reference_images" },
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.image).toBe("https://storage.example.com/identity.jpg");
+  });
+
+  it("Replicate: startingFrame.imageDataUri is used when imageUrl is absent", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ id: "pred-sf", status: "succeeded", output: "https://cdn.replicate/video.mp4" }) });
+    mockFetch.mockResolvedValueOnce({ arrayBuffer: async () => new ArrayBuffer(100) });
+
+    const { createReplicateAdapter } = await import("./replicate.js");
+    const adapter = createReplicateAdapter("/tmp/out");
+    await adapter.generate(baseRequest({ startingFrame: { imageDataUri: "data:image/png;base64,AAAA" } }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.input.image).toBe("data:image/png;base64,AAAA");
+  });
+});
+
+describe("startingFrame — Higgsfield Adapter (multi-image: honors both at once)", () => {
+  it("imports the starting frame first, then identity references, in one medias[] call", async () => {
+    const mockCallMcpTool = vi.fn();
+    mockCallMcpTool.mockResolvedValueOnce({ media_id: "media-frame" }); // startingFrame
+    mockCallMcpTool.mockResolvedValueOnce({ media_id: "media-identity" }); // identityRef.primaryImageUrl
+    mockCallMcpTool.mockResolvedValueOnce({ jobId: "hf-job-sf" }); // generate_video
+    mockCallMcpTool.mockResolvedValueOnce({ status: "completed", videoUrl: "https://cdn.hf/video.mp4" }); // job_status
+
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce({ arrayBuffer: async () => new ArrayBuffer(100) });
+
+    const { createHiggsfieldAdapter } = await import("./higgsfield.js");
+    const adapter = createHiggsfieldAdapter(mockCallMcpTool, "/tmp/out");
+    await adapter.generate(withStartingFrame({
+      identityRef: { primaryImageUrl: "https://storage.example.com/identity.jpg", additionalImageUrls: [], mode: "reference_images" },
+    }));
+
+    expect(mockCallMcpTool.mock.calls[0]).toEqual(["media_import_url", { url: "https://storage.example.com/generated/nano-banana-frame.png", type: "image" }]);
+    expect(mockCallMcpTool.mock.calls[1]).toEqual(["media_import_url", { url: "https://storage.example.com/identity.jpg", type: "image" }]);
+    const genCall = mockCallMcpTool.mock.calls[2];
+    expect(genCall[1].medias).toEqual([
+      { value: "media-frame", role: "image" },
+      { value: "media-identity", role: "image" },
+    ]);
   });
 });

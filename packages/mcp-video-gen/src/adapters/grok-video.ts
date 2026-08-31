@@ -56,10 +56,12 @@ export function createGrokVideoAdapter(outDir: string): VideoGenAdapter {
         duration: req.durationSec,
         aspect_ratio: req.aspectRatio,
       };
-      // Soul ID: identityRef takes priority over generic referenceImageUrl
-      if (req.identityRef?.primaryImageUrl) {
-        body.image = req.identityRef.primaryImageUrl;
-      } else if (req.referenceImageUrl) body.image = req.referenceImageUrl;
+      // Image-to-video: startingFrame > identityRef > generic referenceImageUrl
+      // — see VideoGenAdapter.ts's startingFrame doc for the precedence rationale.
+      if (req.startingFrame?.imageUrl) body.image = req.startingFrame.imageUrl;
+      else if (req.startingFrame?.imageDataUri) body.image = req.startingFrame.imageDataUri;
+      else if (req.identityRef?.primaryImageUrl) body.image = req.identityRef.primaryImageUrl;
+      else if (req.referenceImageUrl) body.image = req.referenceImageUrl;
       else if (req.referenceImageDataUri) body.image = req.referenceImageDataUri;
 
       // Submit generation request

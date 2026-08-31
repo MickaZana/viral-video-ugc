@@ -21,7 +21,8 @@ export type CostVendor =
   | "seedance"
   | "grok_video"
   | "sync_labs"
-  | "heygen";
+  | "heygen"
+  | "wan";
 
 export interface CostEvent {
   stage: string;
@@ -100,7 +101,12 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   sync_labs: { clip: 0.5 },
   // HeyGen — ~$0.03/sec for avatar video generation from audio + image.
   // Estimated as ~$0.75/clip at a typical 25-second segment.
-  heygen: { clip: 0.75 }
+  heygen: { clip: 0.75 },
+  // Wan 3.0 (Alibaba, via Replicate) — real published list rates: $0.05/$0.10/$0.20
+  // per output-second at 480p/720p/1080p. Estimated here as ~$0.50/clip at 720p
+  // for a typical short segment clip, same convention as seedance/grok_video above.
+  // Confirm against actual usage once live generation is run through this adapter.
+  wan: { clip: 0.5 }
 };
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {

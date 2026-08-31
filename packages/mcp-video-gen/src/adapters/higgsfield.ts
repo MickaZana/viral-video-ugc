@@ -42,13 +42,20 @@ export function createHiggsfieldAdapter(callMcpTool: McpToolCaller, outDir: stri
   return {
     vendor: "higgsfield",
     async generate(req: VideoGenRequest): Promise<RawClip> {
-      // Soul ID: if identityRef is present, import ALL reference images (primary +
-      // additional) as medias for maximum face consistency. Cinema Studio 4.0 supports
-      // up to 50 references; cap there for safety.
+      // Soul ID + image-to-video: unlike the REST adapters' single image field,
+      // Higgsfield's medias[] genuinely supports multiple images at once, so a
+      // startingFrame and an identityRef aren't mutually exclusive here — the
+      // starting frame goes first (most specific intent: "animate exactly this"),
+      // then the identity references, up to Cinema Studio 4.0's 50-reference cap.
       let medias: Array<{ value: string; role: string }> | undefined;
 
-      if (req.identityRef?.primaryImageUrl) {
-        const allUrls = [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls].slice(0, 50);
+      const startingImage = req.startingFrame?.imageUrl ?? req.startingFrame?.imageDataUri;
+      const identityUrls = req.identityRef?.primaryImageUrl
+        ? [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls]
+        : [];
+      const allUrls = [...(startingImage ? [startingImage] : []), ...identityUrls].slice(0, 50);
+
+      if (allUrls.length > 0) {
         const imported = await Promise.all(
           allUrls.map((url) => importMedia(callMcpTool, url))
         );

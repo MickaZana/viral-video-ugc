@@ -19,6 +19,18 @@ export interface VideoGenRequest {
     additionalImageUrls: string[];
     mode: "reference_images" | "vendor_avatar";
   };
+  /**
+   * Image-to-video: an already-generated starting frame to animate (e.g. from
+   * Nano Banana), distinct from identityRef — identityRef says "keep this face
+   * consistent," startingFrame says "animate exactly this image." A request can
+   * carry both (an identity-consistent character animated from a specific
+   * generated pose/scene). Every adapter that accepts a single image input
+   * field applies precedence startingFrame > identityRef.primaryImageUrl >
+   * referenceImageUrl — the most specific intent wins the one image slot most
+   * vendor APIs expose; adapters with a genuinely separate multi-image
+   * mechanism (Higgsfield's medias[]) can honor both at once instead.
+   */
+  startingFrame?: { imageUrl?: string; imageDataUri?: string };
   creatorProfile?: { displayName: string; tone: string; wardrobe: string; visualStyle: string; ageRange?: string; language: string; prohibitedDepictions: string[]; avatarMode: "reference_images" | "vendor_avatar" | "none" };
   /** Cinema Controls: visual direction applied at generation time. */
   visualDirection?: {

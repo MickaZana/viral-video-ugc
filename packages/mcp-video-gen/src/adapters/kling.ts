@@ -54,8 +54,11 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
       const secretKey = requireEnvVar("KLING_SECRET_KEY");
       const authHeader = () => ({ Authorization: `Bearer ${signKlingJwt(accessKey, secretKey)}` });
 
-      // Soul ID: if identityRef is present, use image2video endpoint with the face reference
-      const useImageEndpoint = !!req.identityRef?.primaryImageUrl;
+      // Soul ID + image-to-video: startingFrame (an already-generated frame to
+      // animate) takes priority over identityRef (a face to keep consistent) —
+      // see VideoGenAdapter.ts's startingFrame doc for the precedence rationale.
+      const startingImage = req.startingFrame?.imageUrl ?? req.startingFrame?.imageDataUri ?? req.identityRef?.primaryImageUrl;
+      const useImageEndpoint = !!startingImage;
       const endpoint = useImageEndpoint
         ? `${KLING_API_BASE}/videos/image2video`
         : `${KLING_API_BASE}/videos/text2video`;
@@ -65,7 +68,7 @@ export function createKlingAdapter(outDir: string): VideoGenAdapter {
         headers: { ...authHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: req.prompt,
-          ...(useImageEndpoint ? { image: req.identityRef!.primaryImageUrl } : {}),
+          ...(useImageEndpoint ? { image: startingImage } : {}),
           duration: String(req.durationSec),
           aspect_ratio: req.aspectRatio,
           ...(req.visualDirection ? mapToKlingParams(req.visualDirection) : {}),

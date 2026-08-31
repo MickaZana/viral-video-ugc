@@ -62,10 +62,12 @@ export function createReplicateAdapter(outDir: string): VideoGenAdapter {
         aspect_ratio: req.aspectRatio,
         duration: req.durationSec
       };
-      // Soul ID: identityRef takes priority over generic referenceImageUrl
-      if (req.identityRef?.primaryImageUrl) {
-        input.image = req.identityRef.primaryImageUrl;
-      } else if (req.referenceImageUrl) input.image = req.referenceImageUrl;
+      // Image-to-video: startingFrame > identityRef > generic referenceImageUrl
+      // — see VideoGenAdapter.ts's startingFrame doc for the precedence rationale.
+      if (req.startingFrame?.imageUrl) input.image = req.startingFrame.imageUrl;
+      else if (req.startingFrame?.imageDataUri) input.image = req.startingFrame.imageDataUri;
+      else if (req.identityRef?.primaryImageUrl) input.image = req.identityRef.primaryImageUrl;
+      else if (req.referenceImageUrl) input.image = req.referenceImageUrl;
       else if (req.referenceImageDataUri) input.image = req.referenceImageDataUri;
 
       // No `Prefer: wait` here — live-tested against a real account and found it
