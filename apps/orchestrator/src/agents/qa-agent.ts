@@ -70,8 +70,8 @@ Trending phrases used: ${script.trendingPhrases.join(", ") || "none"}`;
     userPrompt,
     maxTokens: 512,
     anthropicModel: model,
-    geminiModel: "gemini-2.5-pro",
-    grokModel: process.env.GROK_MODEL || "grok-2",
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-pro-preview",
+    grokModel: process.env.GROK_MODEL || "grok-4.3",
     stage: "qa_score",
     costLedger: opts.costLedger
   });

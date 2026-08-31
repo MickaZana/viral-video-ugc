@@ -37,8 +37,8 @@ CTA: ${script.cta}`;
     userPrompt: userPrompt + templateBlock,
     maxTokens: 1024,
     anthropicModel: model,
-    geminiModel: "gemini-2.5-flash",
-    grokModel: process.env.GROK_MODEL || "grok-2",
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+    grokModel: process.env.GROK_MODEL || "grok-4.3",
     stage: "caption_timing",
     costLedger: opts.costLedger
   });

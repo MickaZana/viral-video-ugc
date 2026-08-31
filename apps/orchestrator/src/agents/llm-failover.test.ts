@@ -201,7 +201,7 @@ describe("generateWithFailover / multi-provider failover chain", () => {
     expect(capturedAuthHeaders).toEqual(["Bearer unfunded-team-key", "Bearer funded-team-key"]);
   });
 
-  it("uses grok-2 (not the invalid grok-2-latest) as the default model when no explicit/GROK_MODEL override is given", async () => {
+  it("uses grok-4.3 (not the dead grok-2) as the default model when no explicit/GROK_MODEL override is given", async () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.GEMINI_API_KEY;
     delete process.env.GROK_MODEL;
@@ -218,8 +218,8 @@ describe("generateWithFailover / multi-provider failover chain", () => {
       stage: "script_rewrite"
     });
 
-    expect(capturedModel).toBe("grok-2");
-    expect(result.model).toBe("grok-2");
+    expect(capturedModel).toBe("grok-4.3");
+    expect(result.model).toBe("grok-4.3");
   });
 
   it("GROK_MODEL overrides the default model even when the caller doesn't pass grokModel explicitly", async () => {
@@ -241,6 +241,46 @@ describe("generateWithFailover / multi-provider failover chain", () => {
     expect(capturedModel).toBe("grok-3");
     expect(result.model).toBe("grok-3");
     delete process.env.GROK_MODEL;
+  });
+
+  it("uses gemini-3.1-pro-preview (not the dead gemini-2.5-pro) as the default model when geminiModel is omitted", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_MODEL;
+    let capturedUrl: string | URL | undefined;
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string | URL) => {
+      capturedUrl = url;
+      return geminiTextResponse({ hook: "h", points: ["p"], cta: "c" });
+    });
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-fable-5",
+      // geminiModel intentionally omitted — exercises the module default.
+      stage: "script_rewrite"
+    });
+
+    expect(String(capturedUrl)).toContain("/models/gemini-3.1-pro-preview:generateContent");
+    expect(result.model).toBe("gemini-3.1-pro-preview");
+  });
+
+  it("GEMINI_MODEL overrides the default model even when the caller doesn't pass geminiModel explicitly", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.GEMINI_MODEL = "gemini-3.6-flash";
+    let capturedUrl: string | URL | undefined;
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string | URL) => {
+      capturedUrl = url;
+      return geminiTextResponse({ hook: "h", points: ["p"], cta: "c" });
+    });
+
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100,
+      anthropicModel: "claude-fable-5",
+      stage: "script_rewrite"
+    });
+
+    expect(String(capturedUrl)).toContain("/models/gemini-3.6-flash:generateContent");
+    expect(result.model).toBe("gemini-3.6-flash");
+    delete process.env.GEMINI_MODEL;
   });
 
   it("SCHEMA-DRIFT GUARDRAIL: a Grok fallback response parses through the SAME RewrittenScriptSchema", async () => {

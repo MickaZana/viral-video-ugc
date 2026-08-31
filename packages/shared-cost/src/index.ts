@@ -54,19 +54,42 @@ const ANTHROPIC_RATE_TABLE: Record<string, Record<string, number>> = {
 // failover (Anthropic primary -> Gemini on hard provider failure). These are the
 // current published per-1M-token rates converted to per-token; confirm against
 // current Google pricing before relying on them in billing.
+//
+// "gemini-2.5-pro"/"gemini-2.5-flash" are dead (404, verified 2026-08-31) — kept
+// below ONLY to correctly price historical cost-ledger JSON already on disk from
+// before llm-failover.ts's defaults were updated, mirroring ANTHROPIC_RATE_TABLE's
+// "claude-sonnet-4-5" entry and its comment. No agent should newly target them;
+// see llm-failover.ts's GEMINI_TEXT_MODEL for the current defaults.
 const GEMINI_RATE_TABLE: Record<string, Record<string, number>> = {
   "gemini-2.5-pro": { input_tokens: 1.25 / 1_000_000, output_tokens: 10 / 1_000_000 },
-  "gemini-2.5-flash": { input_tokens: 0.3 / 1_000_000, output_tokens: 2.5 / 1_000_000 }
+  "gemini-2.5-flash": { input_tokens: 0.3 / 1_000_000, output_tokens: 2.5 / 1_000_000 },
+  // Current default for pro-tier callers. Published rate for prompts up to 200K
+  // tokens; prompts above that bill at $4.00/$18.00 (2x input, 1.5x output) — not
+  // modeled here since this ledger doesn't track per-call prompt length.
+  "gemini-3.1-pro-preview": { input_tokens: 2.0 / 1_000_000, output_tokens: 12.0 / 1_000_000 },
+  // Current default for caption-agent (mechanical/fast tier). Introductory pricing
+  // set 2026-08-13; both rates double 2027-01-01 per Google's own announcement —
+  // revisit this entry before then.
+  "gemini-3.6-flash": { input_tokens: 0.75 / 1_000_000, output_tokens: 3.75 / 1_000_000 }
 };
 
 // Per-token list pricing for Grok (xAI) text models, used by the orchestrator's LLM
 // failover and direct provider execution. Current published per-1M-token rates converted to per-token.
+//
+// "grok-2"/"grok-2-latest"/"grok-2-mini"/"grok-beta"/"grok-3" no longer exist in
+// xAI's catalog at all (400 "Model not found", verified 2026-08-31 via GET
+// /v1/models) — kept below ONLY to correctly price historical cost-ledger JSON
+// already on disk, same convention as GEMINI_RATE_TABLE's dead entries above. No
+// agent should newly target them; see llm-failover.ts's GROK_TEXT_MODEL.
 const GROK_RATE_TABLE: Record<string, Record<string, number>> = {
   "grok-2": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
   "grok-2-latest": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
   "grok-2-mini": { input_tokens: 0.2 / 1_000_000, output_tokens: 1 / 1_000_000 },
   "grok-beta": { input_tokens: 5 / 1_000_000, output_tokens: 15 / 1_000_000 },
-  "grok-3": { input_tokens: 3 / 1_000_000, output_tokens: 15 / 1_000_000 }
+  "grok-3": { input_tokens: 3 / 1_000_000, output_tokens: 15 / 1_000_000 },
+  // Current default (verified genuinely working live, 2026-08-31). Standard-tier
+  // published rate.
+  "grok-4.3": { input_tokens: 1.25 / 1_000_000, output_tokens: 2.5 / 1_000_000 }
 };
 
 // Per-token list pricing for Kimi (Moonshot AI) text models, used by the orchestrator's

@@ -79,8 +79,8 @@ Analyze the shot structure across these frames and reconstruct the ad's scene-by
     images,
     maxTokens: 2048,
     anthropicModel: model,
-    geminiModel: "gemini-2.5-pro",
-    grokModel: process.env.GROK_MODEL || "grok-2",
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-pro-preview",
+    grokModel: process.env.GROK_MODEL || "grok-4.3",
     stage: "ad_deconstruction",
     costLedger: opts.costLedger
   });

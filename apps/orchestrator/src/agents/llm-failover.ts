@@ -28,8 +28,9 @@ export interface LlmFailoverOptions {
   maxTokens: number;
   /** Anthropic model id (primary when Anthropic key configured). */
   anthropicModel: string;
-  /** Gemini model id (secondary / fallback). */
-  geminiModel: string;
+  /** Gemini model id (secondary / fallback). Optional — an explicit caller value wins,
+   *  then GEMINI_MODEL, then the verified-working default (see resolveGeminiModel). */
+  geminiModel?: string;
   /** Grok model id (fallback to Gemini, or main key when Gemini is unfunded/unconfigured). */
   grokModel?: string;
   /** Kimi (Moonshot AI) model id — only consulted when preferredProvider is "kimi". */
@@ -55,15 +56,29 @@ export interface LlmFailoverOptions {
 }
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const GEMINI_TEXT_MODEL = "gemini-2.5-pro";
+// "gemini-2.5-pro" is dead (404 "no longer available to new users", verified live
+// 2026-08-31). Google's own error names "gemini-3.1-pro-preview" as the direct
+// replacement, but that id currently returns 429 (quota exceeded) on this
+// project's Gemini key specifically — an account/billing-quota condition, not a
+// wrong-model-id problem, and Gemini is a FALLBACK provider here: a 429 on this
+// default just makes generateWithFailover advance to Grok, exactly as designed
+// (see the chain doc-comment below), so this default stays the *correct* current
+// id rather than a lower tier picked around one account's quota. GEMINI_MODEL
+// overrides this the same way GROK_MODEL/KIMI_MODEL do, so ops can point at
+// "gemini-3.6-flash" (verified genuinely working end-to-end, 2026-08-31) or any
+// other id without a code change if the quota issue persists.
+const GEMINI_TEXT_MODEL = "gemini-3.1-pro-preview";
 
 const GROK_API_BASE = "https://api.x.ai/v1";
-// "grok-2-latest" 400s ("Model not found") on this account's current xAI tier —
-// "grok-2" is the verified-working chat model id. Never hardcode a model string
-// callers can't override: GROK_MODEL always wins when set, read fresh on every
-// call (not cached at module load) so a test or a runtime env change takes
+// xAI's catalog has moved on again since this default was last fixed: "grok-2"
+// (and "grok-2-latest"/"grok-3") no longer exist at all (400 "Model not found",
+// verified live 2026-08-31 via GET /v1/models) — the current lineup is
+// grok-4.3/4.5/4.6/4.20-*. "grok-4.3" is the verified-working, currently-priced
+// chat model id (see shared-cost's GROK_RATE_TABLE). Never hardcode a model
+// string callers can't override: GROK_MODEL always wins when set, read fresh on
+// every call (not cached at module load) so a test or a runtime env change takes
 // effect immediately, the same way xaiGrokKeyCandidates() re-reads env each call.
-const GROK_TEXT_MODEL = "grok-2";
+const GROK_TEXT_MODEL = "grok-4.3";
 
 // Moonshot AI's Kimi — OpenAI-compatible chat completions API at api.moonshot.ai
 // (verified against platform.kimi.ai/docs/api/chat and /docs/api/models-overview,
@@ -85,6 +100,16 @@ const KIMI_TEXT_MODEL = "kimi-k3";
  *  call site (here and the three agents) can be overridden the same way. */
 function resolveGrokModel(explicit?: string): string {
   return explicit || process.env.GROK_MODEL || GROK_TEXT_MODEL;
+}
+
+/** Resolves the Gemini chat model: an explicit caller value wins, then
+ *  GEMINI_MODEL, then the current default. Mirrors resolveGrokModel exactly —
+ *  added alongside the grok-4.3/gemini-3.1-pro-preview fix so Gemini has the
+ *  same env-override escape hatch Grok and Kimi already had, since we've now
+ *  seen this exact "vendor moved the model catalog on" failure mode recur
+ *  more than once in one session. */
+function resolveGeminiModel(explicit?: string): string {
+  return explicit || process.env.GEMINI_MODEL || GEMINI_TEXT_MODEL;
 }
 
 /** Resolves the Kimi chat model: an explicit caller value wins, then
@@ -179,6 +204,7 @@ async function callGemini(opts: LlmFailoverOptions): Promise<LlmFailoverResult> 
   }
   // Native fetch with a hard timeout — inline timeout is enough; we deliberately avoid
   // pulling a shared-http dep into the orchestrator just for fallback calls.
+  const geminiModel = resolveGeminiModel(opts.geminiModel);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
@@ -189,7 +215,7 @@ async function callGemini(opts: LlmFailoverOptions): Promise<LlmFailoverResult> 
       inline_data: { mime_type: img.mediaType, data: img.base64 }
     }));
     const res = await fetch(
-      `${GEMINI_API_BASE}/models/${opts.geminiModel}:generateContent`,
+      `${GEMINI_API_BASE}/models/${geminiModel}:generateContent`,
       {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
@@ -214,8 +240,8 @@ async function callGemini(opts: LlmFailoverOptions): Promise<LlmFailoverResult> 
     opts.costLedger?.recordGeminiUsage(opts.stage, {
       input_tokens: body.usageMetadata?.promptTokenCount ?? 0,
       output_tokens: body.usageMetadata?.candidatesTokenCount ?? 0
-    }, opts.geminiModel);
-    return { text, provider: "gemini", model: opts.geminiModel };
+    }, geminiModel);
+    return { text, provider: "gemini", model: geminiModel };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(`Gemini text generation timed out after 60s`);
@@ -402,7 +428,7 @@ export async function generateWithFailover(opts: LlmFailoverOptions): Promise<Ll
       // Failover from Anthropic to Gemini or Grok
       if (hasGemini) {
         try {
-          opts.onFallback?.("gemini", opts.geminiModel, err);
+          opts.onFallback?.("gemini", resolveGeminiModel(opts.geminiModel), err);
           return await callGemini(opts);
         } catch (geminiErr) {
           if (hasGrok) {
