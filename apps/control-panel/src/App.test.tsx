@@ -37,6 +37,9 @@ function installFetchMock() {
     if (url.endsWith('/stats')) return jsonResponse({ totalRemakes: 0 })
     if (url.endsWith('/queue')) return jsonResponse([])
     if (url.endsWith('/runs')) return jsonResponse([])
+    if (url.endsWith('/accounts/billing')) {
+      return jsonResponse({ tiers: [], plan: { tierId: 'starter', status: 'active' }, runsUsedThisMonth: 3, monthlyRunLimit: 10, overage: { priceUsdPerRun: 0, overageRunsThisMonth: 0, chargedThisMonth: 0, totalUsdThisMonth: 0 } })
+    }
     if (url.endsWith('/creators')) return jsonResponse({ creators: [] })
     if (url.endsWith('/models')) return jsonResponse({ models: [] })
     if (url.endsWith('/clients') || url.includes('/accounts/clients')) return jsonResponse({ clients: [] })
@@ -128,6 +131,34 @@ describe('App (control panel shell)', () => {
     expect(localStorage.getItem('ugu-theme')).toBe('light')
   })
 
+  it('toggles the theme from the always-visible header button, not just Settings', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await reachWorkspace()
+
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    const headerToggle = screen.getByRole('button', { name: /switch to light background/i })
+
+    await user.click(headerToggle)
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(localStorage.getItem('ugu-theme')).toBe('light')
+    expect(screen.getByRole('button', { name: /switch to dark background/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /switch to dark background/i }))
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(localStorage.getItem('ugu-theme')).toBe('dark')
+  })
+
+  it('shows a persistent runs-used pill in the header, linking to Billing', async () => {
+    const user = userEvent.setup()
+    renderApp()
+    await reachWorkspace()
+
+    const pill = await screen.findByRole('button', { name: /3 \/ 10 runs/i })
+    await user.click(pill)
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument()
+  })
+
   it('navigates to Library via a real route and renders its category switcher', async () => {
     const user = userEvent.setup()
     renderApp()
@@ -139,5 +170,76 @@ describe('App (control panel shell)', () => {
     expect(screen.getByRole('button', { name: /VIDEO DEMOS/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /SCRIPT DEMOS/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /WORKFLOW DEMOS/ })).toBeInTheDocument()
+  })
+
+  it('shows a recent-activity feed on This Week built from real queue items', async () => {
+    const QUEUE_ITEMS = [
+      {
+        id: 'item_recent_1',
+        runId: 'run_1',
+        niche: 'fitness',
+        videoPath: '/tmp/item_recent_1.mp4',
+        platform: 'tiktok',
+        script: {
+          videoId: 'vid_1',
+          hook: 'This one habit changed my mornings forever',
+          points: ['point a', 'point b'],
+          cta: 'Follow for more',
+          durationSec: 30,
+          brandVoice: 'energetic',
+          locale: 'en-US',
+          trendingPhrases: ['#fitness']
+        },
+        score: 82,
+        flags: [],
+        status: 'approved',
+        createdAt: '2026-08-30T12:00:00.000Z'
+      },
+      {
+        id: 'item_recent_2',
+        runId: 'run_1',
+        niche: 'fitness',
+        videoPath: '/tmp/item_recent_2.mp4',
+        platform: 'youtube_shorts',
+        script: {
+          videoId: 'vid_2',
+          hook: 'Why nobody talks about this recovery trick',
+          points: ['point a', 'point b'],
+          cta: 'Comment below',
+          durationSec: 45,
+          brandVoice: 'calm',
+          locale: 'en-US',
+          trendingPhrases: []
+        },
+        score: 64,
+        flags: [],
+        status: 'pending',
+        createdAt: '2026-08-31T09:00:00.000Z'
+      }
+    ]
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/accounts/me')) {
+        return jsonResponse({ account: ACCOUNT, csrfToken: 'csrf_test', mfaEnabled: false })
+      }
+      if (url.endsWith('/stats')) return jsonResponse({ totalRemakes: 0 })
+      if (url.endsWith('/queue')) return jsonResponse(QUEUE_ITEMS)
+      if (url.endsWith('/runs')) return jsonResponse([])
+      if (url.endsWith('/accounts/billing')) {
+        return jsonResponse({ tiers: [], plan: { tierId: 'starter', status: 'active' }, runsUsedThisMonth: 3, monthlyRunLimit: 10, overage: { priceUsdPerRun: 0, overageRunsThisMonth: 0, chargedThisMonth: 0, totalUsdThisMonth: 0 } })
+      }
+      if (url.endsWith('/creators')) return jsonResponse({ creators: [] })
+      if (url.endsWith('/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/clients') || url.includes('/accounts/clients')) return jsonResponse({ clients: [] })
+      if (url.endsWith('/accounts/members')) return jsonResponse({ members: [ACCOUNT], role: ACCOUNT.role, canManageTeam: true })
+      return jsonResponse({})
+    }) as unknown as typeof fetch
+
+    renderApp()
+    await reachWorkspace()
+
+    expect(await screen.findByText('This one habit changed my mornings forever')).toBeInTheDocument()
+    expect(await screen.findByText('Why nobody talks about this recovery trick')).toBeInTheDocument()
   })
 })

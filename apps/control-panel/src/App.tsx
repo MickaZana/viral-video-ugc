@@ -145,6 +145,8 @@ export function App() {
             isGuest={!account}
             onLogout={handleLogout}
             onSignIn={() => navigate({ pathname: '/', search: '?mode=signin' })}
+            theme={theme}
+            onTheme={setTheme}
           />
         }
       >

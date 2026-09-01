@@ -721,7 +721,11 @@ export function BatchStudio() {
             className="w-full px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
             style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
           >
-            {planning ? 'PLANNING...' : 'PLAN BATCH'}
+            {planning
+              ? 'PLANNING...'
+              : !form.dryRun
+                ? `PLAN BATCH — Est. $${estimatedCost.toFixed(2)}`
+                : 'PLAN BATCH'}
           </button>
 
           {planError && (
@@ -772,7 +776,11 @@ export function BatchStudio() {
                   color: 'var(--color-on-accent)'
                 }}
               >
-                {enqueueing ? 'ENQUEUEING...' : 'CONFIRM & ENQUEUE'}
+                {enqueueing
+                  ? 'ENQUEUEING...'
+                  : !form.dryRun
+                    ? `CONFIRM & ENQUEUE — $${plan.totalEstimatedCost.toFixed(2)}`
+                    : 'CONFIRM & ENQUEUE'}
               </button>
 
               {enqueueError && (

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import type { PublicAccount } from '../lib/auth'
+import type { BillingResponse } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Logo } from '../components/Logo'
@@ -9,6 +10,40 @@ import { Onboarding, useOnboarding } from '../components/Onboarding'
 import { GlobalExportButton } from '../components/GlobalExportButton'
 import { LegalModals, type LegalModalType } from '../components/LegalModals'
 import { paths, tabPath } from '../lib/paths'
+
+type Theme = 'dark' | 'light'
+
+/** Minimal line-icon sun/moon, matching NavIcon.tsx's stroke-based style —
+ *  kept local rather than added to NavIcon since it represents a toggle
+ *  state, not a fixed nav destination. */
+function ThemeIcon({ theme }: { theme: Theme }) {
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 16 16',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true
+  }
+  if (theme === 'dark') {
+    // Sun — shown when dark is active, inviting a switch to light.
+    return (
+      <svg {...common}>
+        <circle cx="8" cy="8" r="3" />
+        <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" />
+      </svg>
+    )
+  }
+  // Moon — shown when light is active, inviting a switch to dark.
+  return (
+    <svg {...common}>
+      <path d="M13 8.8A5.2 5.2 0 1 1 7.2 3a4.2 4.2 0 0 0 5.8 5.8z" />
+    </svg>
+  )
+}
 
 const PRIMARY: { to: string; label: string; icon: Parameters<typeof NavIcon>[0]['name']; end?: boolean; badge?: boolean }[] = [
   { to: paths.home, label: 'This Week', icon: 'week', end: true },
@@ -47,12 +82,16 @@ export function WorkspaceLayout({
   account,
   isGuest,
   onLogout,
-  onSignIn
+  onSignIn,
+  theme,
+  onTheme
 }: {
   account: PublicAccount
   isGuest?: boolean
   onLogout: () => void
   onSignIn?: () => void
+  theme: Theme
+  onTheme: (t: Theme) => void
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -60,6 +99,9 @@ export function WorkspaceLayout({
   const { showOnboarding, completeOnboarding } = useOnboarding()
   const queue = useApi(() => api.queue())
   const runs = useApi(() => api.runs())
+  // Guests share a fake demo account with no real billing state — skip the
+  // call entirely rather than surface a 401/guest-plan placeholder.
+  const billing = useApi<BillingResponse>(() => (isGuest ? Promise.resolve(null as unknown as BillingResponse) : api.billing()))
   const pending = (queue.data ?? []).filter((i) => i.status === 'pending').length
   const heading = titleFor(location.pathname)
 
@@ -76,6 +118,33 @@ export function WorkspaceLayout({
       <header className="workspace-header border-b border-[var(--color-raised)] flex items-center justify-between shrink-0 bg-[var(--color-surface)]">
         <Logo onClick={() => navigate(paths.home)} />
         <div className="flex items-center gap-3 lg:gap-5">
+          <button
+            onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+            aria-label={theme === 'dark' ? 'Switch to light background' : 'Switch to dark background'}
+            title={theme === 'dark' ? 'Switch to light background' : 'Switch to dark background'}
+            className="shrink-0 w-8 h-8 flex items-center justify-center border border-[var(--color-border)] text-[var(--color-muted-2)] hover:text-[var(--color-text)] hover:border-[var(--color-muted-3)] transition-colors"
+          >
+            <ThemeIcon theme={theme} />
+          </button>
+          {!isGuest && typeof billing.data?.runsUsedThisMonth === 'number' && (
+            <button
+              onClick={() => navigate(paths.billing)}
+              title="Runs used this month — open Billing"
+              className="shrink-0 hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-mono border border-[var(--color-border)] text-[var(--color-muted-2)] hover:text-[var(--color-text)] hover:border-[var(--color-muted-3)] transition-colors"
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{
+                  backgroundColor:
+                    billing.data.monthlyRunLimit && billing.data.runsUsedThisMonth >= billing.data.monthlyRunLimit
+                      ? 'var(--color-orange)'
+                      : 'var(--color-lime)'
+                }}
+              />
+              {billing.data.runsUsedThisMonth}
+              {billing.data.monthlyRunLimit ? ` / ${billing.data.monthlyRunLimit}` : ''} runs
+            </button>
+          )}
           {isGuest ? (
             <div className="flex items-center gap-3">
               <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 border border-[var(--color-lime)] text-[var(--color-lime)]">

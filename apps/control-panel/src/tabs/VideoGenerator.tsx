@@ -156,6 +156,19 @@ export function VideoGenerator() {
     voiceList[0]?.id
   const videoChosen = videoList.find((m) => m.id === videoChosenId)
   const voiceChosen = voiceList.find((m) => m.id === voiceChosenId)
+
+  // Best-effort total-cost estimate for the RUN LIVE button label. Only sums
+  // rates that are honestly a per-run multiplier of 1: video is priced per
+  // "clip" and a run produces at least one clip, so its priceUsdPerUnit is a
+  // real per-run floor. Voiceover is priced per "character" (a script-length
+  // count this page doesn't have), so it's only added when its unit is itself
+  // a per-run unit like "clip" — never multiplied by a guessed character
+  // count. Framed as "from $X" (a floor), not a precise total, since a real
+  // run may render more than one clip.
+  const liveCostEstimate =
+    live && videoChosen
+      ? videoChosen.priceUsdPerUnit + (voiceChosen && voiceChosen.unit === 'clip' ? voiceChosen.priceUsdPerUnit : 0)
+      : undefined
   useEffect(() => {
     const vendor = videoChosen ? vendorForModelId(videoChosen.id) : selectedClient?.videoVendor
     if (!creatorProfileId || !vendor) { setCreatorPreflight(null); return }
@@ -493,7 +506,13 @@ export function VideoGenerator() {
                     className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
                     style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                   >
-                    {running ? 'RUNNING...' : live ? 'RUN LIVE' : 'RUN DRY-RUN'}
+                    {running
+                      ? 'RUNNING...'
+                      : live
+                        ? liveCostEstimate !== undefined
+                          ? `RUN LIVE — Est. from $${liveCostEstimate.toFixed(2)}`
+                          : 'RUN LIVE'
+                        : 'RUN DRY-RUN'}
                   </button>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
