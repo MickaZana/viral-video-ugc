@@ -97,9 +97,26 @@ function resolveBaseUrl(req: Request): string {
   return `${req.protocol}://${req.get("host")}`;
 }
 
+// APP_BASE_URL — the origin of the actual product (apps/control-panel's SPA,
+// hosted by apps/review-dashboard at "/app"), a fully separate deployment from
+// this marketing site (see docs/surfaces.md's "How the three apps relate").
+// Without this, the marketing page's "Sign In" / "Try it now" links have no
+// real origin to point at. Unlike PUBLIC_BASE_URL, there's no incoming-request
+// origin to derive this from (it's a *different* app's address), so unset
+// falls back to review-dashboard's own local-dev default port (see
+// apps/review-dashboard/src/server.ts's `Number(process.env.PORT ?? 4310)`
+// and its package.json `dev` script) rather than this server's own host.
+// Set explicitly to the real deployed review-dashboard origin in production
+// (e.g. the review-dashboard Fly app's URL/custom domain).
+function resolveAppBaseUrl(): string {
+  const configured = process.env.APP_BASE_URL;
+  if (configured) return configured.replace(/\/+$/, "");
+  return "http://localhost:4310";
+}
+
 app.get("/", (req, res) => {
   const template = readFileSync(join(publicDir, "index.html"), "utf-8");
-  res.type("html").send(renderPage(loadManifest(), template, resolveBaseUrl(req)));
+  res.type("html").send(renderPage(loadManifest(), template, resolveBaseUrl(req), resolveAppBaseUrl()));
 });
 
 app.get("/api/manifest", (_req, res) => {

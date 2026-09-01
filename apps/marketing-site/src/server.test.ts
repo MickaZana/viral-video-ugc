@@ -78,6 +78,27 @@ describe("marketing-site HTTP API", () => {
     delete process.env.PUBLIC_BASE_URL;
   });
 
+  it("GET / links to the real product (Sign In / Try it now) at the local-dev default when APP_BASE_URL is unset", async () => {
+    delete process.env.APP_BASE_URL;
+    await startServer();
+    const res = await fetch(`${baseUrl}/`);
+    const html = await res.text();
+    expect(html).not.toContain("{{APP_BASE_URL}}");
+    expect(html).toContain('href="http://localhost:4310/app?mode=signin"');
+    expect(html).toContain('href="http://localhost:4310/app?mode=signup"');
+  });
+
+  it("GET / uses APP_BASE_URL (trailing slash stripped) for the Sign In / Try it now links when configured", async () => {
+    process.env.APP_BASE_URL = "https://app.vvugc.example.com/";
+    await startServer();
+    const res = await fetch(`${baseUrl}/`);
+    const html = await res.text();
+    expect(html).not.toContain("{{APP_BASE_URL}}");
+    expect(html).toContain('href="https://app.vvugc.example.com/app?mode=signin"');
+    expect(html).toContain('href="https://app.vvugc.example.com/app?mode=signup"');
+    delete process.env.APP_BASE_URL;
+  });
+
   it("GET /tokens.css serves the shared design tokens stylesheet", async () => {
     await startServer();
     const res = await fetch(`${baseUrl}/tokens.css`);

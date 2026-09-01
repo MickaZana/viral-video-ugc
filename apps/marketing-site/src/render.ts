@@ -93,8 +93,18 @@ export function renderHeroBlock(entry: VideoEntry | undefined): string {
  * with. Defaults to "" (producing bare "/videos/..." paths) for callers that
  * don't have a real origin yet — see server.ts for how the real server picks
  * PUBLIC_BASE_URL or the incoming request's own origin.
+ *
+ * `appBaseUrl` (no trailing slash, e.g. "https://app.example.com") fills in
+ * {{APP_BASE_URL}} tokens — the origin of the actual product (control-panel's
+ * SPA, hosted by review-dashboard at `/app`), a *different* deployment from
+ * this marketing site. Used for the header "Sign In" link and the CTA
+ * section's "Try it now" link, so a visitor can reach the real product
+ * instead of only being able to join the waitlist. Defaults to "" (producing
+ * bare "/app?mode=..." paths) for callers without a real value yet — see
+ * server.ts's resolveAppBaseUrl() for how the real server picks APP_BASE_URL
+ * or a local-dev fallback.
  */
-export function renderPage(manifest: VideoEntry[], template: string, baseUrl = ""): string {
+export function renderPage(manifest: VideoEntry[], template: string, baseUrl = "", appBaseUrl = ""): string {
   const hero = manifest.find((e) => e.id === "hero-reel");
   const gallery = manifest.filter((e) => e.type === "product-demo" && e.id !== "hero-reel");
   const ugcWall = manifest.filter((e) => e.type === "ugc-review");
@@ -104,5 +114,6 @@ export function renderPage(manifest: VideoEntry[], template: string, baseUrl = "
     .replace("{{GALLERY_GRID}}", gallery.map(renderVideoCard).join("\n"))
     .replace("{{UGC_WALL_GRID}}", ugcWall.map(renderVideoCard).join("\n"))
     .replace("{{PRICING_GRID}}", renderPricingGrid())
-    .replaceAll("{{BASE_URL}}", baseUrl);
+    .replaceAll("{{BASE_URL}}", baseUrl)
+    .replaceAll("{{APP_BASE_URL}}", appBaseUrl);
 }

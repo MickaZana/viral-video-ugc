@@ -296,6 +296,19 @@ td.no { color: var(--bad); }
 }
 .email-note { font-size: 0.85rem; color: var(--good); min-height: 1.2em; }
 
+/* Product-entry link, additive to the waitlist form above — a visitor who's
+   ready now shouldn't be forced through the waitlist to reach the real app. */
+.cta-app-entry {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 /* Make the final CTA button extra large for maximum conversion */
 .cta-footer .btn-primary {
   padding: 1rem 2.5rem;
