@@ -26,7 +26,7 @@ import { renderDashboardPage } from "./render.js";
 import { initializeIdentity, parseCookies, registerAccountRoutes } from "./accounts.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
 import { registerBatchRoutes } from "./batch-routes.js";
-// import { registerSoulIdRoutes } from "./soul-id-routes.js";
+import { registerSoulIdRoutes } from "./soul-id-routes.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
@@ -275,9 +275,14 @@ registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identit
 // API v1 namespace — disabled by default (VVUGC_API_ENABLED=false), returns 404 when off.
 app.use("/v1", v1Router);
 
-// Soul ID: identity training and status endpoints
-// Uses a lightweight in-memory creator store adapter for now (same pattern as batch routes)
-// registerSoulIdRoutes(app, { get: () => undefined, update: () => undefined } as any, requireSession);
+// Soul ID: identity training and status endpoints. Previously wired to a fake
+// no-op store (`{ get: () => undefined, update: () => undefined } as any`),
+// which 404'd/no-op'd the "Train Identity" button in production forever — the
+// route was never mounted with a real store. Now wired to the same real
+// tenantProfiles repository as registerBatchRoutes above (same non-null-assertion
+// reasoning: initializeIdentity() always populates tenantProfiles on every
+// return branch).
+registerSoulIdRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
 
 // /account and /dashboard used to be separate HTML self-service pages
 // (account-page.ts, now deleted). The product workspace is the SPA now for

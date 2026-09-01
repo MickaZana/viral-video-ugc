@@ -3,45 +3,55 @@
  *
  * POST /accounts/creators/:id/train — validates images, selects primary, sets faceEmbeddingStatus
  * GET /accounts/creators/:id/identity — returns identity status and primary image URL
+ * PUT /accounts/creators/:id/identity/primary — override the selected primary reference image
  */
 
-import type { Express, Request, Response } from "express";
+import type { Express, Response, RequestHandler } from "express";
 import pino from "pino";
+import { resolveOrgId } from "@vvugc/shared-auth";
+import type { AuthedRequest } from "./accounts.js";
+import type { CreatorProfile } from "@vvugc/shared-schema";
+import type { CreatorProfileInput, TenantProfileRepository } from "./tenant-profile-postgres.js";
 
 const logger = pino({ name: "soul-id" });
 
 /**
- * Minimal CreatorProfile shape needed by these routes.
- * The real type is richer — this covers the fields we read/write.
+ * `creatorUpdate` takes a full `CreatorProfileInput`, not a patch — this builds
+ * one from the fetched profile (dropping the fields the store manages itself)
+ * and overrides only the fields actually changing. Shared by the train and
+ * primary-override handlers below.
  */
-interface CreatorProfileRecord {
-  id: string;
-  orgId: string;
-  displayName: string;
-  referenceImages: Array<{ id: string; filePath: string; fileName: string }>;
-  avatarMode: "reference_images" | "vendor_avatar" | "none";
-  faceEmbeddingStatus?: "none" | "training" | "ready" | "failed";
-  primaryReferenceImageUrl?: string;
-  [key: string]: unknown;
+function creatorProfileInputWithOverrides(
+  creator: CreatorProfile,
+  overrides: Partial<CreatorProfileInput>
+): CreatorProfileInput {
+  const { id: _id, orgId: _orgId, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = creator;
+  return { ...rest, ...overrides };
 }
 
 /**
- * Store interface — the review-dashboard already has a creator profile store
- * pattern (JSON file or Postgres). This interface abstracts it for the route.
+ * `CreatorProfileSchema.primaryReferenceImageUrl` requires a fully-qualified
+ * URL (`z.string().url()`) — a reference image's stored `filePath` is a
+ * repo-relative path (e.g. "creator-assets/<org>/<creator>/<id>.png"), not a
+ * URL, and would fail schema validation on write. Point at this app's own
+ * existing session-authed image route (the same one that already serves
+ * these bytes for the control panel) so the stored value is always a real,
+ * fetchable, schema-valid absolute URL.
  */
-export interface CreatorProfileStore {
-  get(orgId: string, id: string): CreatorProfileRecord | undefined;
-  update(orgId: string, id: string, patch: Partial<CreatorProfileRecord>): CreatorProfileRecord | undefined;
+function creatorImageUrl(req: AuthedRequest, creatorId: string, imageId: string): string {
+  return `${req.protocol}://${req.get("host")}/accounts/creators/${creatorId}/images/${imageId}`;
 }
 
 /**
  * Register Soul ID routes. Called from server.ts after other route registrations.
- * `requireSession` is the same auth middleware used by /accounts/* routes.
+ * `requireSession` is the same auth middleware returned by registerAccountRoutes
+ * (accounts.ts) — it populates req.account, which is what org-id resolution below
+ * relies on.
  */
 export function registerSoulIdRoutes(
   app: Express,
-  store: CreatorProfileStore,
-  requireSession: (req: Request, res: Response, next: () => void) => void
+  deps: { tenantProfiles: TenantProfileRepository },
+  requireSession: RequestHandler
 ): void {
 
   /**
@@ -52,16 +62,18 @@ export function registerSoulIdRoutes(
   app.post(
     "/accounts/creators/:id/train",
     requireSession,
-    async (req: Request, res: Response) => {
+    async (req: AuthedRequest, res: Response) => {
       try {
-        const orgId = (req as any).session?.orgId ?? (req as any).orgId ?? "";
+        const account = req.account;
+        if (!account) return res.status(401).json({ error: "not authenticated" });
+        const orgId = resolveOrgId(account);
         const creatorId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
         if (!creatorId) {
           return res.status(400).json({ error: "Missing creator ID" });
         }
 
-        const creator = store.get(orgId, creatorId);
+        const creator = await deps.tenantProfiles.creatorGet(orgId, creatorId);
         if (!creator) {
           return res.status(404).json({ error: "Creator profile not found" });
         }
@@ -85,13 +97,17 @@ export function registerSoulIdRoutes(
 
         // Select primary image (first image by default — user can override via PUT later)
         const primaryImage = images[0];
-        const primaryUrl = primaryImage.filePath; // Served via the media route
+        const primaryUrl = creatorImageUrl(req, creatorId, primaryImage.id); // Served via the media route
 
         // Update the creator profile
-        const updated = store.update(orgId, creatorId, {
-          faceEmbeddingStatus: "ready",
-          primaryReferenceImageUrl: primaryUrl,
-        });
+        const updated = await deps.tenantProfiles.creatorUpdate(
+          orgId,
+          creatorId,
+          creatorProfileInputWithOverrides(creator, {
+            faceEmbeddingStatus: "ready",
+            primaryReferenceImageUrl: primaryUrl,
+          })
+        );
 
         if (!updated) {
           return res.status(500).json({ error: "Failed to update creator profile" });
@@ -126,16 +142,18 @@ export function registerSoulIdRoutes(
   app.get(
     "/accounts/creators/:id/identity",
     requireSession,
-    async (req: Request, res: Response) => {
+    async (req: AuthedRequest, res: Response) => {
       try {
-        const orgId = (req as any).session?.orgId ?? (req as any).orgId ?? "";
+        const account = req.account;
+        if (!account) return res.status(401).json({ error: "not authenticated" });
+        const orgId = resolveOrgId(account);
         const creatorId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
         if (!creatorId) {
           return res.status(400).json({ error: "Missing creator ID" });
         }
 
-        const creator = store.get(orgId, creatorId);
+        const creator = await deps.tenantProfiles.creatorGet(orgId, creatorId);
         if (!creator) {
           return res.status(404).json({ error: "Creator profile not found" });
         }
@@ -161,9 +179,11 @@ export function registerSoulIdRoutes(
   app.put(
     "/accounts/creators/:id/identity/primary",
     requireSession,
-    async (req: Request, res: Response) => {
+    async (req: AuthedRequest, res: Response) => {
       try {
-        const orgId = (req as any).session?.orgId ?? (req as any).orgId ?? "";
+        const account = req.account;
+        if (!account) return res.status(401).json({ error: "not authenticated" });
+        const orgId = resolveOrgId(account);
         const creatorId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const { imageId } = req.body as { imageId?: string };
 
@@ -171,7 +191,7 @@ export function registerSoulIdRoutes(
           return res.status(400).json({ error: "Missing creator ID or imageId in body" });
         }
 
-        const creator = store.get(orgId, creatorId);
+        const creator = await deps.tenantProfiles.creatorGet(orgId, creatorId);
         if (!creator) {
           return res.status(404).json({ error: "Creator profile not found" });
         }
@@ -181,16 +201,21 @@ export function registerSoulIdRoutes(
           return res.status(404).json({ error: "Image not found in creator's reference images" });
         }
 
-        const updated = store.update(orgId, creatorId, {
-          primaryReferenceImageUrl: targetImage.filePath,
-        });
+        const primaryUrl = creatorImageUrl(req, creatorId, targetImage.id);
+        const updated = await deps.tenantProfiles.creatorUpdate(
+          orgId,
+          creatorId,
+          creatorProfileInputWithOverrides(creator, {
+            primaryReferenceImageUrl: primaryUrl,
+          })
+        );
 
         if (!updated) {
           return res.status(500).json({ error: "Failed to update primary image" });
         }
 
         return res.json({
-          primaryReferenceImageUrl: targetImage.filePath,
+          primaryReferenceImageUrl: primaryUrl,
           faceEmbeddingStatus: updated.faceEmbeddingStatus ?? "none",
         });
       } catch (err) {
