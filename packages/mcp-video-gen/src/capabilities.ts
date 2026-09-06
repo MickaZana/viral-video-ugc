@@ -17,6 +17,10 @@ export const VIDEO_VENDOR_CAPABILITIES = {
   // dedicated multi-reference field on this adapter's request shape today even
   // though Wan 3.0 itself supports up to 10 references — multipleReferences
   // stays false until the adapter actually sends more than one image.
-  wan: { imageReferences: true, multipleReferences: false, persistentCharacterIds: false, imageToVideo: true, textToVideo: true, wardrobeStyleHints: true, productReferences: true, externalMcp: false }
+  wan: { imageReferences: true, multipleReferences: false, persistentCharacterIds: false, imageToVideo: true, textToVideo: true, wardrobeStyleHints: true, productReferences: true, externalMcp: false },
+  // NVIDIA NIM Visual GenAI (Wan2.2). imageToVideo is a single first-frame image
+  // (no multi-reference, no persistent character IDs). On self-hosted NIM the
+  // t2v/i2v variant is fixed server-side; the adapter picks per request otherwise.
+  nvidia: { imageReferences: true, multipleReferences: false, persistentCharacterIds: false, imageToVideo: true, textToVideo: true, wardrobeStyleHints: true, productReferences: true, externalMcp: false }
 } as const;
 export function creatorCapabilityWarnings(vendor: keyof typeof VIDEO_VENDOR_CAPABILITIES, request: VideoGenRequest): string[] { const c = VIDEO_VENDOR_CAPABILITIES[vendor]; const warnings: string[] = []; if (request.creatorProfile?.avatarMode === "vendor_avatar" && !c.persistentCharacterIds) warnings.push(`${vendor} does not provide persistent character IDs; identity consistency is not guaranteed`); if (request.referenceImageDataUri && !c.imageReferences) warnings.push(`${vendor} does not support creator image references`); return warnings; }

@@ -31,7 +31,7 @@ At minimum: `ANTHROPIC_API_KEY` (script rewrite) and `YOUTUBE_API_KEY` (the only
 pnpm cli run --niche=fitness --platforms=youtube_shorts --max-candidates=3
 ```
 
-The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`.
+The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`. `--video-vendor nvidia` runs NVIDIA NIM Visual GenAI (Wan2.2 text-to-video / image-to-video) through the NIM's OpenAI-compatible API — needs `NVIDIA_API_KEY` plus a **self-hosted NIM** (`NVIDIA_VIDEO_BASE_URL`); NVIDIA hosts no Wan2.2 video endpoint (verified live), so this vendor is opt-in and only usable once you run the NIM container — see `packages/mcp-video-gen/src/adapters/nvidia.ts` and `docs/external-setup-checklist.md`.
 
 ## LLM & external-call safety (governance)
 
@@ -122,7 +122,7 @@ apps/review-dashboard/   human-in-the-loop approve/reject UI
 apps/marketing-site/     public landing page — video gallery + UGC-review wall, manifest-driven
 packages/mcp-discovery/  YouTube/TikTok/Meta discovery adapters
 packages/mcp-transcript/ caption/ASR transcription
-packages/mcp-video-gen/  Higgsfield/Kling/Runway/Pika video adapters
+packages/mcp-video-gen/  video adapters — Higgsfield/Kling/Runway/Pika/Replicate/Seedance/Grok/Wan/NVIDIA, + Gemini stills
 packages/mcp-assembly/   ffmpeg stitching, captions, aspect-ratio, thumbnails
 packages/review-queue/   HITL queue — JSON file by default, Postgres via DATABASE_URL (see its README)
 packages/shared-schema/  Zod data contracts shared by every stage

@@ -9,6 +9,7 @@ import { createReplicateAdapter } from "./adapters/replicate.js";
 import { createSeedanceAdapter } from "./adapters/seedance.js";
 import { createGrokVideoAdapter } from "./adapters/grok-video.js";
 import { createWanAdapter } from "./adapters/wan.js";
+import { createNvidiaAdapter } from "./adapters/nvidia.js";
 import { createMockAdapter } from "./adapters/mock.js";
 
 export type { VideoGenAdapter, VideoGenRequest, McpToolCaller } from "./adapters/VideoGenAdapter.js";
@@ -63,5 +64,7 @@ export function getVideoGenAdapter(
       return createGrokVideoAdapter(opts.outDir);
     case "wan":
       return createWanAdapter(opts.outDir);
+    case "nvidia":
+      return createNvidiaAdapter(opts.outDir);
   }
 }

@@ -229,4 +229,19 @@ describe("detectAvailableVendors", () => {
     expect(available).not.toContain("seedance");
     expect(available).not.toContain("grok_video");
   });
+
+  it("detects nvidia when NVIDIA_API_KEY is configured", () => {
+    const available = detectAvailableVendors({ NVIDIA_API_KEY: "nvapi-xxxx" });
+    expect(available).toContain("nvidia");
+  });
+
+  it("does not detect nvidia for a whitespace-only NVIDIA_API_KEY", () => {
+    const available = detectAvailableVendors({ NVIDIA_API_KEY: "  " });
+    expect(available).not.toContain("nvidia");
+  });
+
+  it("does not detect nvidia when no credentials are configured", () => {
+    const available = detectAvailableVendors({});
+    expect(available).not.toContain("nvidia");
+  });
 });

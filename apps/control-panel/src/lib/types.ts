@@ -207,7 +207,7 @@ export type RemixRequest = {
 // RunConfig from — see @vvugc/shared-auth's AgencyClient and the review
 // dashboard's ClientInputSchema. Nothing here is fabricated.
 
-export type VideoVendor = 'higgsfield' | 'kling' | 'runway' | 'pika' | 'gemini' | 'replicate'
+export type VideoVendor = 'higgsfield' | 'kling' | 'runway' | 'pika' | 'gemini' | 'replicate' | 'seedance' | 'grok_video' | 'wan' | 'nvidia'
 export type VoiceVendor = 'elevenlabs' | 'grok'
 export type ClientCadence = 'weekly' | 'manual'
 

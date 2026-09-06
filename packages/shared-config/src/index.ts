@@ -93,6 +93,24 @@ const EnvSchema = z.object({
    *  incompatible override surfaces as a clear error from Replicate's own API, not
    *  a silent misparse. */
   REPLICATE_MODEL: z.string().optional(),
+  /** NVIDIA NIM Visual GenAI (Wan2.2) video generation (--video-vendor nvidia).
+   *  Server-side only; a Bearer key that starts `nvapi-` from build.nvidia.com.
+   *  See packages/mcp-video-gen/src/adapters/nvidia.ts. */
+  NVIDIA_API_KEY: z.string().optional(),
+  /** OpenAI-compatible base URL for NVIDIA video generation. Defaults to
+   *  `https://integrate.api.nvidia.com/v1` if unset (nvidia.ts's own default);
+   *  override to a self-hosted NIM endpoint e.g. `http://localhost:8000/v1`. */
+  NVIDIA_VIDEO_BASE_URL: z.string().optional(),
+  /** NVIDIA video model id — defaults to `wan-ai/wan2.2` if unset. Lets the model
+   *  evolve without VUGC changes; vendor stays `nvidia`. */
+  NVIDIA_VIDEO_MODEL: z.string().optional(),
+  /** `auto` | `t2v` | `i2v` — defaults to `auto` (adapter picks image-to-video when
+   *  a reference image is present, else text-to-video). Set explicitly to pin a
+   *  self-hosted NIM whose NIM_MODEL_VARIANT is fixed. */
+  NVIDIA_VIDEO_VARIANT: z.string().optional(),
+  /** Per-request timeout (ms) for the (synchronous) NVIDIA generation call.
+   *  Defaults to 300000 in nvidia.ts if unset. */
+  NVIDIA_VIDEO_TIMEOUT_MS: z.string().optional(),
   /** Publishing (packages/mcp-publish) — never called automatically by the pipeline, only
    *  from an explicit post-approval action (review-dashboard's POST /queue/:id/publish).
    *  A TikTok user access token with the video.publish scope, from a completed 3-legged

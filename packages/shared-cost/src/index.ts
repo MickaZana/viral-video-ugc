@@ -23,6 +23,7 @@ export type CostVendor =
   | "sync_labs"
   | "heygen"
   | "wan"
+  | "nvidia"
   | "kimi";
 
 export interface CostEvent {
@@ -143,6 +144,13 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // for a typical short segment clip, same convention as seedance/grok_video above.
   // Confirm against actual usage once live generation is run through this adapter.
   wan: { clip: 0.5 },
+  // NVIDIA NIM Visual GenAI (Wan2.2) has no single per-clip list price — hosted
+  // on build.nvidia.com it's credit/quota-metered (a free developer tier exists
+  // but must NOT be modeled as a permanent $0 production cost); self-hosted NIM
+  // cost is your own GPU compute, not a per-call charge. This ~$0.40/clip figure
+  // is a deliberate non-zero placeholder in the same range as the other vendors;
+  // confirm/override against real usage for your deployment mode.
+  nvidia: { clip: 0.4 },
   // Kimi is purely per-model + per-token (see KIMI_RATE_TABLE below and its branch
   // in estimateCostUsd) — no flat-unit use case, unlike grok/gemini which also
   // have a real TTS/image rate here. Empty only to satisfy this Record's

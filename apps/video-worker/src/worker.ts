@@ -451,6 +451,7 @@ function estimateCost(vendor: VideoVendor, durationSec: number): number {
     pika: 0.05 * durationSec,        // ~$0.05/sec via fal.ai
     gemini: 0.04,                    // still image only (flat per image)
     wan: 0.10 * durationSec,         // ~$0.10/sec at 720p (Replicate alibaba/wan-3)
+    nvidia: 0.10 * durationSec,  // ~rough estimate; NVIDIA NIM cost depends on hosted-credit vs self-hosted-GPU deployment
   };
   return rates[vendor] ?? 0.10;
 }

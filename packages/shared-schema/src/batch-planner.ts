@@ -47,6 +47,8 @@ const VENDOR_RATES: Record<VideoVendor, number> = {
   // entries. Reconcile with shared-cost's more precise duration-aware rate
   // table once Wan's real per-clip cost is measured from live usage.
   wan: 0.45,
+  // NVIDIA NIM Wan2.2 — rough placeholder; real cost depends on hosted-credit vs self-hosted-GPU deployment, reconcile from live usage (same caveat as wan/seedance above).
+  nvidia: 0.40,
 };
 
 // ─── Vendor Selection ───────────────────────────────────────────────────────

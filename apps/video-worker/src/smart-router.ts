@@ -233,6 +233,7 @@ const VENDOR_CREDENTIAL_KEYS: Record<VideoVendor, string[]> = {
   runway: ["RUNWAY_API_KEY"],
   pika: ["FAL_KEY"], // Pika is served through fal.ai
   wan: ["REPLICATE_API_TOKEN"], // Wan 3.0 is served through Replicate, same as the replicate vendor
+  nvidia: ["NVIDIA_API_KEY"],
 };
 
 /**

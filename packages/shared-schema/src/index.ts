@@ -58,7 +58,7 @@ export const CreatorReferenceImageSchema = z.object({
 export type CreatorReferenceImage = z.infer<typeof CreatorReferenceImageSchema>;
 
 export const CreatorProfileSchema = z.object({
-  id: z.string().min(1), orgId: z.string().min(1), clientId: z.string().min(1).optional(), displayName: z.string().trim().min(1).max(160), description: z.string().max(3000).default(""), referenceImages: z.array(CreatorReferenceImageSchema).max(8).default([]), faceEmbeddingStatus: z.enum(["none", "training", "ready", "failed"]).default("none"), primaryReferenceImageUrl: z.string().url().optional(), avatarMode: z.enum(["reference_images", "vendor_avatar", "none"]).default("reference_images"), preferredVideoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan"]).optional(), compatibleVendors: z.array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan"])).max(8).default([]), voiceVendor: z.enum(["elevenlabs", "grok"]).optional(), voiceId: z.string().trim().max(160).optional(), lipSyncVendor: z.enum(["sync_labs", "heygen", "none"]).default("none"), speechStyle: z.string().max(500).default(""), tone: z.string().max(500).default(""), wardrobe: z.string().max(500).default(""), visualStyle: z.string().max(1000).default(""), ageRange: z.string().max(80).optional(), language: z.string().trim().min(2).max(35).default("en"), accent: z.string().max(120).optional(), prohibitedDepictions: z.array(z.string().trim().min(1).max(300)).max(30).default([]), defaultLocation: z.string().max(300).optional(), consentConfirmed: z.boolean().default(false), consentConfirmedAt: z.string().datetime().optional(), consentConfirmedBy: z.string().min(1).max(200).optional(), active: z.boolean().default(true), createdAt: z.string().datetime(), updatedAt: z.string().datetime()
+  id: z.string().min(1), orgId: z.string().min(1), clientId: z.string().min(1).optional(), displayName: z.string().trim().min(1).max(160), description: z.string().max(3000).default(""), referenceImages: z.array(CreatorReferenceImageSchema).max(8).default([]), faceEmbeddingStatus: z.enum(["none", "training", "ready", "failed"]).default("none"), primaryReferenceImageUrl: z.string().url().optional(), avatarMode: z.enum(["reference_images", "vendor_avatar", "none"]).default("reference_images"), preferredVideoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"]).optional(), compatibleVendors: z.array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"])).max(8).default([]), voiceVendor: z.enum(["elevenlabs", "grok"]).optional(), voiceId: z.string().trim().max(160).optional(), lipSyncVendor: z.enum(["sync_labs", "heygen", "none"]).default("none"), speechStyle: z.string().max(500).default(""), tone: z.string().max(500).default(""), wardrobe: z.string().max(500).default(""), visualStyle: z.string().max(1000).default(""), ageRange: z.string().max(80).optional(), language: z.string().trim().min(2).max(35).default("en"), accent: z.string().max(120).optional(), prohibitedDepictions: z.array(z.string().trim().min(1).max(300)).max(30).default([]), defaultLocation: z.string().max(300).optional(), consentConfirmed: z.boolean().default(false), consentConfirmedAt: z.string().datetime().optional(), consentConfirmedBy: z.string().min(1).max(200).optional(), active: z.boolean().default(true), createdAt: z.string().datetime(), updatedAt: z.string().datetime()
 });
 export type CreatorProfile = z.infer<typeof CreatorProfileSchema>;
 
@@ -100,7 +100,7 @@ export const RunConfigSchema = z.object({
   locale: z.string().default("en"),
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
-  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan"]).default("kling"),
+  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"]).default("kling"),
   /** Ordered fallback chain for video generation. If the primary `videoVendor`
    *  fails on a clip, the conductor tries the next vendor in this list (and so on)
    *  before giving up on that platform. The actual vendor that produced each clip
@@ -108,7 +108,7 @@ export const RunConfigSchema = z.object({
    *  cost/quality-sensible default chain (seedance → grok_video → kling → ...), which
    *  can be overridden globally via VIDEO_VENDOR_FALLBACKS. */
   videoVendorFallbacks: z
-    .array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan"]))
+    .array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"]))
     .max(8)
     .optional(),
   /** Narration synced to burned-in captions (see packages/mcp-voiceover) — opt-in,
@@ -248,7 +248,7 @@ export type CaptionCue = z.infer<typeof CaptionCueSchema>;
 export const RawClipSchema = z.object({
   id: z.string(),
   scriptSegmentIndex: z.number().int().nonnegative(),
-  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan"]),
+  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"]),
   filePath: z.string(),
   durationSec: z.number().positive()
 });

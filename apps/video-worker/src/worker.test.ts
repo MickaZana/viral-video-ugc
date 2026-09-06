@@ -26,7 +26,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createInMemoryProviderJobStore, type ProviderJobStore, type ProviderJobEnqueueInput } from "@vvugc/review-queue";
 import { createMcpSession } from "./mcp-session.js";
 import { classifyProviderError } from "./retry-policy.js";
-import { resolveChain, buildFallbackList } from "./fallback-chain.js";
+import { resolveChain, buildFallbackList, DEFAULT_FALLBACK_CHAIN } from "./fallback-chain.js";
 import { createVideoWorker } from "./worker.js";
 import { createWorkerMetrics } from "./metrics.js";
 
@@ -392,6 +392,38 @@ describe("Fallback Chain", () => {
     expect(fallbacks).toEqual(["grok_video", "kling", "higgsfield", "replicate", "gemini"]);
     expect(fallbacks).not.toContain("seedance");
   });
+
+  it("nvidia (not in the default chain) is prepended, then the full default chain follows", () => {
+    const chain = resolveChain("nvidia");
+    expect(chain[0]).toBe("nvidia");
+    expect(chain.slice(1)).toEqual(DEFAULT_FALLBACK_CHAIN.filter((v) => v !== "nvidia"));
+    // Concretely: the head plus every default vendor.
+    expect(chain).toEqual([
+      "nvidia",
+      "seedance",
+      "grok_video",
+      "kling",
+      "higgsfield",
+      "replicate",
+      "gemini",
+    ]);
+  });
+
+  it("buildFallbackList('nvidia') is exactly the default chain (nvidia stripped as the head)", () => {
+    expect(buildFallbackList("nvidia")).toEqual([
+      "seedance",
+      "grok_video",
+      "kling",
+      "higgsfield",
+      "replicate",
+      "gemini",
+    ]);
+  });
+
+  it("a custom vendorChain led by nvidia is honored verbatim", () => {
+    const chain = resolveChain("nvidia", { vendorChain: ["nvidia", "gemini"] });
+    expect(chain).toEqual(["nvidia", "gemini"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -418,6 +450,29 @@ describe("Dry-run guarantee", () => {
     });
     expect(clip.vendor).toBe("kling");
     expect(clip.filePath).toContain("mock");
+  });
+
+  it("dry-run nvidia returns a mock clip without ever calling fetch (no real NVIDIA API hit)", async () => {
+    const { getVideoGenAdapter } = await import("@vvugc/mcp-video-gen");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => {
+        throw new Error("real network call attempted during dry-run");
+      });
+    try {
+      const adapter = getVideoGenAdapter("nvidia", { outDir: "/tmp", dryRun: true });
+      const clip = await adapter.generate({
+        scriptSegmentIndex: 0,
+        prompt: "x",
+        durationSec: 5,
+        aspectRatio: "9:16",
+      });
+      expect(clip.vendor).toBe("nvidia");
+      expect(clip.filePath).toContain("mock");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 
@@ -452,5 +507,54 @@ describe("cancellation during provider completion", () => {
     await worker.stop();
     expect(adapterCalls).toBe(1);
     expect((await store.get(job.id))).toMatchObject({ status: "cancelled", attempt: 1, leaseOwner: undefined });
+  });
+});
+
+describe("worker vendor fallback — nvidia requested, actual-vendor stamping", () => {
+  it("nvidia adapter fails → next vendor generates, and the stored clip/actualVendor is that vendor, not nvidia", async () => {
+    const store = createInMemoryProviderJobStore();
+    const job = await store.enqueue(
+      makeJob({
+        requestedVendor: "nvidia",
+        fallbackVendors: ["gemini"],
+        request: {
+          prompt: "A fitness influencer doing pushups in a gym",
+          durationSec: 5,
+          aspectRatio: "9:16",
+          // Pin nvidia as the routed primary so smart routing keeps it at the chain head.
+          creatorProfile: { preferredVideoVendor: "nvidia" },
+        },
+      })
+    );
+    const vendorCalls: string[] = [];
+    const worker = createVideoWorker(
+      store,
+      createMcpSession({ connect: async () => async () => ({}) }),
+      createWorkerMetrics(),
+      {
+        workerId: "nvidia-fallback-worker", outDir: "/tmp", dryRun: false, concurrency: 1,
+        pollIntervalMs: 5, leaseRecoveryIntervalMs: 5,
+        availableVendors: ["nvidia", "gemini"],
+        fallbackConfig: { vendorChain: ["nvidia", "gemini"] },
+        adapterFactory: (vendor) => ({
+          vendor,
+          async generate(request) {
+            vendorCalls.push(vendor);
+            expect(request.idempotencyKey).toBe(job.idempotencyKey);
+            if (vendor === "nvidia") throw new Error("401 Unauthorized from NVIDIA NIM");
+            return { id: `receipt-${vendor}`, vendor, scriptSegmentIndex: 0, filePath: `/tmp/${vendor}.mp4`, durationSec: 5 };
+          }
+        })
+      }
+    );
+    worker.start();
+    await vi.waitFor(async () => expect((await store.get(job.id))?.status).toBe("completed"), { timeout: 1_000 });
+    await worker.stop();
+    const finished = await store.get(job.id);
+    // nvidia was tried first (as requested), then fell through to gemini which produced the clip.
+    expect(vendorCalls).toEqual(["nvidia", "gemini"]);
+    expect(finished?.requestedVendor).toBe("nvidia");
+    expect(finished?.actualVendor).toBe("gemini");
+    expect(finished?.result?.vendor).toBe("gemini");
   });
 });

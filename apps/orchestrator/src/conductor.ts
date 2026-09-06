@@ -25,7 +25,7 @@ import { candidateFromSource, fetchRemixTranscript, parseSourceUrl } from "./rem
 
 const logger = pino({ name: "vvugc-conductor" });
 
-export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan";
+export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "nvidia";
 
 /** Ordered chain (primary first, then fallbacks), deduplicated. */
 export function resolveVideoVendorChain(
