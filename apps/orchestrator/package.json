@@ -17,6 +17,7 @@
   "dependencies": {
     "@vvugc/shared-schema": "workspace:*",
     "@vvugc/shared-config": "workspace:*",
+    "@vvugc/curriculum-engine": "workspace:*",
     "@vvugc/mcp-discovery": "workspace:*",
     "@vvugc/mcp-transcript": "workspace:*",
     "@vvugc/mcp-video-gen": "workspace:*",

@@ -26,7 +26,12 @@ export type AccountPermission =
   | "pipeline.run.live"
   | "jobs.manage"
   | "review.manage"
-  | "view";
+  | "view"
+  | "curriculum.view"
+  | "curriculum.edit"
+  | "curriculum.approve"
+  | "curriculum.produce"
+  | "curriculum.delete";
 
 const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
   owner: [
@@ -39,7 +44,12 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run.live",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce",
+    "curriculum.delete"
   ],
   admin: [
     "team.manage",
@@ -49,7 +59,12 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce",
+    "curriculum.delete"
   ],
   editor: [
     "settings.manage",
@@ -58,10 +73,14 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce"
   ],
-  reviewer: ["review.manage", "view"],
-  viewer: ["view"]
+  reviewer: ["review.manage", "view", "curriculum.view"],
+  viewer: ["view", "curriculum.view"]
 };
 
 /** True if the role may perform `permission`. Accepts the legacy "member" role (maps to editor)

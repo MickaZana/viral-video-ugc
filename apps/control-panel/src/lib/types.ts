@@ -437,3 +437,398 @@ export const CHARACTER_ATTRIBUTE_OPTIONS: { [K in keyof Required<Omit<CharacterA
 }
 export interface CharacterPortrait { index: number; prompt: string; mimeType: string; dataBase64: string }
 
+
+// ---- Curriculum Mode v2 ----
+// Mirrors packages/curriculum-engine/src/schema.ts — keep in sync by hand. Not
+// imported from that package: its barrel pulls in node:crypto and store code that
+// isn't safe to bundle into a browser app (same rule as PRODUCT_EVENT_TYPES /
+// CharacterAttributes above). Field names and shapes track the backend contracts
+// exactly — the zod schemas in schema.ts and the response shapes in
+// apps/review-dashboard/src/curriculum-routes.ts.
+
+/** Lifecycle of a whole course, from first draft to archived. */
+export type CurriculumStatus =
+  | 'draft'
+  | 'planning'
+  | 'planned'
+  | 'producing'
+  | 'active'
+  | 'completed'
+  | 'archived'
+
+/** Content pipeline state shared by lessons and projects. */
+export type ContentStatus =
+  | 'draft'
+  | 'approved'
+  | 'scripted'
+  | 'queued'
+  | 'generated'
+  | 'review'
+  | 'published'
+
+/** Coarser lifecycle for a module (a batch of lessons + its long-form video). */
+export type ModuleStatus = 'draft' | 'approved' | 'producing' | 'completed'
+
+/** Kind of artifact produced for a course/module/lesson/project. */
+export type AssetType =
+  | 'short_video'
+  | 'long_video'
+  | 'script'
+  | 'thumbnail'
+  | 'caption'
+  | 'quiz'
+  | 'worksheet'
+  | 'code'
+  | 'pdf'
+  | 'ebook_section'
+  | 'newsletter'
+
+/** Generation/review state of a single asset. */
+export type AssetStatus =
+  | 'planned'
+  | 'scripted'
+  | 'queued'
+  | 'generated'
+  | 'review'
+  | 'approved'
+  | 'published'
+  | 'failed'
+
+/** A course: the top-level unit of Curriculum Mode. */
+export interface CurriculumCourse {
+  id: string
+  orgId: string
+  title: string
+  slug: string
+  topic: string
+  description?: string
+  audience: string
+  startingKnowledge: string[]
+  endGoal: string
+  language: string
+  status: CurriculumStatus
+  moduleCount: number
+  lessonsPerModule: number
+  shortDurationSec: number
+  longFormTargetMin: number
+  /** null = no spend cap. */
+  maxGenerationSpendUsd: number | null
+  /** Points at the locked CurriculumVersion currently in production; null while planning. */
+  activeVersion: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** A module groups `lessonsPerModule` lessons and owns one long-form video script. */
+export interface CurriculumModule {
+  id: string
+  orgId: string
+  courseId: string
+  order: number
+  title: string
+  description: string
+  goal: string
+  prerequisites: string[]
+  learningObjectives: string[]
+  concepts: string[]
+  status: ModuleStatus
+  longFormScript?: string
+  longFormScriptStatus: ContentStatus
+  createdAt: string
+  updatedAt: string
+}
+
+/** A module row as returned by GET .../modules — the base module plus the
+ *  per-module lesson count and capstone-project flag that route computes. */
+export interface CurriculumModuleWithCounts extends CurriculumModule {
+  lessonCount: number
+  hasProject: boolean
+}
+
+/** One ordered step of a module's hands-on project. */
+export interface CurriculumProjectStep {
+  order: number
+  title: string
+  detail: string
+}
+
+/** The capstone project attached to a module. */
+export interface CurriculumProject {
+  id: string
+  orgId: string
+  courseId: string
+  moduleId: string
+  title: string
+  objective: string
+  outcome: string
+  requirements: string[]
+  steps: CurriculumProjectStep[]
+  technologies: string[]
+  longFormScript?: string
+  status: ContentStatus
+  createdAt: string
+  updatedAt: string
+}
+
+/** A single knowledge-check question on a lesson. `answerIndex` null unless `options` apply. */
+export interface KnowledgeCheckQuestion {
+  kind: 'mcq' | 'concept' | 'coding'
+  prompt: string
+  options: string[]
+  answerIndex: number | null
+  rationale?: string
+}
+
+/** A lesson: one short-form video's worth of teaching. */
+export interface CurriculumLesson {
+  id: string
+  orgId: string
+  courseId: string
+  moduleId: string
+  moduleOrder: number
+  lessonOrder: number
+  globalOrder: number
+  title: string
+  learningObjective: string
+  prerequisites: string[]
+  concepts: string[]
+  explanation?: string
+  example?: string
+  exercise?: string
+  keyTakeaway?: string
+  nextLessonHook?: string
+  shortScript?: string
+  visualPlan?: string
+  codeExample?: string
+  knowledgeCheck: KnowledgeCheckQuestion[]
+  status: ContentStatus
+  createdAt: string
+  updatedAt: string
+}
+
+/** A produced (or planned) artifact, linked to at most one of module/lesson/project. */
+export interface CurriculumAsset {
+  id: string
+  orgId: string
+  courseId: string
+  moduleId?: string
+  lessonId?: string
+  projectId?: string
+  assetType: AssetType
+  status: AssetStatus
+  generationRunId?: string
+  reviewItemId?: string
+  storagePath?: string
+  /** Genuine JSON boundary — an opaque record, never `any`. */
+  meta: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+/** An immutable snapshot of a course plan taken when a version is locked for production. */
+export interface CurriculumVersion {
+  id: string
+  orgId: string
+  courseId: string
+  version: number
+  createdAt: string
+  createdByAccountId: string
+  reason: string
+  /** JSON snapshot of the whole plan at lock time — opaque here. */
+  snapshot: unknown
+}
+
+/** A learner finishing a lesson (and, optionally, their knowledge-check score). */
+export interface LessonCompletion {
+  orgId: string
+  courseId: string
+  lessonId: string
+  accountId: string
+  completedAt: string
+  knowledgeCheckScore?: number
+}
+
+// ---- Curriculum response wrappers (review-dashboard route shapes) ----
+
+/** GET /accounts/curricula/:courseId */
+export interface CurriculumCourseDetail {
+  course: CurriculumCourse
+  counts: { modules: number; lessons: number; projects: number }
+}
+
+/** GET /accounts/curricula/:courseId/modules/:moduleId */
+export interface CurriculumModuleDetail {
+  module: CurriculumModule
+  lessons: CurriculumLesson[]
+  project: CurriculumProject | null
+}
+
+/** Mirrors CurriculumQaIssue in packages/curriculum-engine/src/qa.ts — the exact
+ *  shape `runCurriculumQa` emits, returned verbatim by generate-plan. */
+export type CurriculumQaSeverity = 'error' | 'warning'
+export interface CurriculumQaIssue {
+  code: string
+  severity: CurriculumQaSeverity
+  message: string
+  moduleOrder?: number
+  lessonGlobalOrder?: number
+}
+export interface CurriculumQaReport {
+  errors: CurriculumQaIssue[]
+  warnings: CurriculumQaIssue[]
+  ok: boolean
+}
+
+/** POST /accounts/curricula/:courseId/generate-plan */
+export interface GeneratePlanResult {
+  course: CurriculumCourse
+  counts: { modules: number; lessons: number; projects: number }
+  qa: CurriculumQaReport
+}
+
+/** POST /accounts/curricula/:courseId/lessons/:lessonId/script */
+export interface LessonScriptResult {
+  lesson: CurriculumLesson
+  similarity: { maxPct: number; nearestLessonGlobalOrder: number | null; flagged: boolean }
+}
+
+/** POST /accounts/curricula/:courseId/lessons/:lessonId/produce */
+export interface LessonProduceResult {
+  asset: CurriculumAsset
+  run: { runId: string; reviewItemsCreated: number; manifestPath: string; dryRun: boolean }
+}
+
+/** GET /accounts/curricula/:courseId/progress — the F2 learn/produce/publish rollup. */
+export interface CurriculumProgress {
+  learning: {
+    lessonsTotal: number
+    lessonsCompleted: number
+    pct: number
+    modules: {
+      moduleId: string
+      order: number
+      title: string
+      lessonsTotal: number
+      lessonsCompleted: number
+      pct: number
+    }[]
+    nextLesson: { id: string; globalOrder: number; moduleId: string; title: string } | null
+  }
+  production: {
+    lessonsScripted: number
+    lessonsProduced: number
+    assetsTotal: number
+  }
+  publishing: {
+    assetsPublished: number
+  }
+}
+
+/** One row of GET /accounts/curricula/today — a course with the caller's progress. */
+export interface CurriculumTodayItem {
+  courseId: string
+  courseTitle: string
+  courseSlug: string
+  lessonsTotal: number
+  lessonsCompleted: number
+  pct: number
+  nextLesson: { id: string; globalOrder: number; moduleId: string; title: string } | null
+}
+
+// ---- Curriculum input bodies (mirror the route zod schemas) ----
+
+/** Body for POST /accounts/curricula. The defaulted knobs are optional client-side. */
+export interface CreateCurriculumCourseInput {
+  title: string
+  topic: string
+  description?: string
+  audience: string
+  startingKnowledge?: string[]
+  endGoal: string
+  language?: string
+  moduleCount?: number
+  lessonsPerModule?: number
+  shortDurationSec?: number
+  longFormTargetMin?: number
+  maxGenerationSpendUsd?: number | null
+}
+
+/** Body for PUT /accounts/curricula/:courseId — every field optional (`.partial()`). */
+export type UpdateCurriculumCourseInput = Partial<CreateCurriculumCourseInput>
+
+/** Body for PUT /accounts/curricula/:courseId/modules/:moduleId — content-only,
+ *  field-granular merge; `order` is structural and not accepted. */
+export interface CurriculumModulePatch {
+  title?: string
+  description?: string
+  goal?: string
+  prerequisites?: string[]
+  learningObjectives?: string[]
+  concepts?: string[]
+  status?: ModuleStatus
+}
+
+/** Body for PUT /accounts/curricula/:courseId/lessons/:lessonId — content-only,
+ *  field-granular merge; structural keys (`moduleId`, `*Order`) are not accepted. */
+export interface CurriculumLessonPatch {
+  title?: string
+  learningObjective?: string
+  prerequisites?: string[]
+  concepts?: string[]
+  explanation?: string
+  example?: string
+  exercise?: string
+  keyTakeaway?: string
+  nextLessonHook?: string
+  shortScript?: string
+  visualPlan?: string
+  codeExample?: string
+  knowledgeCheck?: KnowledgeCheckQuestion[]
+  status?: ContentStatus
+}
+
+// ---- Curriculum produce dashboard shapes (§27 — cost preview + batch queue) ----
+
+/** POST /accounts/curricula/:courseId/cost-estimate — a pure-arithmetic list-price
+ *  preview for a course / module / lesson. Every figure is an ESTIMATE. */
+export interface CurriculumCostEstimate {
+  scope: 'course' | 'module' | 'lesson'
+  currency: string
+  counts: { lessons: number; modules: number }
+  lineItems: {
+    scriptUsd: number
+    videoUsd: number
+    voiceUsd: number
+    longFormScriptUsd: number
+  }
+  perLessonUsd: number
+  totalUsd: number
+  cap: {
+    maxGenerationSpendUsd: number | null
+    withinCap: boolean
+    remainingUsd: number | null
+  }
+  assumptions: string[]
+  disclaimer: string
+}
+
+/** POST .../modules/:moduleId/queue and POST .../queue-approved — a batch
+ *  dry-run (or live) production pass over the in-scope scripted lessons. */
+export interface CurriculumQueueResult {
+  scope: 'course' | 'module'
+  moduleId?: string
+  dryRun: boolean
+  eligible: number
+  produced: { lessonId: string; assetId: string; runId: string; reviewItemsCreated: number }[]
+  skipped: {
+    lessonId: string
+    reason: 'no-script' | 'already-produced' | 'stopped-by-cap' | 'error'
+    /** Present only for `reason: 'error'` — the caught failure message. */
+    error?: string
+  }[]
+  stoppedByCap: boolean
+  estimatedSpendUsd: number
+  maxConcurrent: number
+  cap: { maxGenerationSpendUsd: number | null }
+}
+

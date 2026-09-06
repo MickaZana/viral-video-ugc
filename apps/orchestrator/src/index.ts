@@ -23,3 +23,16 @@ export {
   type BatchPlannerContextEntity,
   type BatchPlanDraft
 } from "./agents/batch-planner-agent.js";
+export {
+  generateCurriculumPlan,
+  buildMockCurriculumPlan,
+  buildMockLessonScript,
+  generateLessonScript,
+  buildMockModuleLongForm,
+  generateModuleLongForm,
+  buildMockKnowledgeCheck,
+  generateKnowledgeCheck,
+  type CurriculumArchitectDeps,
+  type LessonScriptContext,
+  type KnowledgeCheckContext
+} from "./agents/curriculum-architect.js";

@@ -18,7 +18,22 @@ export const paths = {
   brandClient: (id: string) => `/brand/clients/${encodeURIComponent(id)}`,
   billing: '/billing',
   settings: '/settings',
-  curriculum: '/curriculum'
+  curriculum: '/curriculum',
+  curriculumCourses: '/curriculum/courses',
+  curriculumCourseNew: '/curriculum/courses/new',
+  curriculumCourse: (id: string) => `/curriculum/courses/${encodeURIComponent(id)}`,
+  curriculumModule: (courseId: string, moduleId: string) =>
+    `/curriculum/courses/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}`,
+  curriculumLesson: (courseId: string, lessonId: string) =>
+    `/curriculum/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`,
+  curriculumLearn: '/curriculum/learn',
+  curriculumLearnLesson: (courseId: string, lessonId: string) =>
+    `/curriculum/learn/${encodeURIComponent(courseId)}/${encodeURIComponent(lessonId)}`,
+  curriculumProjects: '/curriculum/projects',
+  curriculumProduce: '/curriculum/produce',
+  curriculumProduceCourse: (courseId: string) =>
+    `/curriculum/produce/${encodeURIComponent(courseId)}`,
+  curriculumSchedule: '/curriculum/schedule'
 } as const
 
 /** Legacy tab ids used by leftover EmptyState CTAs — map onto workspace paths. */

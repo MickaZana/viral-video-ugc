@@ -126,7 +126,11 @@ export function App() {
   }, [account])
 
   async function changeAppMode(next: AppMode) {
-    if (!settings || modeBusy) return
+    // Guard on the session, not on `settings`: `api.setAppMode` is a server-side
+    // merge that needs no local settings object, and gating on `settings` here
+    // silently drops the toggle click during the brief window after signup when
+    // the account is established but `api.settings()` is still in flight.
+    if (!account || modeBusy) return
     setModeBusy(true)
     setModeError(null)
     try {
@@ -234,7 +238,7 @@ export function App() {
         <Route path="brand/clients/:id" element={<BrandClient />} />
         <Route path="billing" element={<Billing />} />
         <Route
-          path="curriculum"
+          path="curriculum/*"
           element={<Curriculum enabled={appMode === 'curriculum'} busy={modeBusy} onEnable={() => changeAppMode('curriculum')} />}
         />
         <Route

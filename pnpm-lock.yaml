@@ -173,6 +173,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.112.1
         version: 0.112.3(zod@4.4.3)
+      '@vvugc/curriculum-engine':
+        specifier: workspace:*
+        version: link:../../packages/curriculum-engine
       '@vvugc/mcp-assembly':
         specifier: workspace:*
         version: link:../../packages/mcp-assembly
@@ -228,6 +231,9 @@ importers:
 
   apps/review-dashboard:
     dependencies:
+      '@vvugc/curriculum-engine':
+        specifier: workspace:*
+        version: link:../../packages/curriculum-engine
       '@vvugc/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
@@ -246,6 +252,9 @@ importers:
       '@vvugc/review-queue':
         specifier: workspace:*
         version: link:../../packages/review-queue
+      '@vvugc/shared-analytics':
+        specifier: workspace:*
+        version: link:../../packages/shared-analytics
       '@vvugc/shared-auth':
         specifier: workspace:*
         version: link:../../packages/shared-auth
@@ -255,9 +264,15 @@ importers:
       '@vvugc/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config
+      '@vvugc/shared-cost':
+        specifier: workspace:*
+        version: link:../../packages/shared-cost
       '@vvugc/shared-metrics':
         specifier: workspace:*
         version: link:../../packages/shared-metrics
+      '@vvugc/shared-originality':
+        specifier: workspace:*
+        version: link:../../packages/shared-originality
       '@vvugc/shared-persistence':
         specifier: workspace:*
         version: link:../../packages/shared-persistence
@@ -350,6 +365,19 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@20.19.43)(jiti@2.7.0)(jsdom@30.0.1)(lightningcss@1.32.0)(supports-color@7.2.0)(tsx@4.23.1)
+
+  packages/curriculum-engine:
+    dependencies:
+      '@vvugc/shared-schema':
+        specifier: workspace:*
+        version: link:../shared-schema
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.8.3
 
   packages/design-tokens: {}
 

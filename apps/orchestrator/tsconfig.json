@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/shared-schema" },
     { "path": "../../packages/shared-config" },
+    { "path": "../../packages/curriculum-engine" },
     { "path": "../../packages/mcp-discovery" },
     { "path": "../../packages/mcp-transcript" },
     { "path": "../../packages/mcp-video-gen" },

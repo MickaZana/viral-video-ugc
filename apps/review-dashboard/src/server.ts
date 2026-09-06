@@ -27,6 +27,7 @@ import { initializeIdentity, parseCookies, registerAccountRoutes } from "./accou
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
 import { registerBatchRoutes } from "./batch-routes.js";
 import { registerSoulIdRoutes } from "./soul-id-routes.js";
+import { registerCurriculumRoutes } from "./curriculum-routes.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
@@ -283,6 +284,11 @@ app.use("/v1", v1Router);
 // reasoning: initializeIdentity() always populates tenantProfiles on every
 // return branch).
 registerSoulIdRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
+
+// Curriculum Mode v2: course CRUD (generate-plan / approve / modules / lessons /
+// produce land in later units). Same real tenantProfiles repository and
+// non-null-assertion reasoning as the two registrations above.
+registerCurriculumRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
 
 // /account and /dashboard used to be separate HTML self-service pages
 // (account-page.ts, now deleted). The product workspace is the SPA now for

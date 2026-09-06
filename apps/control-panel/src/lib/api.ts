@@ -36,6 +36,28 @@ import type {
   CharacterPortrait,
   ProductEventType
   , UGCTemplate
+  , CurriculumCourse
+  , CurriculumModule
+  , CurriculumModuleWithCounts
+  , CurriculumLesson
+  , CurriculumAsset
+  , CurriculumVersion
+  , LessonCompletion
+  , CurriculumCourseDetail
+  , CurriculumModuleDetail
+  , GeneratePlanResult
+  , LessonScriptResult
+  , LessonProduceResult
+  , CurriculumProgress
+  , CurriculumTodayItem
+  , CreateCurriculumCourseInput
+  , UpdateCurriculumCourseInput
+  , CurriculumModulePatch
+  , CurriculumLessonPatch
+  , AssetType
+  , AssetStatus
+  , CurriculumCostEstimate
+  , CurriculumQueueResult
 } from './types'
 import { loadCsrf } from './auth'
 import type { BatchPlan, BatchPlanDraft, BatchProgress, BatchRequest, Preset } from '@vvugc/shared-schema'
@@ -348,6 +370,210 @@ export const api = {
    *  so it works before a niche has ever been saved (the full PUT above would 400). */
   setAppMode(appMode: AppMode): Promise<AccountSettings> {
     return request<AccountSettings>('/accounts/settings/app-mode', { method: 'PUT', body: JSON.stringify({ appMode }) })
+  },
+
+  // ---- Curriculum Mode v2 ----
+  // Typed client for the Curriculum Mode v2 backend (apps/review-dashboard/src/
+  // curriculum-routes.ts). Every route is org-scoped and lives under
+  // /accounts/curricula; each method returns the exact backend shape. Path params
+  // are always encodeURIComponent'd; state-changing calls attach CSRF via request().
+  curricula(): Promise<{ courses: CurriculumCourse[] }> {
+    return request<{ courses: CurriculumCourse[] }>('/accounts/curricula')
+  },
+  createCurriculum(body: CreateCurriculumCourseInput): Promise<{ course: CurriculumCourse }> {
+    return request<{ course: CurriculumCourse }>('/accounts/curricula', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  curriculum(courseId: string): Promise<CurriculumCourseDetail> {
+    return request<CurriculumCourseDetail>(`/accounts/curricula/${encodeURIComponent(courseId)}`)
+  },
+  updateCurriculum(courseId: string, body: UpdateCurriculumCourseInput): Promise<{ course: CurriculumCourse }> {
+    return request<{ course: CurriculumCourse }>(`/accounts/curricula/${encodeURIComponent(courseId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    })
+  },
+  deleteCurriculum(courseId: string): Promise<{ deleted: boolean }> {
+    return request<{ deleted: boolean }>(`/accounts/curricula/${encodeURIComponent(courseId)}`, {
+      method: 'DELETE'
+    })
+  },
+  generateCurriculumPlan(
+    courseId: string,
+    body?: {
+      seed?: 'agentic-ai'
+      live?: boolean
+      // Mirrors PlanOverridesSchema in curriculum-routes.ts — every field optional.
+      overrides?: Partial<
+        Pick<
+          CreateCurriculumCourseInput,
+          | 'moduleCount'
+          | 'lessonsPerModule'
+          | 'shortDurationSec'
+          | 'longFormTargetMin'
+          | 'audience'
+          | 'startingKnowledge'
+          | 'endGoal'
+          | 'language'
+        >
+      >
+    }
+  ): Promise<GeneratePlanResult> {
+    return request<GeneratePlanResult>(`/accounts/curricula/${encodeURIComponent(courseId)}/generate-plan`, {
+      method: 'POST',
+      body: JSON.stringify(body ?? {})
+    })
+  },
+  approveCurriculum(courseId: string): Promise<{ course: CurriculumCourse; version: CurriculumVersion }> {
+    return request<{ course: CurriculumCourse; version: CurriculumVersion }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/approve`,
+      { method: 'POST' }
+    )
+  },
+  curriculumModules(courseId: string): Promise<{ modules: CurriculumModuleWithCounts[] }> {
+    return request<{ modules: CurriculumModuleWithCounts[] }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules`
+    )
+  },
+  curriculumModule(courseId: string, moduleId: string): Promise<CurriculumModuleDetail> {
+    return request<CurriculumModuleDetail>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}`
+    )
+  },
+  curriculumLesson(courseId: string, lessonId: string): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`
+    )
+  },
+  updateCurriculumModule(
+    courseId: string,
+    moduleId: string,
+    body: CurriculumModulePatch
+  ): Promise<{ module: CurriculumModule }> {
+    return request<{ module: CurriculumModule }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    )
+  },
+  updateCurriculumLesson(
+    courseId: string,
+    lessonId: string,
+    body: CurriculumLessonPatch
+  ): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    )
+  },
+  generateLessonScript(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonScriptResult> {
+    return request<LessonScriptResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/script`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  generateModuleLongForm(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean }
+  ): Promise<{ module: CurriculumModule }> {
+    return request<{ module: CurriculumModule }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/long-form-script`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  generateLessonKnowledgeCheck(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean; count?: number }
+  ): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/knowledge-check`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  produceLesson(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonProduceResult> {
+    return request<LessonProduceResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/produce`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  curriculumAssets(
+    courseId: string,
+    filter?: { lessonId?: string; moduleId?: string; assetType?: AssetType; status?: AssetStatus }
+  ): Promise<{ assets: CurriculumAsset[] }> {
+    const params = new URLSearchParams()
+    if (filter?.lessonId) params.set('lessonId', filter.lessonId)
+    if (filter?.moduleId) params.set('moduleId', filter.moduleId)
+    if (filter?.assetType) params.set('assetType', filter.assetType)
+    if (filter?.status) params.set('status', filter.status)
+    const qs = params.toString()
+    return request<{ assets: CurriculumAsset[] }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/assets${qs ? `?${qs}` : ''}`
+    )
+  },
+  completeLesson(
+    courseId: string,
+    lessonId: string,
+    body?: { knowledgeCheckScore?: number; answers?: number[] }
+  ): Promise<{ completion: LessonCompletion }> {
+    return request<{ completion: LessonCompletion }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/complete`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  curriculumProgress(courseId: string): Promise<CurriculumProgress> {
+    return request<CurriculumProgress>(`/accounts/curricula/${encodeURIComponent(courseId)}/progress`)
+  },
+  curriculumToday(): Promise<{ items: CurriculumTodayItem[] }> {
+    return request<{ items: CurriculumTodayItem[] }>('/accounts/curricula/today')
+  },
+  curriculumCostEstimate(
+    courseId: string,
+    body: { scope?: 'course' | 'module' | 'lesson'; moduleId?: string; lessonId?: string }
+  ): Promise<CurriculumCostEstimate> {
+    return request<CurriculumCostEstimate>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/cost-estimate`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  produceModuleLongForm(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonProduceResult> {
+    return request<LessonProduceResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/produce-long-form`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  queueModule(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean; maxConcurrent?: number }
+  ): Promise<CurriculumQueueResult> {
+    return request<CurriculumQueueResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/queue`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  queueApprovedCourse(
+    courseId: string,
+    body?: { live?: boolean; maxConcurrent?: number }
+  ): Promise<CurriculumQueueResult> {
+    return request<CurriculumQueueResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/queue-approved`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
   },
 
   // ---- Data ----

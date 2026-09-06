@@ -299,6 +299,89 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX IF NOT EXISTS provider_jobs_run_idx ON provider_jobs(run_id, script_segment_index, created_at);
       CREATE INDEX IF NOT EXISTS provider_jobs_tenant_idx ON provider_jobs(org_id, client_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS provider_jobs_dlq_idx ON provider_jobs(org_id, updated_at DESC) WHERE status='dead_letter';
+    `),
+  defineMigration("0008_create_curriculum", `
+      -- Curriculum Mode v2 tenant state. Same jsonb-payload + relational-scope
+      -- shape as tenant_profile_state (0005): schema-validated entity fields live
+      -- in payload, ownership/index/FK columns stay relational. A course delete is
+      -- terminal for the whole course — every child table cascades from
+      -- curriculum_courses(id), so curriculumCourseDelete only deletes the course
+      -- row. Asset module/lesson/project links live in the payload (an asset
+      -- points at AT MOST one), so only course_id is a real FK there.
+      CREATE TABLE IF NOT EXISTS curriculum_courses (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_courses_org_idx ON curriculum_courses(org_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_modules (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_modules_org_course_idx ON curriculum_modules(org_id, course_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_lessons (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_lessons_org_course_idx ON curriculum_lessons(org_id, course_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_projects (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_projects_org_course_idx ON curriculum_projects(org_id, course_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_assets (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_assets_org_course_idx ON curriculum_assets(org_id, course_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_versions (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_versions_org_course_idx ON curriculum_versions(org_id, course_id);
+
+      CREATE TABLE IF NOT EXISTS curriculum_lesson_completions (
+        org_id TEXT NOT NULL,
+        course_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        PRIMARY KEY (org_id, course_id, lesson_id, account_id),
+        FOREIGN KEY (course_id) REFERENCES curriculum_courses(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS curriculum_lesson_completions_org_course_idx ON curriculum_lesson_completions(org_id, course_id);
     `)
 ];
 

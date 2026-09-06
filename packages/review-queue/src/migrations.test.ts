@@ -18,7 +18,20 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
     // flaky_table) — leaving those behind after a failed/interrupted run would
     // make a later run fail with a stale "already exists" unrelated to what
     // that run is actually testing.
-    await testDatabase.resetTables(["review_items", "pipeline_jobs", "schema_migrations", "this_will_fail", "flaky_table"]);
+    await testDatabase.resetTables([
+      "review_items",
+      "pipeline_jobs",
+      "curriculum_lesson_completions",
+      "curriculum_versions",
+      "curriculum_assets",
+      "curriculum_projects",
+      "curriculum_lessons",
+      "curriculum_modules",
+      "curriculum_courses",
+      "schema_migrations",
+      "this_will_fail",
+      "flaky_table"
+    ]);
   });
 
   afterAll(async () => {
@@ -47,6 +60,29 @@ describe.skipIf(!TEST_DATABASE_URL)("runMigrations", () => {
     expect(tableCheck.rows.map((r) => r.column_name).sort()).toEqual(
       ["client_id", "created_at", "data", "id", "niche", "org_id", "platform", "status"].sort()
     );
+
+    // The real effect of 0008_create_curriculum — every curriculum_* table with
+    // its exact column set. Same current_schema() scoping as above. Keep this
+    // list in sync with MIGRATIONS: the six per-course entity tables share the
+    // (id, org_id, course_id, payload, created_at, updated_at) shape;
+    // curriculum_courses has no course_id; curriculum_lesson_completions is a
+    // composite-key link row with no id/timestamps.
+    const curriculumTables: { table: string; columns: string[] }[] = [
+      { table: "curriculum_courses", columns: ["created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_modules", columns: ["course_id", "created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_lessons", columns: ["course_id", "created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_projects", columns: ["course_id", "created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_assets", columns: ["course_id", "created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_versions", columns: ["course_id", "created_at", "id", "org_id", "payload", "updated_at"] },
+      { table: "curriculum_lesson_completions", columns: ["account_id", "course_id", "lesson_id", "org_id", "payload"] }
+    ];
+    for (const { table, columns } of curriculumTables) {
+      const result = await testDatabase.pool.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 ORDER BY column_name",
+        [table]
+      );
+      expect(result.rows.map((r) => r.column_name).sort()).toEqual([...columns].sort());
+    }
   });
 
   it("is idempotent — running it again against an already-migrated database is a no-op", async () => {
