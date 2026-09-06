@@ -9,6 +9,8 @@
  */
 
 import type {
+  AccountSettings,
+  AppMode,
   AgencyClient,
   BillingResponse,
   ClientsResponse,
@@ -26,6 +28,7 @@ import type {
   Stats,
   TrackedCreator,
   TrendsResponse,
+  UpdateAccountSettings,
   ProductProfile,
   ProductsResponse,
   CreatorProfile,
@@ -332,6 +335,19 @@ export const api = {
         , templateId: body.templateId
       })
     })
+  },
+
+  // ---- Workspace settings ----
+  settings(): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings')
+  },
+  updateSettings(body: UpdateAccountSettings): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings', { method: 'PUT', body: JSON.stringify(body) })
+  },
+  /** Dedicated app-mode toggle — a server-side merge that overrides only `appMode`,
+   *  so it works before a niche has ever been saved (the full PUT above would 400). */
+  setAppMode(appMode: AppMode): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings/app-mode', { method: 'PUT', body: JSON.stringify({ appMode }) })
   },
 
   // ---- Data ----

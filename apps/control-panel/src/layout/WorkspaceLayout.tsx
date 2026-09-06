@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import type { PublicAccount } from '../lib/auth'
-import type { BillingResponse } from '../lib/types'
+import type { AppMode, BillingResponse } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Logo } from '../components/Logo'
@@ -56,6 +56,7 @@ const PRIMARY: { to: string; label: string; icon: Parameters<typeof NavIcon>[0][
 const SECONDARY: { to: string; label: string; icon: Parameters<typeof NavIcon>[0]['name'] }[] = [
   { to: paths.brand, label: 'Brand', icon: 'brand' },
   { to: paths.billing, label: 'Billing', icon: 'billing' },
+  { to: paths.curriculum, label: 'Curriculum', icon: 'curriculum' },
   { to: paths.settings, label: 'Settings', icon: 'settings' }
 ]
 
@@ -74,6 +75,7 @@ function titleFor(pathname: string): { title: string; sub: string } {
   if (pathname.startsWith('/brand/clients')) return { title: 'Brand', sub: 'Client' }
   if (pathname.startsWith('/brand')) return { title: 'Brand', sub: 'Kit and clients' }
   if (pathname.startsWith('/billing')) return { title: 'Billing', sub: 'Plan and usage' }
+  if (pathname.startsWith('/curriculum')) return { title: 'Curriculum', sub: 'Structured courses, lessons & projects' }
   if (pathname.startsWith('/settings')) return { title: 'Settings', sub: 'Password, MFA, theme' }
   return { title: 'This Week', sub: 'Cadence, quota, next action' }
 }
@@ -84,7 +86,11 @@ export function WorkspaceLayout({
   onLogout,
   onSignIn,
   theme,
-  onTheme
+  onTheme,
+  appMode,
+  onToggleMode,
+  modeBusy,
+  modeError
 }: {
   account: PublicAccount
   isGuest?: boolean
@@ -92,6 +98,10 @@ export function WorkspaceLayout({
   onSignIn?: () => void
   theme: Theme
   onTheme: (t: Theme) => void
+  appMode: AppMode
+  onToggleMode: () => void
+  modeBusy?: boolean
+  modeError?: string | null
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -118,6 +128,24 @@ export function WorkspaceLayout({
       <header className="workspace-header border-b border-[var(--color-raised)] flex items-center justify-between shrink-0 bg-[var(--color-surface)]">
         <Logo onClick={() => navigate(paths.home)} />
         <div className="flex items-center gap-3 lg:gap-5">
+          <button
+            onClick={onToggleMode}
+            disabled={modeBusy}
+            aria-label={appMode === 'curriculum' ? 'Switch to Standard Mode' : 'Switch to Curriculum Mode'}
+            title={appMode === 'curriculum' ? 'Switch to Standard Mode' : 'Switch to Curriculum Mode'}
+            className={`shrink-0 text-[10px] font-mono uppercase tracking-widest border px-2.5 py-1 transition-colors disabled:opacity-50 ${
+              appMode === 'curriculum'
+                ? ''
+                : 'bg-transparent text-[var(--color-muted-2)] border-[var(--color-border)] hover:text-[var(--color-text)] hover:border-[var(--color-muted-3)]'
+            }`}
+            style={
+              appMode === 'curriculum'
+                ? { backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', borderColor: 'var(--color-lime)' }
+                : undefined
+            }
+          >
+            {modeBusy ? 'MODE…' : appMode === 'curriculum' ? '▦ CURRICULUM' : '▦ STANDARD'}
+          </button>
           <button
             onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
             aria-label={theme === 'dark' ? 'Switch to light background' : 'Switch to dark background'}
@@ -225,6 +253,13 @@ export function WorkspaceLayout({
               <h1 className="text-xl lg:text-2xl font-semibold tracking-tight text-[var(--color-text)]">{heading.title}</h1>
               <p className="text-[12px] text-[var(--color-muted-3)] mt-1">{heading.sub}</p>
             </div>
+            {modeError && (
+              <div className="mb-4 border border-[var(--color-red)] px-4 py-3">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-red)]">
+                  Curriculum mode could not be updated: {modeError}
+                </p>
+              </div>
+            )}
             <Outlet />
           </main>
 

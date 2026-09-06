@@ -7,6 +7,7 @@ type IconName =
   | 'brand'
   | 'billing'
   | 'settings'
+  | 'curriculum'
 
 export function NavIcon({ name }: { name: IconName }) {
   const common = {
@@ -74,6 +75,14 @@ export function NavIcon({ name }: { name: IconName }) {
         <svg {...common}>
           <circle cx="8" cy="8" r="2.2" />
           <path d="M8 2.5v1.5M8 12v1.5M2.5 8h1.5M12 8h1.5M4.1 4.1l1.1 1.1M10.8 10.8l1.1 1.1M11.9 4.1 10.8 5.2M5.2 10.8 4.1 11.9" />
+        </svg>
+      )
+    case 'curriculum':
+      return (
+        <svg {...common}>
+          <rect x="2" y="2.5" width="12" height="4" />
+          <rect x="2" y="9.5" width="12" height="4" />
+          <path d="M5 4.5h3M5 11.5h3" />
         </svg>
       )
   }

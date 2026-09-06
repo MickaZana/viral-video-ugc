@@ -16,7 +16,7 @@ type Platform = SocialConnection["platform"];
 export type ProductProfileInput = Omit<ProductProfile, "id" | "orgId" | "createdAt" | "updatedAt" | "productImages" | "extractionStatus"> & { productImages?: ProductImage[]; extractionStatus?: ProductProfile["extractionStatus"] };
 export type CreatorProfileInput = Omit<CreatorProfile, "id" | "orgId" | "createdAt" | "updatedAt" | "referenceImages"> & { referenceImages?: CreatorReferenceImage[] };
 
-const DEFAULT_SETTINGS: AccountSettingsInput = { niche: "", brandVoice: "neutral, energetic, concise", platforms: ["youtube_shorts"], targetDurationSec: 35, videoVendor: "higgsfield", cadence: "manual" };
+const DEFAULT_SETTINGS: AccountSettingsInput = { appMode: "standard", niche: "", brandVoice: "neutral, energetic, concise", platforms: ["youtube_shorts"], targetDurationSec: 35, videoVendor: "higgsfield", cadence: "manual" };
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 const now = () => new Date().toISOString();
 const nextWeeklyRun = (from = new Date()) => new Date(from.getTime() + WEEK).toISOString();
@@ -57,8 +57,8 @@ export class PostgresTenantProfileRepository implements TenantProfileRepository 
   constructor(private readonly pool: Pool, encryptionSecret: string) { this.key = tokenKey(encryptionSecret); }
   private async payload<T>(sql: string, values: unknown[] = []): Promise<T | undefined> { const r = await this.pool.query<{ payload: T }>(sql, values); return r.rows[0]?.payload; }
   private async profile<T>(sql: string, values: unknown[] = []): Promise<T | undefined> { return this.payload<T>(sql, values); }
-  async settingsGet(orgId: string) { return (await this.payload<AccountSettings>("SELECT payload FROM tenant_settings WHERE org_id=$1", [orgId])) ?? { accountId: orgId, ...DEFAULT_SETTINGS, updatedAt: new Date(0).toISOString() }; }
-  async settingsUpsert(orgId: string, input: AccountSettingsInput) { const value: AccountSettings = { accountId: orgId, ...input, updatedAt: now() }; await this.pool.query("INSERT INTO tenant_settings(org_id,payload,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(org_id) DO UPDATE SET payload=EXCLUDED.payload,updated_at=now()", [orgId, JSON.stringify(value)]); return value; }
+  async settingsGet(orgId: string) { return (await this.payload<AccountSettings>("SELECT payload FROM tenant_settings WHERE org_id=$1", [orgId])) ?? { accountId: orgId, appMode: "standard", ...DEFAULT_SETTINGS, updatedAt: new Date(0).toISOString() }; }
+  async settingsUpsert(orgId: string, input: AccountSettingsInput) { const value: AccountSettings = { accountId: orgId, appMode: "standard", ...input, updatedAt: now() }; await this.pool.query("INSERT INTO tenant_settings(org_id,payload,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(org_id) DO UPDATE SET payload=EXCLUDED.payload,updated_at=now()", [orgId, JSON.stringify(value)]); return value; }
   async clientList(orgId: string) { const r = await this.pool.query<{ payload: AgencyClient }>("SELECT payload FROM agency_clients WHERE org_id=$1 ORDER BY payload->>'name'", [orgId]); return r.rows.map((x) => x.payload); }
   async clientGet(orgId: string, id: string) { return this.profile<AgencyClient>("SELECT payload FROM agency_clients WHERE org_id=$1 AND id=$2", [orgId, id]); }
   async clientCreate(orgId: string, input: AgencyClientInput) { const time = now(); const value: AgencyClient = { id: randomUUID(), orgId, ...input, nextRunAt: input.cadence === "weekly" ? nextWeeklyRun(new Date(time)) : undefined, createdAt: time, updatedAt: time }; await this.pool.query("INSERT INTO agency_clients(id,org_id,payload) VALUES($1,$2,$3::jsonb)", [value.id, orgId, JSON.stringify(value)]); return value; }

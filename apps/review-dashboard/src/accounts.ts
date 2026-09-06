@@ -320,6 +320,7 @@ export function extractProductFields(html: string, sourceUrl: string): Partial<P
 }
 
 const SettingsInputSchema = z.object({
+  appMode: z.enum(["standard", "curriculum"]).optional().default("standard"),
   niche: z.string().min(1),
   brandVoice: z.string().min(1),
   platforms: z.array(PlatformSchema).min(1),
@@ -328,6 +329,8 @@ const SettingsInputSchema = z.object({
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
   cadence: z.enum(["weekly", "manual"])
 });
+
+const AppModeInputSchema = z.object({ appMode: z.enum(["standard", "curriculum"]) });
 
 const ClientInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -729,6 +732,26 @@ export function registerAccountRoutes(
       return res.status(400).json({ error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
     }
     res.json(await tenantProfiles.settingsUpsert(resolveOrgId(account), parsed.data as AccountSettingsInput));
+  }));
+
+  // Dedicated, minimal app-mode toggle. The full PUT above re-validates the entire
+  // settings shape with SettingsInputSchema (niche: min(1)), which 400s for a fresh
+  // account whose niche is still "" and has no niche editor yet. This route does a
+  // server-side merge instead: it reads the current stored settings (already a valid
+  // AccountSettings — niche may be "", and settingsUpsert does not re-run
+  // SettingsInputSchema) and overrides only appMode.
+  app.put("/accounts/settings/app-mode", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const account = requirePermission("settings.manage")(req, res);
+    if (!account) return;
+    const parsed = AppModeInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    }
+    const orgId = resolveOrgId(account);
+    const current = await tenantProfiles.settingsGet(orgId);
+    const { accountId: _accountId, updatedAt: _updatedAt, ...rest } = current;
+    const saved = await tenantProfiles.settingsUpsert(orgId, { ...rest, appMode: parsed.data.appMode });
+    res.json(saved);
   }));
 
   app.get("/accounts/clients", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {

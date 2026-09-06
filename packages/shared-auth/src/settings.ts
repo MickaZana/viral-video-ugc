@@ -3,8 +3,14 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import { dirname } from "node:path";
 import type { Platform } from "@vvugc/shared-schema";
 
+export type AppMode = "standard" | "curriculum";
+
 export interface AccountSettings {
   accountId: string;
+  /** Workspace mode: `standard` = normal viral/UGC workflow, `curriculum` =
+   *  structured educational-content workflow. Persisted server-side so it
+   *  survives refreshes/devices/sessions. */
+  appMode: AppMode;
   niche: string;
   brandVoice: string;
   platforms: Platform[];
@@ -17,9 +23,10 @@ export interface AccountSettings {
   updatedAt: string;
 }
 
-export type AccountSettingsInput = Omit<AccountSettings, "accountId" | "updatedAt">;
+export type AccountSettingsInput = Omit<AccountSettings, "accountId" | "updatedAt" | "appMode"> & { appMode?: AppMode };
 
 const DEFAULT_SETTINGS: AccountSettingsInput = {
+  appMode: "standard",
   niche: "",
   brandVoice: "neutral, energetic, concise",
   platforms: ["youtube_shorts"],
@@ -55,7 +62,8 @@ function releaseLock(dbPath: string): void {
 
 function readAllUnlocked(dbPath: string): AccountSettings[] {
   if (!existsSync(dbPath)) return [];
-  return JSON.parse(readFileSync(dbPath, "utf-8"));
+  const raw = JSON.parse(readFileSync(dbPath, "utf-8")) as Array<Partial<AccountSettings> & { accountId: string }>;
+  return raw.map((r) => ({ ...r, appMode: r.appMode === "curriculum" ? "curriculum" : "standard" })) as AccountSettings[];
 }
 
 function writeAllUnlocked(dbPath: string, settings: AccountSettings[]): void {
@@ -79,11 +87,11 @@ export function createSettingsStore(dbPath: string): SettingsStore {
     get(accountId) {
       const existing = readAllUnlocked(dbPath).find((s) => s.accountId === accountId);
       if (existing) return existing;
-      return { accountId, ...DEFAULT_SETTINGS, updatedAt: new Date(0).toISOString() };
+      return { accountId, ...DEFAULT_SETTINGS, appMode: "standard", updatedAt: new Date(0).toISOString() };
     },
 
     upsert(accountId, input) {
-      const settings: AccountSettings = { accountId, ...input, updatedAt: new Date().toISOString() };
+      const settings: AccountSettings = { accountId, appMode: "standard", ...input, updatedAt: new Date().toISOString() };
       mkdirSync(dirname(dbPath), { recursive: true });
       acquireLock(dbPath);
       try {

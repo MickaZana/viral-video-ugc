@@ -17,7 +17,8 @@ export const paths = {
   brand: '/brand',
   brandClient: (id: string) => `/brand/clients/${encodeURIComponent(id)}`,
   billing: '/billing',
-  settings: '/settings'
+  settings: '/settings',
+  curriculum: '/curriculum'
 } as const
 
 /** Legacy tab ids used by leftover EmptyState CTAs — map onto workspace paths. */

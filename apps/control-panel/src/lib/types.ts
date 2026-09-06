@@ -211,6 +211,26 @@ export type VideoVendor = 'higgsfield' | 'kling' | 'runway' | 'pika' | 'gemini' 
 export type VoiceVendor = 'elevenlabs' | 'grok'
 export type ClientCadence = 'weekly' | 'manual'
 
+export type AppMode = 'standard' | 'curriculum'
+
+/** The org's workspace settings, as returned by GET /accounts/settings.
+ *  `appMode` toggles between the standard viral/UGC workflow and Curriculum Mode. */
+export interface AccountSettings {
+  accountId: string
+  appMode: AppMode
+  niche: string
+  brandVoice: string
+  platforms: Platform[]
+  targetDurationSec: number
+  videoVendor: VideoVendor
+  voiceVendor?: VoiceVendor
+  cadence: ClientCadence
+  updatedAt: string
+}
+
+/** Body for PUT /accounts/settings — the full settings shape minus server-managed fields. */
+export type UpdateAccountSettings = Omit<AccountSettings, 'accountId' | 'updatedAt'>
+
 export interface AgencyClient {
   id: string
   orgId: string

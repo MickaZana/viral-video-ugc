@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   loadAccount,
   saveAccount,
@@ -8,6 +8,9 @@ import {
   type PublicAccount
 } from './lib/auth'
 import { api } from './lib/api'
+import { paths } from './lib/paths'
+import type { AccountSettings, AppMode } from './lib/types'
+import { Curriculum } from './tabs/Curriculum'
 import { History } from './tabs/History'
 import { Rewriter } from './tabs/Rewriter'
 import { Spy } from './tabs/Spy'
@@ -47,6 +50,11 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [settings, setSettings] = useState<AccountSettings | null>(null)
+  const [modeBusy, setModeBusy] = useState(false)
+  const [modeError, setModeError] = useState<string | null>(null)
+  const appMode: AppMode = settings?.appMode ?? 'standard'
 
   // Always respect user's theme choice — both authenticated and demo workspace
   const effectiveTheme = theme
@@ -96,6 +104,45 @@ export function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!account) {
+      setSettings(null)
+      setModeError(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const loaded = await api.settings()
+        if (!cancelled) setSettings(loaded)
+      } catch (err) {
+        if (!cancelled) setModeError(err instanceof Error ? err.message : 'Failed to load workspace settings')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [account])
+
+  async function changeAppMode(next: AppMode) {
+    if (!settings || modeBusy) return
+    setModeBusy(true)
+    setModeError(null)
+    try {
+      const updated = await api.setAppMode(next)
+      setSettings(updated)
+      if (next === 'curriculum') {
+        navigate({ pathname: paths.curriculum })
+      } else if (location.pathname === paths.curriculum) {
+        navigate({ pathname: paths.home })
+      }
+    } catch (err) {
+      setModeError(err instanceof Error ? err.message : 'Failed to update Curriculum mode')
+    } finally {
+      setModeBusy(false)
+    }
+  }
 
   async function handleLogout() {
     try {
@@ -147,6 +194,10 @@ export function App() {
             onSignIn={() => navigate({ pathname: '/', search: '?mode=signin' })}
             theme={theme}
             onTheme={setTheme}
+            appMode={appMode}
+            onToggleMode={() => changeAppMode(appMode === 'curriculum' ? 'standard' : 'curriculum')}
+            modeBusy={modeBusy}
+            modeError={modeError}
           />
         }
       >
@@ -182,6 +233,10 @@ export function App() {
         <Route path="brand" element={<Brand />} />
         <Route path="brand/clients/:id" element={<BrandClient />} />
         <Route path="billing" element={<Billing />} />
+        <Route
+          path="curriculum"
+          element={<Curriculum enabled={appMode === 'curriculum'} busy={modeBusy} onEnable={() => changeAppMode('curriculum')} />}
+        />
         <Route
           path="settings"
           element={<Settings theme={theme} onTheme={setTheme} email={account?.email ?? 'guest@micany.com'} isGuest={!account} onSignIn={() => navigate({ pathname: '/', search: '?mode=signin' })} />}

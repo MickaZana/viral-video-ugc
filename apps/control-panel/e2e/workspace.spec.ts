@@ -38,7 +38,7 @@ test("a guest sees the landing page, not the workspace", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sign Out" })).toHaveCount(0);
 });
 
-test("signup opens the workspace with all eight nav destinations, each rendering real data", async ({ page }) => {
+test("signup opens the workspace with all nine nav destinations, each rendering real data", async ({ page }) => {
   await signup(page);
 
   // WorkspaceLayout's own page header <h1> reflects the current route
@@ -51,7 +51,8 @@ test("signup opens the workspace with all eight nav destinations, each rendering
     { link: "Library", heading: "Library" },
     { link: "Brand", heading: "Brand" },
     { link: "Billing", heading: "Billing" },
-    { link: "Settings", heading: "Settings" }
+    { link: "Settings", heading: "Settings" },
+    { link: "Curriculum", heading: "Curriculum" }
   ] as const;
   for (const { link, heading } of destinations) {
     await page.getByRole("link", { name: link, exact: true }).click();
@@ -141,6 +142,32 @@ test("a reload with a live session restores the workspace without re-login", asy
   await signup(page);
   await page.reload();
   await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+});
+
+test("curriculum mode is server-persisted — it survives a full page reload", async ({ page }) => {
+  await signup(page);
+
+  // The mode toggle in its STANDARD state — this also implicitly waits for
+  // App.tsx's api.settings() load, since the button reflects appMode:'standard'.
+  await expect(page.getByRole("button", { name: "Switch to Curriculum Mode" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Switch to Curriculum Mode" }).click();
+
+  // Landed on the enabled Curriculum workspace, and the toggle now reads the other way.
+  await expect(page).toHaveURL(/\/curriculum$/);
+  await expect(page.getByRole("heading", { name: "Education Engine" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch to Standard Mode" })).toBeVisible();
+
+  // The real assertion: a full reload must still be curriculum mode, which can
+  // only come from the server (GET /accounts/settings → appMode:'curriculum').
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Education Engine" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch to Standard Mode" })).toBeVisible();
+
+  // Toggle back off — navigates home.
+  await page.getByRole("button", { name: "Switch to Standard Mode" }).click();
+  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch to Curriculum Mode" })).toBeVisible();
 });
 
 test("video generator creates a client and runs a real dry-run pipeline", async ({ page }) => {

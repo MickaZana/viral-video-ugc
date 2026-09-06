@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -77,5 +77,61 @@ describe("createSettingsStore", () => {
       cadence: "weekly"
     });
     expect(createSettingsStore(dbPath).get("account-1").niche).toBe("beauty");
+  });
+
+  it("migration-on-read: an old record without appMode reads back as standard", () => {
+    dir = mkdtempSync(join(tmpdir(), "settings-"));
+    const dbPath = join(dir, "settings.json");
+    writeFileSync(
+      dbPath,
+      JSON.stringify(
+        [
+          {
+            accountId: "legacy-1",
+            niche: "fitness",
+            brandVoice: "punchy, direct",
+            platforms: ["youtube_shorts"],
+            targetDurationSec: 35,
+            videoVendor: "higgsfield",
+            cadence: "manual",
+            updatedAt: new Date(0).toISOString()
+          }
+        ],
+        null,
+        2
+      )
+    );
+    expect(createSettingsStore(dbPath).get("legacy-1").appMode).toBe("standard");
+  });
+
+  it("round-trip: upsert with appMode curriculum reloads as curriculum", () => {
+    const store = freshStore();
+    const dbPath = join(dir, "settings.json");
+    store.upsert("acct", {
+      niche: "fitness",
+      brandVoice: "punchy, direct",
+      platforms: ["tiktok", "youtube_shorts"],
+      targetDurationSec: 30,
+      videoVendor: "kling",
+      voiceVendor: "elevenlabs",
+      cadence: "weekly",
+      appMode: "curriculum"
+    });
+    expect(createSettingsStore(dbPath).get("acct").appMode).toBe("curriculum");
+  });
+
+  it("default-on-omit: upsert without appMode materializes and reloads as standard", () => {
+    const store = freshStore();
+    const dbPath = join(dir, "settings.json");
+    const returned = store.upsert("acct2", {
+      niche: "finance",
+      brandVoice: "calm, trustworthy",
+      platforms: ["youtube_shorts"],
+      targetDurationSec: 25,
+      videoVendor: "higgsfield",
+      cadence: "manual"
+    });
+    expect(returned.appMode).toBe("standard");
+    expect(createSettingsStore(dbPath).get("acct2").appMode).toBe("standard");
   });
 });
