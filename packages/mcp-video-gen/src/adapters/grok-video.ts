@@ -10,13 +10,22 @@ import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 /**
  * Grok Imagine Video (xAI) — text-to-video and image-to-video generation.
  *
- * xAI's official API (docs.x.ai) provides video generation via the Imagine endpoint.
- * Pricing: ~$0.05–0.08/sec (Aug 2026). Strong on image-to-video animation.
- * Uses the same XAI_API_KEY already configured for Grok voiceover.
+ * Pricing: ~$0.05–0.08/sec (Aug 2026). Uses the same XAI_API_KEY already
+ * configured for Grok voiceover.
  *
- * API contract (from docs.x.ai/developers/models/grok-imagine-video):
- * - POST https://api.x.ai/v1/images/generations (with video params)
- *   OR POST https://api.x.ai/v1/video/generations (dedicated video endpoint)
+ * ENDPOINT STATUS — the POST https://api.x.ai/v1/video/generations path used
+ * below is UNVERIFIED against a live xAI account. xAI's public, documented API
+ * surface (docs.x.ai) is chat completions, image generation
+ * (/v1/images/generations) and Grok TTS — there is no documented,
+ * generally-available text-to-video endpoint, and a prior live audit got a hard
+ * 404 from this path. This adapter therefore treats a 404 from the submit call
+ * as "vendor not available": it fast-fails once, with no retries, raising an
+ * actionable diagnostic so the conductor moves on to the next --video-vendor in
+ * the fallback chain instead of hanging or retry-looping. Any other non-OK
+ * status (401/403/5xx/…) stays on the normal transient/auth error path.
+ *
+ * API contract (speculative, from docs.x.ai/developers/models/grok-imagine-video):
+ * - POST https://api.x.ai/v1/video/generations (dedicated video endpoint)
  * - Auth: "Authorization: Bearer {XAI_API_KEY}"
  * - Async: returns a generation ID, poll for result
  * - Per-second billing based on duration and resolution
@@ -64,12 +73,23 @@ export function createGrokVideoAdapter(outDir: string): VideoGenAdapter {
       else if (req.referenceImageUrl) body.image = req.referenceImageUrl;
       else if (req.referenceImageDataUri) body.image = req.referenceImageDataUri;
 
-      // Submit generation request
+      // Submit generation request.
+      // fetchWithRetry only retries transport-level failures (network error, DNS,
+      // our own timeout) — never a non-OK HTTP response — so this guaranteed-404
+      // path already costs exactly one round-trip; no retry-disabling needed.
       const submitRes = await fetchWithRetry(`${XAI_API_BASE}/video/generations`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
       });
+      if (submitRes.status === 404) {
+        throw new Error(
+          `grok_video is not available: xAI's API returned 404 for POST ${XAI_API_BASE}/video/generations` +
+            ` — xAI has no generally-available video-generation endpoint. Pick a different --video-vendor` +
+            ` (higgsfield / replicate / seedance / kling / nvidia), or only keep grok_video in an explicit` +
+            ` fallback list as a last resort.`
+        );
+      }
       if (!submitRes.ok) {
         throw new Error(`Grok Video submit failed: ${submitRes.status} ${await submitRes.text()}`);
       }

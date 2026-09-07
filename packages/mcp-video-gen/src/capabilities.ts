@@ -11,6 +11,9 @@ export const VIDEO_VENDOR_CAPABILITIES = {
   // just the primary image the way 2.0's single image_url slot could. See
   // seedance.ts's endpoint-selection comment for the exact routing logic.
   seedance: { imageReferences: true, multipleReferences: true, persistentCharacterIds: false, imageToVideo: true, textToVideo: true, wardrobeStyleHints: true, productReferences: true, externalMcp: false },
+  // EXPERIMENTAL / UNVERIFIED: grok_video's submit endpoint (POST /v1/video/generations)
+  // has never been confirmed against a live xAI account and a prior audit got a hard 404;
+  // a 404 fast-fails to the next vendor in the fallback chain. See grok-video.ts's header.
   grok_video: { imageReferences: false, multipleReferences: false, persistentCharacterIds: false, imageToVideo: false, textToVideo: true, wardrobeStyleHints: true, productReferences: false, externalMcp: false },
   // Confirmed live against Replicate's real input schema for alibaba/wan-3 (see
   // wan.ts's header comment): a single `image` field for image-to-video, no
