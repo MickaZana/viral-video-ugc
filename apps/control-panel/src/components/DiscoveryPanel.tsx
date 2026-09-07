@@ -84,6 +84,7 @@ export function DiscoverPanel() {
         <select
           value={platform}
           onChange={(e) => setPlatform(e.target.value as 'tiktok' | 'youtube_shorts' | 'instagram_reels')}
+          aria-label="Platform to discover"
           className="bg-[var(--color-raised)] border border-[var(--color-faint)] px-2 py-2 text-sm text-[var(--color-text)]"
         >
           <option value="tiktok">TikTok</option>
