@@ -18,6 +18,43 @@ const REPLICATE_API_BASE = "https://api.replicate.com/v1";
  */
 const DEFAULT_MODEL = "minimax/video-01";
 
+/**
+ * Provider-aware polling budget for Replicate.
+ *
+ * pollWithBackoff's library defaults (20 attempts, ~3.9 min total wall-clock)
+ * were sized for fast queue APIs. A previous live audit found the default model
+ * `minimax/video-01` routinely takes ~4–5 min end-to-end, so the default budget
+ * expired *before* the job finished and surfaced as a spurious
+ * `Replicate prediction … failed: ""` / silent `undefined`.
+ *
+ * These opts give Replicate room: a 3s→20s backoff (gentler on the API than the
+ * 2s→15s default once a video job is clearly going to take minutes) over up to
+ * 80 attempts, bounded by an 8-minute wall-clock deadline. 8 min clears
+ * `minimax/video-01`'s ~5 min with comfortable margin for a slow queue start,
+ * while still being short enough that a genuinely stuck job is abandoned (and
+ * cancelled) in minutes rather than hanging a pipeline run. `maxAttempts: 80` is
+ * just a backstop — at the 20s cap the deadline is always the binding limit
+ * (~27 polls to reach 8 min); it exists so a misconfigured huge deadline can't
+ * spin unboundedly.
+ *
+ * The deadline is overridable via the optional `REPLICATE_POLL_DEADLINE_MS` env
+ * var (read directly here rather than via shared-config — a single Replicate-
+ * only knob isn't worth a schema change + the shared-config/orchestrator
+ * rebuilds that entails). Non-numeric/unset falls back to the 8-min default;
+ * a set value is clamped to [60s, 30min] so neither a fat-fingered `500` nor a
+ * `99999999` can defeat the "bounded" guarantee.
+ */
+const DEFAULT_REPLICATE_POLL_DEADLINE_MS = 8 * 60_000;
+const MIN_REPLICATE_POLL_DEADLINE_MS = 60_000;
+const MAX_REPLICATE_POLL_DEADLINE_MS = 30 * 60_000;
+
+function resolveReplicatePollDeadlineMs(): number {
+  const raw = process.env.REPLICATE_POLL_DEADLINE_MS;
+  const parsed = raw === undefined || raw.trim() === "" ? NaN : Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_REPLICATE_POLL_DEADLINE_MS;
+  return Math.min(Math.max(parsed, MIN_REPLICATE_POLL_DEADLINE_MS), MAX_REPLICATE_POLL_DEADLINE_MS);
+}
+
 interface ReplicatePrediction {
   id: string;
   status: "starting" | "processing" | "succeeded" | "failed" | "canceled";
@@ -97,21 +134,48 @@ export function createReplicateAdapter(outDir: string): VideoGenAdapter {
         throw new Error(`Replicate prediction ${submitted.id} ${submitted.status}: ${JSON.stringify(submitted.error ?? submitted)}`);
       }
 
-      const prediction = await pollWithBackoff(async () => {
-        const statusRes = await fetchWithRetry(`${REPLICATE_API_BASE}/predictions/${submitted.id}`, {
-          headers,
-          timeoutMs: 15_000
-        });
-        if (!statusRes.ok) {
-          throw new Error(`Replicate prediction ${submitted.id} status check failed: ${statusRes.status} ${await statusRes.text()}`);
+      const deadlineMs = resolveReplicatePollDeadlineMs();
+      // Track the last status the poll actually observed so a timeout can say
+      // whether the job was still `starting`/`processing` (slow) vs never moved.
+      let lastStatus: ReplicatePrediction["status"] = submitted.status;
+
+      const prediction = await pollWithBackoff(
+        async () => {
+          const statusRes = await fetchWithRetry(`${REPLICATE_API_BASE}/predictions/${submitted.id}`, {
+            headers,
+            timeoutMs: 15_000
+          });
+          if (!statusRes.ok) {
+            throw new Error(`Replicate prediction ${submitted.id} status check failed: ${statusRes.status} ${await statusRes.text()}`);
+          }
+          const status = (await statusRes.json()) as ReplicatePrediction;
+          lastStatus = status.status;
+          if (status.status === "failed" || status.status === "canceled") {
+            throw new Error(`Replicate prediction ${submitted.id} ${status.status}: ${JSON.stringify(status.error ?? status)}`);
+          }
+          return status.status === "succeeded" ? status : undefined;
+        },
+        // See DEFAULT_REPLICATE_POLL_DEADLINE_MS above for why these numbers.
+        { initialDelayMs: 3000, maxDelayMs: 20_000, factor: 1.5, maxAttempts: 80, deadlineMs }
+      );
+
+      if (!prediction) {
+        // Timed out (not a terminal failure — the closure throws for those). Best-effort
+        // cancel so a paid job isn't left running server-side; a failed cancel must not
+        // mask the timeout, which is the actionable error the caller needs to see.
+        try {
+          await fetchWithRetry(`${REPLICATE_API_BASE}/predictions/${submitted.id}/cancel`, {
+            method: "POST",
+            headers
+          });
+        } catch {
+          // ignore — the "did not finish" error below is what matters
         }
-        const status = (await statusRes.json()) as ReplicatePrediction;
-        if (status.status === "failed" || status.status === "canceled") {
-          throw new Error(`Replicate prediction ${submitted.id} ${status.status}: ${JSON.stringify(status.error ?? status)}`);
-        }
-        return status.status === "succeeded" ? status : undefined;
-      });
-      if (!prediction) throw new Error(`Replicate prediction ${submitted.id} did not complete in time`);
+        throw new Error(
+          `Replicate prediction ${submitted.id} did not finish within ${Math.round(deadlineMs / 1000)}s ` +
+            `(last status: ${lastStatus}); cancellation requested`
+        );
+      }
 
       const videoUrl = extractVideoUrl(prediction.output);
       if (!videoUrl) {

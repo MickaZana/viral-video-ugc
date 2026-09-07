@@ -66,27 +66,119 @@ describe("createReplicateAdapter", () => {
   });
 
   it("polls until succeeded when the prediction isn't done inline", async () => {
-    let pollCount = 0;
+    vi.useFakeTimers();
+    try {
+      let pollCount = 0;
+      const fetchMock = vi.fn(async (url: string | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.endsWith("/predictions")) {
+          return jsonResponse({ id: "pred-poll", status: "starting" });
+        }
+        if (urlStr.includes("/predictions/pred-poll")) {
+          pollCount++;
+          if (pollCount < 2) return jsonResponse({ id: "pred-poll", status: "processing" });
+          return jsonResponse({ id: "pred-poll", status: "succeeded", output: ["https://example.com/out.mp4"] });
+        }
+        return { arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = createReplicateAdapter(outDir);
+      const clipPromise = adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 3, aspectRatio: "9:16" });
+      await vi.advanceTimersByTimeAsync(3000); // Replicate poll opts: initialDelayMs 3s
+
+      const clip = await clipPromise;
+      expect(pollCount).toBeGreaterThanOrEqual(2);
+      expect(clip.id).toBe("pred-poll");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("on a poll timeout: requests cancellation and throws a distinct 'did not finish' error", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelUrl: string | undefined;
+      let cancelMethod: string | undefined;
+      const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.endsWith("/predictions") && init?.method === "POST") {
+          return jsonResponse({ id: "pred-timeout", status: "starting" });
+        }
+        if (urlStr.endsWith("/predictions/pred-timeout/cancel")) {
+          cancelUrl = urlStr;
+          cancelMethod = init?.method;
+          return jsonResponse({ id: "pred-timeout", status: "canceled" });
+        }
+        if (urlStr.includes("/predictions/pred-timeout")) {
+          return jsonResponse({ id: "pred-timeout", status: "processing" }); // never finishes
+        }
+        return { arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = createReplicateAdapter(outDir);
+      const promise = adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 3, aspectRatio: "9:16" });
+      const rejection = expect(promise).rejects.toThrow(
+        /did not finish within \d+s \(last status: processing\); cancellation requested/
+      );
+
+      // Default Replicate poll deadline is 8 min — drive it entirely with fake time.
+      await vi.advanceTimersByTimeAsync(8 * 60_000 + 5000);
+      await rejection;
+
+      expect(cancelMethod).toBe("POST");
+      expect(cancelUrl).toBe("https://api.replicate.com/v1/predictions/pred-timeout/cancel");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a timeout error survives a failing cancel request (cancel failure is not swallowed)", async () => {
+    vi.useFakeTimers();
+    try {
+      let cancelAttempted = false;
+      const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.endsWith("/predictions") && init?.method === "POST") {
+          return jsonResponse({ id: "pred-nocancel", status: "starting" });
+        }
+        if (urlStr.endsWith("/predictions/pred-nocancel/cancel")) {
+          cancelAttempted = true;
+          throw new Error("network down");
+        }
+        if (urlStr.includes("/predictions/pred-nocancel")) {
+          return jsonResponse({ id: "pred-nocancel", status: "processing" });
+        }
+        return { arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = createReplicateAdapter(outDir);
+      const promise = adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 3, aspectRatio: "9:16" });
+      const rejection = expect(promise).rejects.toThrow(/did not finish within \d+s \(last status: processing\)/);
+
+      await vi.advanceTimersByTimeAsync(8 * 60_000 + 5000);
+      await rejection;
+
+      expect(cancelAttempted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws immediately when the prediction status is canceled, without retrying", async () => {
     const fetchMock = vi.fn(async (url: string | URL) => {
-      const urlStr = url.toString();
-      if (urlStr.endsWith("/predictions")) {
-        return jsonResponse({ id: "pred-poll", status: "starting" });
-      }
-      if (urlStr.includes("/predictions/pred-poll")) {
-        pollCount++;
-        if (pollCount < 2) return jsonResponse({ id: "pred-poll", status: "processing" });
-        return jsonResponse({ id: "pred-poll", status: "succeeded", output: ["https://example.com/out.mp4"] });
-      }
-      return { arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      if (url.toString().endsWith("/predictions")) return jsonResponse({ id: "pred-canc", status: "starting" });
+      return jsonResponse({ id: "pred-canc", status: "canceled", error: "user canceled" });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const adapter = createReplicateAdapter(outDir);
-    const clip = await adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 3, aspectRatio: "9:16" });
-
-    expect(pollCount).toBeGreaterThanOrEqual(2);
-    expect(clip.id).toBe("pred-poll");
-  }, 10_000);
+    await expect(
+      adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 3, aspectRatio: "9:16" })
+    ).rejects.toThrow(/pred-canc canceled/);
+  });
 
   it("extracts a video URL from an object output shape ({video: url} or {url})", async () => {
     const fetchMock = vi.fn(async (url: string | URL) => {
