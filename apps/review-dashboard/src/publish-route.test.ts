@@ -35,6 +35,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     score: 90,
     flags: [],
     status: "approved",
+    dryRun: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };

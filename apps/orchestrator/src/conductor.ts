@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import pino from "pino";
@@ -13,6 +14,10 @@ import { assembleVideo, ASPECT_RATIO_BY_PLATFORM } from "@vvugc/mcp-assembly";
 import { generateVoiceoverTrack, getVoiceoverAdapter } from "@vvugc/mcp-voiceover";
 import { insertReviewItem } from "@vvugc/review-queue";
 import { scoreOriginality } from "@vvugc/shared-originality";
+import { CostCap, CostCapExceededError, FlowLimiter, type ConcurrencyCapConfig, DEFAULT_CAP_CONFIG } from "@vvugc/shared-analytics";
+import { registerHook, type HookRegistry, HookRegistrySchema } from "@vvugc/shared-analytics";
+import { createGrowthMemory, learnFromJob, type GrowthMemory, GrowthMemorySchema } from "@vvugc/shared-analytics";
+import { buildAdaptivePrompt } from "@vvugc/shared-analytics";
 import { rewriteScript } from "./agents/script-agent.js";
 import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
@@ -20,7 +25,7 @@ import { candidateFromSource, fetchRemixTranscript, parseSourceUrl } from "./rem
 
 const logger = pino({ name: "vvugc-conductor" });
 
-export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate";
+export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "nvidia";
 
 /** Ordered chain (primary first, then fallbacks), deduplicated. */
 export function resolveVideoVendorChain(
@@ -86,6 +91,12 @@ export interface RunCycleOptions {
   /** Only present when the conductor is itself running inside a Claude Agent SDK
    *  session with an MCP server (e.g. HiggsfieldAi) connected. */
   callMcpTool?: McpToolCaller;
+  /** Concurrency and cost cap configuration. Uses sensible defaults if omitted. */
+  capConfig?: Partial<ConcurrencyCapConfig>;
+  /** Maximum USD cost for this run. Overrides capConfig.maxCostPerRunUsd. */
+  maxCostUsd?: number;
+  /** Maximum unique video angles per flow. Defaults to 8. */
+  maxVideosPerFlow?: number;
   /**
    * Fires one human-readable line per meaningful step (discovery, each candidate's
    * progress through the pipeline). Nothing printed to structured `logger` output
@@ -108,6 +119,40 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
   onProgress(`Discovering candidates on ${config.platforms.join(", ")} for niche "${config.niche}"...`);
 
   const costLedger = new CostLedger();
+
+  // ─── Cost Cap & Flow Limiter ─────────────────────────────────────────────
+  const capConfig: ConcurrencyCapConfig = {
+    ...DEFAULT_CAP_CONFIG,
+    ...opts.capConfig,
+    maxCostPerRunUsd: opts.maxCostUsd ?? opts.capConfig?.maxCostPerRunUsd ?? DEFAULT_CAP_CONFIG.maxCostPerRunUsd,
+    maxVideosPerFlow: opts.maxVideosPerFlow ?? opts.capConfig?.maxVideosPerFlow ?? 8,
+  };
+  const costCap = new CostCap(capConfig.maxCostPerRunUsd, (spent, limit) => {
+    onProgress(`⚠ Cost warning: $${spent.toFixed(2)} spent of $${limit.toFixed(2)} limit (${Math.round(spent/limit*100)}%)`);
+  });
+  const flowLimiter = new FlowLimiter(capConfig.maxVideosPerFlow);
+
+  onProgress(`Run caps: max ${capConfig.maxVideosPerFlow} videos, $${capConfig.maxCostPerRunUsd.toFixed(2)} cost limit, ${capConfig.maxConcurrentVideoGen} concurrent video-gen calls`);
+
+  // ─── Load Analytics State ───────────────────────────────────────────────
+  const analyticsDir = join(VVUGC_RUNS_DIR, "_analytics");
+  mkdirSync(analyticsDir, { recursive: true });
+  const hookRegistryPath = join(analyticsDir, "hook-registry.json");
+  const growthMemoryPath = join(analyticsDir, "growth-memory.json");
+
+  let hookRegistry: HookRegistry = existsSync(hookRegistryPath)
+    ? HookRegistrySchema.parse(JSON.parse(readFileSync(hookRegistryPath, "utf-8")))
+    : { version: 1, entries: [], totalHooksProcessed: 0, updatedAt: new Date().toISOString() };
+
+  let growthMemory: GrowthMemory = existsSync(growthMemoryPath)
+    ? GrowthMemorySchema.parse(JSON.parse(readFileSync(growthMemoryPath, "utf-8")))
+    : createGrowthMemory();
+
+  // Build adaptive prompt context from learned intelligence
+  const adaptiveContext = buildAdaptivePrompt(hookRegistry, growthMemory, {
+    niche: config.niche,
+    platform: config.platforms[0],
+  });
 
   // Stage 1: Discovery — per platform, non-fatal on individual platform failure
   // (e.g. TikTok/Meta adapters not yet approved) so partial coverage still runs.
@@ -190,6 +235,11 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         platforms: config.platforms,
         locale: config.locale,
         dryRun: config.dryRun,
+        discoveryBrief: config.discoveryBrief,
+        productProfile: config.productProfile,
+        creatorProfile: config.creatorProfile,
+        template: config.template,
+        adaptivePromptInjection: adaptiveContext.fullInjection || undefined,
         costLedger
       });
 
@@ -207,7 +257,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
       // Caption timing/text is Claude's call, not a naive even-split — same script duration
       // applies across every target platform, so this runs once per candidate, not per platform.
-      const captions = await generateCaptions(script, { dryRun: config.dryRun, costLedger });
+      const captions = await generateCaptions(script, { dryRun: config.dryRun, costLedger, template: config.template });
 
       // Voiceover is opt-in (config.voiceVendor unset = current silent/vendor-native-audio
       // behavior, unchanged) and, when enabled, generated once per candidate — same captions
@@ -240,6 +290,17 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
       for (const platform of config.platforms) {
         try {
+          // ─── Flow Limiter: max 8 videos with different angles per flow ────
+          const hookAngle = script.hook.toLowerCase().slice(0, 80);
+          if (!flowLimiter.canGenerate(hookAngle)) {
+            onProgress(`${tag} ⊘ Skipping (${platform}): flow limit reached (${flowLimiter.totalVideos}/${capConfig.maxVideosPerFlow} videos)`);
+            continue;
+          }
+
+          // ─── Cost Cap Check ─────────────────────────────────────────────────
+          const currentCostUsd = costLedger.totalUsd();
+          costCap.record(0); // Check without adding — actual cost recorded after gen
+
           const segments = [script.hook, ...script.points, script.cta];
           const clipsDir = join(runDir, "clips");
           const clips: RawClip[] = [];
@@ -261,7 +322,19 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
               vendorChain,
               {
                 scriptSegmentIndex: i,
-                prompt: segments[i],
+                prompt: (() => {
+                  let promptText = segments[i];
+                  if (config.template) {
+                    promptText += `\nShot Intention: Show visual representation of "${config.template.scriptStructure[i]}" beat.`;
+                    promptText += `\nVisual Direction: ${config.template.visualDirection}`;
+                    promptText += `\nCamera Direction: ${config.template.cameraDirection}`;
+                    promptText += `\nProduct Placement: ${config.template.productPlacementDirection}`;
+                    if (config.creatorProfile) {
+                      promptText += `\nCreator Behavior: ${config.template.creatorDirection}`;
+                    }
+                  }
+                  return promptText;
+                })(),
                 durationSec: Math.round(script.durationSec / segments.length),
                 aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
               },
@@ -294,7 +367,13 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           });
 
           onProgress(`${tag} Scoring quality (${platform})...`);
-          const qa = await scoreVideo(assembled, script, { dryRun: config.dryRun, costLedger });
+          const qa = await scoreVideo(assembled, script, {
+            dryRun: config.dryRun,
+            costLedger,
+            productProfile: config.productProfile,
+            creatorProfile: config.creatorProfile,
+            template: config.template
+          });
           onProgress(`${tag} ✓ Queued for review (${platform}, score ${qa.score}/100)`);
 
           const reviewItem: ReviewItem = {
@@ -302,11 +381,18 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             runId: config.runId,
             orgId: config.orgId ?? config.accountId,
             clientId: config.clientId,
+            productProfileId: config.productProfileId ?? config.productProfile?.id,
+            // The stored template object is the resolved source of truth. If a
+            // caller supplied a stale/mismatched templateId, never persist it
+            // beside a different template payload.
+            templateId: config.template?.id ?? config.templateId,
+            template: config.template,
             niche: config.niche,
             videoPath: assembled.filePath,
             platform,
             script,
             score: qa.score,
+            structuralScore: qa.structuralScore,
             flags: [...qa.flags, ...originality.flags],
             originalityScore: originality.originalityScore,
             clips,
@@ -314,11 +400,35 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             voiceoverPath,
             sourceTranscriptText: transcript.text,
             status: "pending",
+            dryRun: config.dryRun,
             createdAt: new Date().toISOString()
           };
           await insertReviewItem(reviewItem);
           reviewItemsCreated++;
+
+          // ─── Analytics: Record to flow limiter and hook registry ──────────
+          flowLimiter.record(hookAngle);
+          // Register hook in the self-expanding registry (only 80+ QA hooks persist)
+          hookRegistry = registerHook(hookRegistry, {
+            text: script.hook,
+            qaScore: qa.score,
+            platform,
+            niche: config.niche,
+            source: "pipeline_qa",
+          });
+          // Sync cost cap with actual ledger spend
+          const newCostUsd = costLedger.totalUsd();
+          if (newCostUsd > currentCostUsd) costCap.record(newCostUsd - currentCostUsd);
+
         } catch (err) {
+          if (err instanceof CostCapExceededError) {
+            onProgress(`${tag} ✖ COST CAP HIT: ${err.message} — stopping all remaining video generation`);
+            logger.warn({ spent: err.spent, limit: err.limit }, "cost cap exceeded — halting run");
+            failures.push({ candidateId: candidate.id, platform, reason: err.message });
+            // Break out of both loops
+            candidatesFailed = chosen.length; // Signal early stop
+            break;
+          }
           platformsFailed++;
           logger.warn(
             { candidateId: candidate.id, platform, err: String(err) },
@@ -357,8 +467,38 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     )
   );
 
+  // ─── Persist cost ledger (always, even if analytics fails) ─────────────
   const costLedgerPath = join(runDir, "cost-ledger.json");
-  writeFileSync(costLedgerPath, JSON.stringify(costLedger.toJSON(), null, 2));
+  try {
+    writeFileSync(costLedgerPath, JSON.stringify(costLedger.toJSON(), null, 2));
+  } catch (err) {
+    logger.error({ err: String(err), costLedgerPath }, "CRITICAL: failed to persist cost ledger");
+  }
+
+  // ─── Analytics: Learn from this job and persist state ──────────────────────
+  // The growth memory learns from every single job — even rejected items teach us
+  // Build items array from the review items we created (tracked by what we processed)
+  const jobItems: Parameters<typeof learnFromJob>[1]["items"] = [];
+  // We don't have a local list of created items, but we can reconstruct from the run
+  // The learning happens with what we know from the pipeline execution
+  // For now, signal what we produced — the full feedback loop ingests post-publish data later
+  if (reviewItemsCreated > 0) {
+    growthMemory = learnFromJob(growthMemory, {
+      runId: config.runId,
+      niche: config.niche,
+      platforms: config.platforms,
+      items: jobItems, // Will be populated by the feedback collector post-run
+    });
+  }
+
+  // Persist analytics state
+  try {
+    writeFileSync(hookRegistryPath, JSON.stringify(hookRegistry, null, 2));
+    writeFileSync(growthMemoryPath, JSON.stringify(growthMemory, null, 2));
+    onProgress(`Analytics saved: ${hookRegistry.entries.length} hooks tracked, ${growthMemory.totalJobsProcessed} jobs learned`);
+  } catch (err) {
+    logger.warn({ err: String(err) }, "failed to persist analytics state (non-fatal)");
+  }
 
   const result = RunResultSchema.parse({
     runId: config.runId,

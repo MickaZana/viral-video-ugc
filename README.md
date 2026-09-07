@@ -31,7 +31,41 @@ At minimum: `ANTHROPIC_API_KEY` (script rewrite) and `YOUTUBE_API_KEY` (the only
 pnpm cli run --niche=fitness --platforms=youtube_shorts --max-candidates=3
 ```
 
-The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`.
+The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`. `--video-vendor nvidia` runs NVIDIA NIM Visual GenAI (Wan2.2 text-to-video / image-to-video) through the NIM's OpenAI-compatible API — needs `NVIDIA_API_KEY` plus a **self-hosted NIM** (`NVIDIA_VIDEO_BASE_URL`); NVIDIA hosts no Wan2.2 video endpoint (verified live), so this vendor is opt-in and only usable once you run the NIM container — see `packages/mcp-video-gen/src/adapters/nvidia.ts` and `docs/external-setup-checklist.md`.
+
+## LLM & external-call safety (governance)
+
+The pipeline has exactly **one** behavioral mock: the `dryRun` subsystem. When
+`dryRun` is true, every stage (discovery candidates, transcript, script,
+captions, QA, video, voiceover, assembly) returns deterministic output and
+contacts **no** third-party API. `dryRun` defaults to **true** on every request
+path, so the system is safe-by-default and never spends API credits unless you
+explicitly opt in.
+
+Real execution is a **two-key lock**:
+
+- **Per-request intent** — `live: true` (or `dryRun: false`) on the run / remix /
+  regenerate call. Necessary, but **not sufficient**.
+- **Environment opt-in** — `VVUGC_LLM_LIVE=true`. The operator must set this in
+  the deployment environment. Without it, every run is forced to `dryRun`
+  regardless of what the client requests.
+
+So accidental API spend is impossible even if a client sends `live: true`. This
+is enforced in one place (`apps/review-dashboard/src/llm-gate.ts`) and applied
+to every run / remix / regenerate endpoint plus the scheduler.
+
+External **discovery** (platform scraping: YouTube / TikTok / Meta) is gated
+separately by `VVUGC_DISCOVERY_LIVE=true`. When unset, `/accounts/discover`
+returns an empty candidate list and the editor seeds a brief from the niche text
+— fully offline, never a 500.
+
+Scheduled (cron) runs default to `dryRun`. To let them go live you must set both
+`SCHEDULED_RUNS_LIVE=true` **and** `VVUGC_LLM_LIVE=true`.
+
+> The only other "mock-like" code in the runtime is `discoveryAnalyze.seedBrief`,
+> a benign deterministic fallback used when discovery finds zero videos so the
+> editor is never empty. Everything else is real or part of the `dryRun` mock.
+> (Unit tests use `vi.mock` doubles — those are test seams, not shipped behavior.)
 
 ### Voiceover narration (optional)
 
@@ -66,7 +100,7 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 ## Deployment
 
-**CI publishes runnable images; it doesn't pick where they run.** On every push to `main`, `.github/workflows/ci.yml` builds all three Docker images and pushes them to GitHub Container Registry (`ghcr.io/<owner>/<repo>/{review-dashboard,marketing-site,orchestrator}:latest`, plus an immutable commit-SHA tag) — no setup needed, it authenticates with the workflow's own `GITHUB_TOKEN`. That's the "publish the artifact" half of CD. The "run it somewhere reachable" half needs a hosting target — Fly.io, Railway, ECS, a VPS, etc — which is a real cost/ops tradeoff only you can make; point whichever host you pick at the published image.
+**CI publishes runnable images; it doesn't pick where they run.** On every push to `main`, `.github/workflows/ci.yml` builds four Docker images and pushes them to GitHub Container Registry (`ghcr.io/<owner>/<repo>/{review-dashboard,marketing-site,orchestrator,video-worker}:latest`, plus an immutable commit-SHA tag) — no setup needed, it authenticates with the workflow's own `GITHUB_TOKEN`. `video-worker` is a long-running service and must be deployed alongside the dashboard wherever provider jobs are processed; `orchestrator` is a one-off CLI image. The control-panel is intentionally not a fifth image: its built SPA is included in `review-dashboard` and served from `/app` on the same origin. That's the "publish the artifact" half of CD. The "run it somewhere reachable" half needs a hosting target — Fly.io, Railway, ECS, a VPS, etc — which is a real cost/ops tradeoff only you can make; point whichever host you pick at the published image.
 
 **Fly.io, concretely**: if you don't want to pick a host from scratch, `fly.review-dashboard.toml` and `fly.marketing-site.toml` at the repo root are ready-to-use configs (health checks, persistent volumes, the `TRUST_PROXY_HOPS` setting Fly's proxy requires) — see [`docs/deploy-fly.md`](docs/deploy-fly.md) for the full first-deploy walkthrough, required secrets, and rollback notes. These build from source on Fly's own builders rather than deploying the GHCR image above, so `rollback.yml` doesn't apply to a Fly deployment — `docs/deploy-fly.md` covers what does.
 
@@ -88,7 +122,7 @@ apps/review-dashboard/   human-in-the-loop approve/reject UI
 apps/marketing-site/     public landing page — video gallery + UGC-review wall, manifest-driven
 packages/mcp-discovery/  YouTube/TikTok/Meta discovery adapters
 packages/mcp-transcript/ caption/ASR transcription
-packages/mcp-video-gen/  Higgsfield/Kling/Runway/Pika video adapters
+packages/mcp-video-gen/  video adapters — Higgsfield/Kling/Runway/Pika/Replicate/Seedance/Grok/Wan/NVIDIA, + Gemini stills
 packages/mcp-assembly/   ffmpeg stitching, captions, aspect-ratio, thumbnails
 packages/review-queue/   HITL queue — JSON file by default, Postgres via DATABASE_URL (see its README)
 packages/shared-schema/  Zod data contracts shared by every stage

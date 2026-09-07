@@ -13,3 +13,26 @@ export { runCycle, type RunCycleOptions } from "./conductor.js";
 export { runAcceptance, type AcceptanceEvidence } from "./acceptance.js";
 export { previewRemix } from "./remix.js";
 export { fetchRemixTranscript, parseSourceUrl, candidateFromSource } from "./remix-source.js";
+export { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, validateTemplateScript } from "./templates.js";
+export { BUILTIN_PRESETS, getPreset, listPresetsByCategory } from "./presets.js";
+export {
+  planBatchFromDescription,
+  AiBatchPlanInputSchema,
+  type AiBatchPlanInput,
+  type BatchPlannerContext,
+  type BatchPlannerContextEntity,
+  type BatchPlanDraft
+} from "./agents/batch-planner-agent.js";
+export {
+  generateCurriculumPlan,
+  buildMockCurriculumPlan,
+  buildMockLessonScript,
+  generateLessonScript,
+  buildMockModuleLongForm,
+  generateModuleLongForm,
+  buildMockKnowledgeCheck,
+  generateKnowledgeCheck,
+  type CurriculumArchitectDeps,
+  type LessonScriptContext,
+  type KnowledgeCheckContext
+} from "./agents/curriculum-architect.js";

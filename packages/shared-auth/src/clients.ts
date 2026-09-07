@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BrandKit, Platform } from "@vvugc/shared-schema";
@@ -13,7 +13,7 @@ export interface AgencyClient {
   locale: string;
   platforms: Platform[];
   targetDurationSec: number;
-  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate";
+  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "nvidia";
   voiceVendor?: "elevenlabs" | "grok";
   cadence: "weekly" | "manual";
   active: boolean;
@@ -49,12 +49,32 @@ function acquireLock(dbPath: string, timeoutMs = 5000): void {
 
 function readAll(dbPath: string): AgencyClient[] {
   if (!existsSync(dbPath)) return [];
-  return JSON.parse(readFileSync(dbPath, "utf-8"));
+  const raw = readFileSync(dbPath, "utf-8").trim();
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // P1 FIX: Quarantine corrupted file instead of silently losing data.
+    // This prevents a scenario where corrupted JSON is silently treated as
+    // "empty" and then overwritten by a subsequent writeAll() call.
+    const corruptPath = `${dbPath}.corrupt-${Date.now()}`;
+    try {
+      renameSync(dbPath, corruptPath);
+    } catch { /* if rename fails, continue — don't crash the scheduler */ }
+    console.error(
+      `[CRITICAL] clients.ts: Corrupted JSON in ${dbPath} — quarantined to ${corruptPath}. ` +
+      `Returning empty array to prevent crash, but data may have been lost.`
+    );
+    return [];
+  }
 }
 
 function writeAll(dbPath: string, clients: AgencyClient[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(clients, null, 2));
+  // P1 FIX: Atomic write — temp file + rename to prevent 0-byte corruption
+  const tmp = `${dbPath}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(clients, null, 2));
+  renameSync(tmp, dbPath);
 }
 
 export interface AgencyClientStore {
@@ -65,7 +85,7 @@ export interface AgencyClientStore {
   archive(orgId: string, id: string): boolean;
   /** Atomically leases due clients by advancing nextRunAt before work begins.
    * This prevents two scheduler instances from executing the same weekly run. */
-  claimDue(now?: Date): AgencyClient[];
+  claimDue(now?: Date, orgId?: string): AgencyClient[];
   /** Hard-deletes every client belonging to an org (org deletion — archive keeps the
    *  record around, deletion removes it entirely). Returns how many were removed. */
   deleteOrg(orgId: string): number;
@@ -137,13 +157,14 @@ export function createAgencyClientStore(dbPath: string): AgencyClientStore {
         return true;
       });
     },
-    claimDue(now = new Date()) {
+    claimDue(now = new Date(), orgId?: string) {
       return mutate((clients) => {
         const due = clients.filter(
           (client) =>
             client.active &&
             client.cadence === "weekly" &&
             client.nextRunAt !== undefined &&
+            (!orgId || client.orgId === orgId) &&
             new Date(client.nextRunAt).getTime() <= now.getTime()
         );
         // Preserve the exact persisted due time for callers before advancing it.

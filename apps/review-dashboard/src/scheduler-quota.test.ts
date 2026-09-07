@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createPlanStore } from "@vvugc/shared-billing";
 import { runDueClientSchedules } from "./scheduler.js";
+import { LocalTenantProfileRepository } from "./tenant-profile-postgres.js";
 
 let testDir: string;
 let runsDir: string;
 
 const ORG = "org-1";
+const profiles = () => new LocalTenantProfileRepository(runsDir, "test-social-encryption-key-at-least-32-chars");
 
 function seedWeeklyClientDueNow() {
   writeFileSync(
@@ -67,7 +69,7 @@ describe("client scheduler enqueue-time quota", () => {
     createPlanStore(join(runsDir, "account-plans.json")).upsert(ORG, { tierId: "starter", status: "active" });
     for (let i = 0; i < 4; i++) seedRunManifest(`seeded-${i}`); // Starter limit is 4
 
-    const result = await runDueClientSchedules();
+    const result = await runDueClientSchedules(profiles());
     expect(result.failed).toHaveLength(0);
     expect(result.enqueued).toHaveLength(1);
     expect(result.enqueued[0].status).toBe("queued");
@@ -78,7 +80,7 @@ describe("client scheduler enqueue-time quota", () => {
     createPlanStore(join(runsDir, "account-plans.json")).upsert(ORG, { tierId: "starter", status: "active" });
     for (let i = 0; i < 3; i++) seedRunManifest(`seeded-${i}`);
 
-    const result = await runDueClientSchedules();
+    const result = await runDueClientSchedules(profiles());
     expect(result.failed).toHaveLength(0);
     expect(result.enqueued).toHaveLength(1);
     expect(result.enqueued[0].status).toBe("queued");
@@ -88,7 +90,7 @@ describe("client scheduler enqueue-time quota", () => {
     seedWeeklyClientDueNow();
     for (let i = 0; i < 5; i++) seedRunManifest(`seeded-${i}`);
 
-    const result = await runDueClientSchedules();
+    const result = await runDueClientSchedules(profiles());
     expect(result.failed).toHaveLength(0);
     expect(result.enqueued).toHaveLength(1);
   });

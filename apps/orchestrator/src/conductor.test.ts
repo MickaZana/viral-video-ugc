@@ -2,11 +2,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RunConfig } from "@vvugc/shared-schema";
+import type { CreatorProfile, ProductProfile, RunConfig } from "@vvugc/shared-schema";
 import { runCycle } from "./conductor.js";
 import { rewriteScript } from "./agents/script-agent.js";
+import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
 import { generateVoiceoverTrack } from "@vvugc/mcp-voiceover";
+import { getUgcTemplate } from "./templates.js";
 
 vi.mock("./agents/script-agent.js", async () => {
   const actual = await vi.importActual<typeof import("./agents/script-agent.js")>("./agents/script-agent.js");
@@ -15,6 +17,10 @@ vi.mock("./agents/script-agent.js", async () => {
 vi.mock("./agents/qa-agent.js", async () => {
   const actual = await vi.importActual<typeof import("./agents/qa-agent.js")>("./agents/qa-agent.js");
   return { ...actual, scoreVideo: vi.fn(actual.scoreVideo) };
+});
+vi.mock("./agents/caption-agent.js", async () => {
+  const actual = await vi.importActual<typeof import("./agents/caption-agent.js")>("./agents/caption-agent.js");
+  return { ...actual, generateCaptions: vi.fn(actual.generateCaptions) };
 });
 vi.mock("@vvugc/mcp-voiceover", async () => {
   const actual = await vi.importActual<typeof import("@vvugc/mcp-voiceover")>("@vvugc/mcp-voiceover");
@@ -33,9 +39,10 @@ function baseConfig(overrides: Partial<RunConfig> = {}): RunConfig {
     locale: "en",
     targetDurationSec: 25,
     maxCandidates: 2,
-    videoVendor: "higgsfield",
+    videoVendor: "kling",
     dryRun: true,
     autoPost: false,
+    lipSyncVendor: "none",
     createdAt: new Date().toISOString(),
     ...overrides
   };
@@ -54,6 +61,7 @@ describe("runCycle", () => {
     delete process.env.VVUGC_DB_PATH;
     if (existsSync(testRunsDir)) rmSync(testRunsDir, { recursive: true, force: true });
     vi.mocked(rewriteScript).mockRestore();
+    vi.mocked(generateCaptions).mockRestore();
     vi.mocked(scoreVideo).mockRestore();
     vi.mocked(generateVoiceoverTrack).mockRestore();
   });
@@ -167,6 +175,48 @@ describe("runCycle", () => {
     }
   });
 
+  it("dry-run: threads resolved product, creator, and template context through every agent and retains template QA metadata", async () => {
+    const now = new Date().toISOString();
+    const product: ProductProfile = {
+      id: "product-template-1", orgId: "org-template-1", clientId: "client-template-1", name: "Recovery Balm",
+      description: "A cooling post-workout balm.", shortDescription: "Cooling recovery balm.", productCategory: "fitness",
+      targetCustomer: "active adults", customerPain: "sore muscles", primaryBenefits: ["cooling comfort"], features: ["roll-on applicator"],
+      claims: ["cooling comfort"], forbiddenClaims: ["cures pain"], differentiators: ["mess-free roll-on"], callToAction: "See the recovery routine.",
+      productImages: [], extractedImageUrls: [], extractionStatus: "manual", createdAt: now, updatedAt: now
+    };
+    const creator: CreatorProfile = {
+      id: "creator-template-1", orgId: "org-template-1", clientId: "client-template-1", displayName: "Maya",
+      description: "Fitness creator", referenceImages: [], avatarMode: "reference_images", compatibleVendors: [], speechStyle: "friendly and direct",
+      tone: "encouraging", wardrobe: "athleisure", visualStyle: "handheld gym diary", language: "en", prohibitedDepictions: [], faceEmbeddingStatus: "none", lipSyncVendor: "none",
+      consentConfirmed: true, active: true, createdAt: now, updatedAt: now
+    };
+    const template = getUgcTemplate("testimonial")!;
+    const config = baseConfig({
+      maxCandidates: 1,
+      orgId: product.orgId,
+      clientId: product.clientId,
+      productProfileId: product.id,
+      productProfile: product,
+      creatorProfileId: creator.id,
+      creatorProfile: creator,
+      // Deliberately stale: the conductor must retain the ID of the resolved
+      // template object, never persist contradictory template metadata.
+      templateId: "unboxing",
+      template
+    });
+
+    const result = await runCycle(config);
+
+    expect(result.reviewItemsCreated).toBe(1);
+    expect(rewriteScript).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productProfile: product, creatorProfile: creator, template }));
+    expect(generateCaptions).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ template }));
+    expect(scoreVideo).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ productProfile: product, creatorProfile: creator, template }));
+
+    const [item] = JSON.parse(readFileSync(testDbPath, "utf-8"));
+    expect(item).toMatchObject({ productProfileId: product.id, templateId: template.id, template });
+    expect(item.structuralScore).toEqual(expect.any(Number));
+  });
+
   it("writes a cost ledger alongside the manifest, with zero cost in dry-run (no vendor calls made)", async () => {
     const result = await runCycle(baseConfig({ maxCandidates: 1 }));
     expect(result.costLedgerPath).toBeDefined();
@@ -174,6 +224,42 @@ describe("runCycle", () => {
     const ledger = JSON.parse(readFileSync(result.costLedgerPath!, "utf-8"));
     expect(ledger.totalUsd).toBe(0);
     expect(result.estimatedCostUsd).toBe(0);
+  });
+
+  describe("NVIDIA vendor end-to-end (dry-run)", () => {
+    // Units A–G registered "nvidia" as a video vendor and wired createNvidiaAdapter
+    // into getVideoGenAdapter. This block proves an nvidia-selected run flows through
+    // the entire conductor pipeline (mock candidate → transcript → script → generation
+    // → assembly → QA → review item → manifest + cost ledger) with no downstream code
+    // branching on the vendor label. All dry-run: no real NVIDIA API call is made.
+    it("completes the full mock pipeline with nvidia selected and creates a review item", async () => {
+      const result = await runCycle(baseConfig({ videoVendor: "nvidia", maxCandidates: 1 }));
+      expect(result.reviewItemsCreated).toBeGreaterThanOrEqual(1);
+      expect(existsSync(result.manifestPath)).toBe(true);
+    });
+
+    it("attributes every generated clip to nvidia in the persisted review item and manifest", async () => {
+      const result = await runCycle(baseConfig({ videoVendor: "nvidia", maxCandidates: 1 }));
+      expect(result.reviewItemsCreated).toBeGreaterThanOrEqual(1);
+
+      const queue = JSON.parse(readFileSync(testDbPath, "utf-8"));
+      expect(queue.length).toBeGreaterThanOrEqual(1);
+      const allClips = queue.flatMap((item: { clips?: { vendor: string }[] }) => item.clips ?? []);
+      expect(allClips.length).toBeGreaterThan(0);
+      expect(allClips.every((c: { vendor: string }) => c.vendor === "nvidia")).toBe(true);
+
+      const manifest = JSON.parse(readFileSync(result.manifestPath, "utf-8"));
+      expect(manifest.config.videoVendor).toBe("nvidia");
+    });
+
+    it("incurs zero cost in dry-run — nvidia makes no billable call (mirrors the kling cost-ledger test)", async () => {
+      const result = await runCycle(baseConfig({ videoVendor: "nvidia", maxCandidates: 1 }));
+      expect(result.costLedgerPath).toBeDefined();
+      expect(existsSync(result.costLedgerPath!)).toBe(true);
+      const ledger = JSON.parse(readFileSync(result.costLedgerPath!, "utf-8"));
+      expect(ledger.totalUsd).toBe(0);
+      expect(result.estimatedCostUsd).toBe(0);
+    });
   });
 
   describe("onProgress", () => {

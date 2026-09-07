@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseCookies } from "./accounts.js";
+import { parseCookies, isPrivateAddress, extractProductFields } from "./accounts.js";
+import { estimateCostUsd } from "@vvugc/shared-cost";
 
 const TEST_USER = "test-user";
 const TEST_PASS = "test-pass";
@@ -17,6 +18,20 @@ function sessionCookieFrom(res: Response): string {
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no Set-Cookie header on response");
   return setCookie.split(";")[0]; // "vvugc_session=<token>"
+}
+
+/** HTTP mutation auditing is intentionally global middleware; exclude only its
+ * append-only request log so this snapshots all business state a quote could
+ * mutate (identity, sessions, clients, jobs, billing, runs, security events). */
+function snapshotBusinessTree(dir: string, prefix = ""): string {
+  if (!existsSync(dir)) return "<missing>";
+  return readdirSync(dir).sort().filter((name) => `${prefix}${name}` !== "runs/audit.ndjson").map((name) => {
+    const path = join(dir, name);
+    const relative = `${prefix}${name}`;
+    return statSync(path).isDirectory()
+      ? `${relative}/\n${snapshotBusinessTree(path, `${relative}/`)}`
+      : `${relative}:${readFileSync(path).toString("base64")}`;
+  }).join("\n");
 }
 
 async function startServer() {
@@ -41,6 +56,24 @@ describe("parseCookies", () => {
   it("returns an empty object for an undefined or malformed header", () => {
     expect(parseCookies(undefined)).toEqual({});
     expect(parseCookies("not-a-cookie-pair")).toEqual({});
+  });
+});
+
+describe("product profile ingestion guards", () => {
+  it("rejects loopback, link-local, mapped IPv4, and reserved ranges", () => {
+    expect(isPrivateAddress("127.0.0.1")).toBe(true);
+    expect(isPrivateAddress("169.254.1.1")).toBe(true);
+    expect(isPrivateAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateAddress("198.18.0.1")).toBe(true);
+    expect(isPrivateAddress("8.8.8.8")).toBe(false);
+  });
+
+  it("extracts product intelligence fields from a product page", () => {
+    const fields = extractProductFields('<title>Glow Serum</title><meta name="description" content="A serum for dry skin"><p>Designed for sensitive skin. Helps improve hydration. Shop now.</p>', "https://example.com/p");
+    expect(fields.name).toBe("Glow Serum");
+    expect(fields.targetCustomer).toMatch(/sensitive skin/);
+    expect(fields.primaryBenefits?.length).toBeGreaterThan(0);
+    expect(fields.callToAction).toBe("Shop now");
   });
 });
 
@@ -168,6 +201,217 @@ describe("account signup/login/session routes (additive, separate from dashboard
       headers: { Cookie: cookie, Origin: baseUrl, "X-CSRF-Token": me.csrfToken }
     });
     expect(accepted.status).toBe(204);
+  });
+
+  it("serves authenticated built-in templates and previews tenant-scoped inputs without creating a run", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/templates`)).status).toBe(401);
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "templates@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const templates = await fetch(`${baseUrl}/templates`, { headers: { Cookie: cookie } });
+    expect(templates.status).toBe(200);
+    expect((await templates.json()).templates).toHaveLength(7);
+    const founder = await fetch(`${baseUrl}/templates/founder_story`, { headers: { Cookie: cookie } });
+    expect((await founder.json()).template.scriptStructure).toContain("why existing options failed");
+
+    const csrfHeaders = { Cookie: cookie, Origin: baseUrl, "x-csrf-token": me.csrfToken, "Content-Type": "application/json" };
+    const blocked = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify({ templateId: "founder_story" }) });
+    expect(blocked.status).toBe(403);
+    const incomplete = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ templateId: "founder_story", platforms: ["facebook"], durationSec: 20 }) });
+    expect(incomplete.status).toBe(200);
+    const incompleteBody = await incomplete.json();
+    expect(incompleteBody.missingFields).toEqual(expect.arrayContaining(["productProfile", "brandVoice"]));
+    expect(incompleteBody.compatibilityWarnings.length).toBeGreaterThan(0);
+    expect(incompleteBody.plannedScriptBeats).toContain("why existing options failed");
+
+    const createdProduct = await fetch(`${baseUrl}/accounts/products`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ name: "Template Product" }) });
+    expect(createdProduct.status).toBe(201);
+    const product = await createdProduct.json();
+    const preview = await fetch(`${baseUrl}/accounts/preview-template`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ templateId: "founder_story", productProfileId: product.product.id, brandVoice: "warm", platforms: ["tiktok"], durationSec: 45 }) });
+    expect(preview.status).toBe(200);
+    const previewBody = await preview.json();
+    expect(previewBody.missingFields).toEqual([]);
+    expect(previewBody.requiredInputs.every((entry: { present: boolean }) => entry.present)).toBe(true);
+  });
+
+  it("quotes scoped live vendor spend without creating a run or crossing tenant boundaries", async () => {
+    await startServer();
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "quote-owner@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const headers = { Cookie: cookie, Origin: baseUrl, "x-csrf-token": me.csrfToken, "Content-Type": "application/json" };
+    const createClient = async (name: string, platforms: string[], videoVendor = "higgsfield", voiceVendor?: "elevenlabs" | "grok") => {
+      const response = await fetch(`${baseUrl}/accounts/clients`, { method: "POST", headers, body: JSON.stringify({ name, niche: "skincare", brandVoice: "warm", platforms, targetDurationSec: 30, videoVendor, voiceVendor, cadence: "manual" }) });
+      expect(response.status).toBe(201);
+      return (await response.json()).client as { id: string };
+    };
+    const onePlatformClient = await createClient("Quote one", ["tiktok"], "higgsfield", "elevenlabs");
+    const twoPlatformClient = await createClient("Quote two", ["tiktok", "youtube_shorts"], "kling");
+    const archivedClient = await createClient("Quote archived", ["tiktok"]);
+    expect((await fetch(`${baseUrl}/accounts/clients/${archivedClient.id}`, { method: "DELETE", headers })).status).toBe(204);
+    expect((await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: onePlatformClient.id }) })).status).toBe(401);
+    const beforeQuote = snapshotBusinessTree(testDir);
+
+    const noCsrf = await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify({ clientId: onePlatformClient.id }) });
+    expect(noCsrf.status).toBe(403);
+    const freeform = await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers, body: JSON.stringify({ clientId: onePlatformClient.id }) });
+    expect(freeform.status).toBe(200);
+    const freeformQuote = await freeform.json();
+    const higgsfieldMinimum = estimateCostUsd("higgsfield", "clip", 4);
+    const higgsfieldMaximum = estimateCostUsd("higgsfield", "clip", 6 * 8);
+    expect(higgsfieldMinimum).toBe(1.6);
+    expect(higgsfieldMaximum).toBe(19.2);
+    expect(freeformQuote).toMatchObject({ currency: "USD", videoVendor: "higgsfield", clipsPerCandidate: 4, maximumClipsPerCandidate: 6, platformCount: 1, minimumCandidateCount: 1, maximumPlatformVideosPerFlow: 8, minimumVideoVendorSpendUsd: higgsfieldMinimum, maximumVideoVendorSpendUsd: higgsfieldMaximum, voiceover: { vendor: "elevenlabs", cost: "variable" } });
+    expect(freeformQuote.notes.join(" ")).toMatch(/subscription overages are separate/i);
+    // Canonical contract parity: the backend response must carry EXACTLY the keys
+    // the control-panel RunQuote type (apps/control-panel/src/lib/types.ts)
+    // consumes — no more, no less — so the hand-mirrored frontend type can't
+    // silently drift from the route. LiveRunQuoteResponseSchema.strict() enforces
+    // "no more" server-side; this asserts "no less" and pins the exact set.
+    expect(Object.keys(freeformQuote).sort()).toEqual([
+      "clipsPerCandidate",
+      "currency",
+      "maximumClipsPerCandidate",
+      "maximumPlatformVideosPerFlow",
+      "maximumVideoVendorSpendUsd",
+      "minimumCandidateCount",
+      "minimumVideoVendorSpendUsd",
+      "notes",
+      "platformCount",
+      "videoVendor",
+      "voiceover"
+    ]);
+
+    const multiPlatform = await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers, body: JSON.stringify({ clientId: twoPlatformClient.id, templateId: "founder_story" }) });
+    expect(multiPlatform.status).toBe(200);
+    const multiPlatformQuote = await multiPlatform.json();
+    // Built-in templates are globally defined; their beat count is the exact
+    // clip count, whereas the selected tenant client controls platform scope.
+    expect(multiPlatformQuote.clipsPerCandidate).toBe(6);
+    expect(multiPlatformQuote.platformCount).toBe(2);
+    const klingMinimum = estimateCostUsd("kling", "clip", 6 * 2);
+    expect(klingMinimum).toBeCloseTo(4.2, 6);
+    expect(multiPlatformQuote.minimumVideoVendorSpendUsd).toBeCloseTo(klingMinimum, 6);
+    expect(multiPlatformQuote.voiceover.cost).toBe("not_selected");
+    expect((await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers, body: JSON.stringify({ clientId: archivedClient.id }) })).status).toBe(409);
+    expect((await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers, body: JSON.stringify({ clientId: onePlatformClient.id, videoVendor: "sora" }) })).status).toBe(400);
+    expect((await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers, body: JSON.stringify({ clientId: onePlatformClient.id, templateId: "not-a-template" }) })).status).toBe(400);
+    expect(snapshotBusinessTree(testDir)).toBe(beforeQuote);
+
+    const otherSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "quote-other@example.com", password: "hunter22" }) });
+    const otherCookie = sessionCookieFrom(otherSignup);
+    const otherMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: otherCookie } })).json();
+    const crossTenant = await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers: { Cookie: otherCookie, Origin: baseUrl, "x-csrf-token": otherMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ clientId: onePlatformClient.id }) });
+    expect(crossTenant.status).toBe(404);
+
+    const invite = await fetch(`${baseUrl}/accounts/invite`, { method: "POST", headers, body: JSON.stringify({ email: "quote-reviewer@example.com", role: "reviewer" }) });
+    expect(invite.status).toBe(201);
+    const reviewerSignup = await fetch(`${baseUrl}/accounts/invite/accept`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: (await invite.json()).inviteToken, password: "hunter22" }) });
+    const reviewerCookie = sessionCookieFrom(reviewerSignup);
+    const reviewerMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: reviewerCookie } })).json();
+    const deniedRole = await fetch(`${baseUrl}/accounts/run/quote`, { method: "POST", headers: { Cookie: reviewerCookie, Origin: baseUrl, "x-csrf-token": reviewerMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ clientId: onePlatformClient.id }) });
+    expect(deniedRole.status).toBe(403);
+  });
+
+  it("serves authenticated curated presets, with category filtering and 404/400 for unknown ids/categories", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/presets`)).status).toBe(401);
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "presets@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+
+    const all = await fetch(`${baseUrl}/presets`, { headers: { Cookie: cookie } });
+    expect(all.status).toBe(200);
+    expect((await all.json()).presets).toHaveLength(16);
+
+    const filtered = await fetch(`${baseUrl}/presets?category=saas_apps`, { headers: { Cookie: cookie } });
+    expect(filtered.status).toBe(200);
+    const filteredBody = await filtered.json();
+    expect(filteredBody.presets).toHaveLength(4);
+    expect(filteredBody.presets.every((p: { category: string }) => p.category === "saas_apps")).toBe(true);
+
+    const badCategory = await fetch(`${baseUrl}/presets?category=not_a_real_category`, { headers: { Cookie: cookie } });
+    expect(badCategory.status).toBe(400);
+
+    const one = await fetch(`${baseUrl}/presets/ecom_unboxing_reveal`, { headers: { Cookie: cookie } });
+    expect(one.status).toBe(200);
+    expect((await one.json()).preset.templateId).toBe("unboxing");
+
+    const missing = await fetch(`${baseUrl}/presets/does-not-exist`, { headers: { Cookie: cookie } });
+    expect(missing.status).toBe(404);
+  });
+
+  it("records and summarizes product/UX usage events, always scoped to the session's own org", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "discovery_viewed" }) })).status).toBe(401);
+
+    const signup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "analytics@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signup);
+    const me = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const csrfHeaders = { Cookie: cookie, Origin: baseUrl, "x-csrf-token": me.csrfToken, "Content-Type": "application/json" };
+
+    const blocked = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    expect(blocked.status).toBe(403);
+
+    const invalidType = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "not_a_real_event" }) });
+    expect(invalidType.status).toBe(400);
+
+    const recorded = await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    expect(recorded.status).toBe(201);
+    const recordedBody = await recorded.json();
+    expect(recordedBody.event.eventType).toBe("discovery_viewed");
+    expect(recordedBody.event.id).toBeTruthy();
+
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "discovery_viewed" }) });
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: csrfHeaders, body: JSON.stringify({ eventType: "settings_viewed", meta: { theme: "dark" } }) });
+
+    const summary = await fetch(`${baseUrl}/accounts/analytics/summary`, { headers: { Cookie: cookie } });
+    expect(summary.status).toBe(200);
+    const summaryBody = await summary.json();
+    expect(summaryBody.totalEvents).toBe(3);
+    expect(summaryBody.featureUsageCounts.discovery_viewed).toBe(2);
+    expect(summaryBody.featureUsageCounts.settings_viewed).toBe(1);
+    expect(summaryBody.mostUsedFeatures[0]).toEqual({ eventType: "discovery_viewed", count: 2 });
+    expect(summaryBody.activeAccountCount).toBe(1);
+
+    // A second org's events never bleed into the first org's summary.
+    const otherSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "other-analytics@example.com", password: "hunter22" }) });
+    const otherCookie = sessionCookieFrom(otherSignup);
+    const otherMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: otherCookie } })).json();
+    await fetch(`${baseUrl}/accounts/analytics/event`, { method: "POST", headers: { Cookie: otherCookie, Origin: baseUrl, "x-csrf-token": otherMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ eventType: "billing_viewed" }) });
+    const stillFirstOrg = await (await fetch(`${baseUrl}/accounts/analytics/summary`, { headers: { Cookie: cookie } })).json();
+    expect(stillFirstOrg.totalEvents).toBe(3);
+  });
+
+  it("protects creator routes with session auth and CSRF", async () => {
+    await startServer();
+    expect((await fetch(`${baseUrl}/accounts/creators`)).status).toBe(401);
+    const signupRes = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-route@example.com", password: "hunter22" }) });
+    const cookie = sessionCookieFrom(signupRes); const signup = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } })).json();
+    const payload = { displayName: "Ava", avatarMode: "none", compatibleVendors: [], speechStyle: "", tone: "", wardrobe: "", visualStyle: "", language: "en", prohibitedDepictions: [], consentConfirmed: true, active: true };
+    expect((await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: cookie, Origin: baseUrl, "Content-Type": "application/json" }, body: JSON.stringify(payload) })).status).toBe(403);
+    const created = await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    expect(created.status).toBe(201); const body = await created.json(); expect(body.creator.referenceImages?.[0]?.filePath).toBeUndefined();
+    const creatorId = body.creator.id;
+    const uploaded = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images`, { method: "POST", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ fileName: "ref.png", mimeType: "image/png", dataBase64: "iVBORw0KGgo=" }) });
+    expect(uploaded.status).toBe(201); const uploadedBody = await uploaded.json(); expect(uploadedBody.creator.referenceImages[0].filePath).toBeUndefined();
+    const other = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images/${uploadedBody.creator.referenceImages[0].id}`, { headers: { Cookie: cookie } }); expect(other.status).toBe(200);
+    const deleted = await fetch(`${baseUrl}/accounts/creators/${creatorId}/images/${uploadedBody.creator.referenceImages[0].id}`, { method: "DELETE", headers: { Cookie: cookie, "x-csrf-token": signup.csrfToken } }); expect(deleted.status).toBe(204);
+  });
+
+  it("rejects unaudited consent, invalid signatures, and cross-tenant image access", async () => {
+    await startServer();
+    const firstSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-negative-a@example.com", password: "hunter22" }) });
+    const firstCookie = sessionCookieFrom(firstSignup); const firstMe = await (await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: firstCookie } })).json();
+    const created = await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: firstCookie, "x-csrf-token": firstMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Unaudited", avatarMode: "none", compatibleVendors: [], speechStyle: "", tone: "", wardrobe: "", visualStyle: "", language: "en", prohibitedDepictions: [], consentConfirmed: false, active: true }) });
+    expect(created.status).toBe(201); const creator = await created.json();
+    const denied = await fetch(`${baseUrl}/accounts/creators/${creator.creator.id}/images`, { method: "POST", headers: { Cookie: firstCookie, "x-csrf-token": firstMe.csrfToken, "Content-Type": "application/json" }, body: JSON.stringify({ fileName: "bad.png", mimeType: "image/png", dataBase64: "aGVsbG8=" }) });
+    expect(denied.status).toBe(400);
+
+    const secondSignup = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "creator-negative-b@example.com", password: "hunter22" }) });
+    const secondCookie = sessionCookieFrom(secondSignup);
+    const crossTenant = await fetch(`${baseUrl}/accounts/creators/${creator.creator.id}` , { headers: { Cookie: secondCookie } });
+    expect(crossTenant.status).toBe(404);
   });
 
   it("logout revokes the session — a subsequent /accounts/me with the same cookie is unauthenticated", async () => {

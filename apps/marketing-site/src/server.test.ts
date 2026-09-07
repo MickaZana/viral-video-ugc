@@ -78,6 +78,27 @@ describe("marketing-site HTTP API", () => {
     delete process.env.PUBLIC_BASE_URL;
   });
 
+  it("GET / links to the real product (Sign In / Try it now) at the local-dev default when APP_BASE_URL is unset", async () => {
+    delete process.env.APP_BASE_URL;
+    await startServer();
+    const res = await fetch(`${baseUrl}/`);
+    const html = await res.text();
+    expect(html).not.toContain("{{APP_BASE_URL}}");
+    expect(html).toContain('href="http://localhost:4310/app?mode=signin"');
+    expect(html).toContain('href="http://localhost:4310/app?mode=signup"');
+  });
+
+  it("GET / uses APP_BASE_URL (trailing slash stripped) for the Sign In / Try it now links when configured", async () => {
+    process.env.APP_BASE_URL = "https://app.vvugc.example.com/";
+    await startServer();
+    const res = await fetch(`${baseUrl}/`);
+    const html = await res.text();
+    expect(html).not.toContain("{{APP_BASE_URL}}");
+    expect(html).toContain('href="https://app.vvugc.example.com/app?mode=signin"');
+    expect(html).toContain('href="https://app.vvugc.example.com/app?mode=signup"');
+    delete process.env.APP_BASE_URL;
+  });
+
   it("GET /tokens.css serves the shared design tokens stylesheet", async () => {
     await startServer();
     const res = await fetch(`${baseUrl}/tokens.css`);
@@ -85,6 +106,49 @@ describe("marketing-site HTTP API", () => {
     expect(res.headers.get("content-type")).toContain("text/css");
     const body = await res.text();
     expect(body).toContain("--accent");
+  });
+
+  it("GET /privacy renders the privacy policy, using LEGAL_ENTITY_NAME/LEGAL_PRIVACY_EMAIL when configured", async () => {
+    process.env.LEGAL_ENTITY_NAME = "Test Legal Entity AB";
+    process.env.LEGAL_PRIVACY_EMAIL = "privacy@test-legal-entity.example";
+    await startServer();
+    const res = await fetch(`${baseUrl}/privacy`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Test Legal Entity AB");
+    expect(html).toContain("privacy@test-legal-entity.example");
+    delete process.env.LEGAL_ENTITY_NAME;
+    delete process.env.LEGAL_PRIVACY_EMAIL;
+  });
+
+  it("GET /privacy falls back to an obviously-not-real placeholder when unconfigured (never fabricates real legal content)", async () => {
+    delete process.env.LEGAL_ENTITY_NAME;
+    delete process.env.LEGAL_PRIVACY_EMAIL;
+    await startServer();
+    const res = await fetch(`${baseUrl}/privacy`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("[Configure LEGAL_ENTITY_NAME]");
+    expect(html).toContain("configure-LEGAL_PRIVACY_EMAIL@example.invalid");
+  });
+
+  it("GET /terms renders the terms page and links back to /privacy", async () => {
+    await startServer();
+    const res = await fetch(`${baseUrl}/terms`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('href="/privacy"');
+  });
+
+  it("refuses to boot in production without LEGAL_ENTITY_NAME/LEGAL_PRIVACY_EMAIL configured", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    delete process.env.LEGAL_ENTITY_NAME;
+    delete process.env.LEGAL_PRIVACY_EMAIL;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    await expect(import("./server.js")).rejects.toThrow(/LEGAL_ENTITY_NAME and LEGAL_PRIVACY_EMAIL are required/);
+    process.env.NODE_ENV = originalNodeEnv;
   });
 
   it("GET /api/manifest returns the video manifest", async () => {

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/review-queue" },
+    { "path": "../../packages/mcp-video-gen" },
+    { "path": "../../packages/shared-config" },
+    { "path": "../../packages/shared-cost" },
+    { "path": "../../packages/shared-metrics" },
+    { "path": "../../packages/shared-schema" }
+  ]
+}

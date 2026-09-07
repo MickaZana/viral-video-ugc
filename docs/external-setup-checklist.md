@@ -10,7 +10,7 @@ Recommended first acceptance path:
 
 - YouTube discovery and publishing.
 - Anthropic script rewrite and QA.
-- Gemini or Replicate video generation.
+- Gemini or Replicate video generation. (NVIDIA NIM is supported via `--video-vendor nvidia`, but it needs a self-hosted NIM container — NVIDIA hosts no Wan2.2 video endpoint — so it is not a quick first-run path. See the NVIDIA section below.)
 - ElevenLabs narration, or no narration for the first run.
 - OpenAI Whisper only when a source lacks captions.
 
@@ -36,6 +36,25 @@ Required secrets:
 
 - `REPLICATE_API_TOKEN`
 - `REPLICATE_MODEL`
+
+### NVIDIA
+
+- [Create an NVIDIA API key at build.nvidia.com](https://build.nvidia.com/)
+
+The key is a Bearer token that starts `nvapi-`. Use it server-side only; never expose it to a browser or commit it.
+
+**A self-hosted NIM is required.** Verified live 2026-09-06: NVIDIA does not serve Wan2.2 video generation on any hosted API (`integrate.api.nvidia.com`, `ai.api.nvidia.com`, NVCF) — the `nvapi-` key authenticates but there is no hosted `/videos/generations` to call. Wan2.2 Visual GenAI is distributed as a NIM container (`docs.nvidia.com/nim/visual-genai/`). Run it (NGC pull + `docker run`, port 8000), then set `NVIDIA_VIDEO_BASE_URL` to its base URL, e.g. `http://localhost:8000/v1`.
+
+`--video-vendor nvidia` selects this provider (NVIDIA NIM Visual GenAI, Wan2.2 text-to-video / image-to-video); it is opt-in and not in any default fallback chain. Without a reachable NIM, a live run fails fast with a 404 and a hint pointing here.
+
+Required secret: `NVIDIA_API_KEY`
+
+Optional overrides:
+
+- `NVIDIA_VIDEO_BASE_URL`
+- `NVIDIA_VIDEO_MODEL`
+- `NVIDIA_VIDEO_VARIANT`
+- `NVIDIA_VIDEO_TIMEOUT_MS`
 
 ### ElevenLabs
 

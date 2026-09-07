@@ -33,15 +33,20 @@ test("the auth screen has no WCAG A/AA violations", async ({ page }) => {
 });
 
 test("the signed-in workspace (dashboard) has no WCAG A/AA violations", async ({ page }) => {
+  // Skip the first-run onboarding modal (components/Onboarding.tsx) — it's a
+  // separate, already-covered feature, and its overlay would otherwise still be
+  // open (and would itself need its own a11y pass) when this scan runs.
+  await page.addInitScript(() => localStorage.setItem("ugu-onboarding-done", "1"));
   await page.goto("/app");
   await page.getByRole("button", { name: "Get Started", exact: true }).first().click();
   await page.getByRole("button", { name: "SIGN UP" }).click();
-  await page.locator("#email").fill("a11y-e2e@example.com");
+  await page.locator("#email").fill(`a11y-e2e-${Date.now()}@example.com`);
   await page.locator("#orgName").fill("A11y Org");
   await page.locator("#password").fill("hunter22");
   await page.getByRole("button", { name: "Create Account" }).click();
 
-  // Wait for real data to render (stat cards), not just the shell.
-  await expect(page.getByText(/1 run\(s\) recorded/)).toBeVisible();
+  // Wait for real data to render (This Week's stats), not just the shell.
+  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+  await expect(page.getByText("Waiting")).toBeVisible();
   await scan(page, "workspace dashboard");
 });

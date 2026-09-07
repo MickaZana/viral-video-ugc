@@ -37,7 +37,7 @@ export function parseSourceUrl(raw: string): SourceUrl | undefined {
 
   if (host === "youtube.com" || host === "youtu.be" || host === "m.youtube.com") {
     const viaQuery = url.searchParams.get("v") ?? undefined;
-    const fromPath = path.includes("/shorts/") ? path.split("/shorts/")[1]?.split(/[/?#]/)[0] : undefined;
+    const fromPath = path.match(/^\/(?:shorts|live)\/([^/?#]+)/)?.[1];
     const youtuBe = host === "youtu.be" ? path.split("/")[1]?.split(/[/?#]/)[0] : undefined;
     const videoId = parseYouTube(viaQuery ?? fromPath ?? youtuBe);
     if (videoId) return { platform: "youtube_shorts", videoId };

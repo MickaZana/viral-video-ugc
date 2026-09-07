@@ -12,7 +12,14 @@
     { "path": "../../packages/shared-metrics" },
     { "path": "../../packages/shared-auth" },
     { "path": "../orchestrator" },
+    { "path": "../../packages/shared-originality" },
+    { "path": "../../packages/mcp-discovery" },
+    { "path": "../../packages/mcp-video-gen" },
     { "path": "../../packages/mcp-publish" },
-    { "path": "../../packages/shared-billing" }
+    { "path": "../../packages/shared-billing" },
+    { "path": "../../packages/shared-persistence" },
+    { "path": "../../packages/shared-product-analytics" },
+    { "path": "../../packages/shared-cost" },
+    { "path": "../../packages/curriculum-engine" }
   ]
 }

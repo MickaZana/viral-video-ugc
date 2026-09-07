@@ -18,24 +18,30 @@ test("the live preview frame renders real seeded data, not placeholders", async 
   await page.goto("/app");
   const preview = page.locator("#preview");
 
-  // Dashboard preview — stat cards reflect the seeded review queue.
+  // Dashboard preview — stat cards reflect the seeded review queue
+  // (tabs/Dashboard.tsx's real stat labels).
   await expect(preview.getByText("Creators Tracked")).toBeVisible();
-  await expect(preview.getByText("Scripts Rewritten")).toBeVisible();
+  await expect(preview.getByText("Avg Viral Score")).toBeVisible();
 
   // Switching the preview nav re-renders a different real tab. The preview nav
   // buttons carry their icon glyphs in their accessible names ("▤ HISTORY"),
   // which also distinguishes them from the embedded Dashboard's own
   // "Open History ↗" button — hence the icon-anchored match.
+  //
+  // The preview frame is anonymous/public, so it deliberately serves static
+  // synthetic data (review-dashboard's demo-preview-data.ts), never a real
+  // customer's queue — this checks that fixed, real content, not seeded data.
   await preview.getByRole("button", { name: /▤ HISTORY/ }).click();
-  await expect(preview.getByText("Wait, nobody told you this?")).toBeVisible();
+  await expect(preview.getByText(/Stop doing crunches/)).toBeVisible();
   await preview.getByRole("button", { name: /◈ CREATOR SPY/ }).click();
-  await expect(preview.getByText("No discovered sources yet.")).toBeVisible();
+  await expect(preview.getByText("Fitness Motivation Daily").first()).toBeVisible();
 });
 
 test("Get Started opens the auth screen", async ({ page }) => {
   await page.goto("/app");
   await page.getByRole("button", { name: "Get Started", exact: true }).first().click();
-  // "Access your account" is a <p>, not a heading — match on text.
-  await expect(page.getByText("Access your account")).toBeVisible();
+  // Get Started routes to signup mode (App.tsx's onGetStarted), not signin —
+  // "Create your account" is signup's <p>, "Access your account" is signin's.
+  await expect(page.getByText("Create your account")).toBeVisible();
   await expect(page.locator("#email")).toBeVisible();
 });

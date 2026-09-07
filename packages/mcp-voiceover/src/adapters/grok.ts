@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { requireEnvVar } from "@vvugc/shared-config";
+import { requireEnvVar, xaiGrokKeyCandidates } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import { probeDurationSec } from "../ffprobe.js";
 import type { VoiceoverAdapter } from "./VoiceoverAdapter.js";
@@ -19,18 +19,34 @@ const DEFAULT_VOICE_ID = "eve";
 export function createGrokAdapter(): VoiceoverAdapter {
   return {
     vendor: "grok",
-    async synthesize(text: string, outPath: string): Promise<{ filePath: string; durationSec: number }> {
-      const apiKey = requireEnvVar("XAI_API_KEY");
-      const voiceId = process.env.GROK_VOICE_ID || DEFAULT_VOICE_ID;
+    async synthesize(text: string, outPath: string, opts): Promise<{ filePath: string; durationSec: number }> {
+      // xaiGrokKeyCandidates() trusts this project's .env over an ambient
+      // shell key, and lists every other known value after it — if the
+      // top candidate turns out to be an unfunded/wrong-team key (403), the
+      // loop below retries with the next one instead of failing outright.
+      const candidates = xaiGrokKeyCandidates();
+      if (candidates.length === 0) requireEnvVar("XAI_API_KEY"); // throws the standard "missing env var" error
+      const voiceId = opts?.voiceId || process.env.GROK_VOICE_ID || DEFAULT_VOICE_ID;
+      const body = JSON.stringify({ text: [opts?.accent && `Accent: ${opts.accent}`, opts?.speechStyle, text].filter(Boolean).join("\n"), voice_id: voiceId, language: opts?.language || "en" });
 
-      const res = await fetchWithRetry(XAI_TTS_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice_id: voiceId, language: "en" }),
-        timeoutMs: 30_000
-      });
-      if (!res.ok) {
-        throw new Error(`Grok text-to-speech failed: ${res.status} ${await res.text()}`);
+      let res: Response | undefined;
+      let lastError = "";
+      for (const [i, apiKey] of candidates.entries()) {
+        res = await fetchWithRetry(XAI_TTS_URL, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body,
+          timeoutMs: 30_000
+        });
+        if (res.ok) break;
+        lastError = `${res.status} ${await res.text()}`;
+        // Only retry the next candidate on a permission/quota-shaped failure
+        // (403) — a genuine bad request or server error would fail the same
+        // way on every candidate, so there's no point burning the retry.
+        if (res.status !== 403 || i === candidates.length - 1) break;
+      }
+      if (!res || !res.ok) {
+        throw new Error(`Grok text-to-speech failed: ${lastError}`);
       }
 
       mkdirSync(dirname(outPath), { recursive: true });

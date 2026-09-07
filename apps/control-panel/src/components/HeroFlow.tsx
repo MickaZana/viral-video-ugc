@@ -92,7 +92,7 @@ export function HeroFlow() {
           <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-red)]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-orange)]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-lime)]" />
-          <span className="ml-3 text-[10px] font-mono text-[var(--color-muted-3)]">ugu-program — remix flow</span>
+          <span className="ml-3 text-[10px] font-mono text-[var(--color-muted-3)]">viral-video-ugc — remix flow</span>
         </div>
         <span className="flex items-center gap-2 text-[10px] font-mono text-[var(--color-red)] uppercase tracking-widest">
           <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-red)] rec-pulse" />
@@ -147,7 +147,7 @@ export function HeroFlow() {
               <div className="flex items-center gap-3">
                 <span
                   className="px-5 py-2.5 font-black uppercase tracking-widest text-xs"
-                  style={{ fontFamily: 'Barlow Condensed', backgroundColor: sub > 0.5 ? 'var(--color-lime)' : 'var(--color-faint)', color: sub > 0.5 ? 'var(--color-on-accent)' : 'var(--color-muted-5)' }}
+                  style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: sub > 0.5 ? 'var(--color-lime)' : 'var(--color-faint)', color: sub > 0.5 ? 'var(--color-on-accent)' : 'var(--color-muted-5)' }}
                 >
                   Preview Remix
                 </span>
@@ -239,7 +239,7 @@ export function HeroFlow() {
               <div className="flex items-center gap-6 bg-[var(--color-bg)] border border-[var(--color-input)] p-4">
                 <div>
                   <div className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Viral score</div>
-                  <div className="text-5xl font-black text-[var(--color-lime)]" style={{ fontFamily: 'Barlow Condensed' }}>
+                  <div className="text-5xl font-black text-[var(--color-lime)]" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                     {Math.round(60 + sub * 36)}
                   </div>
                 </div>
@@ -249,7 +249,7 @@ export function HeroFlow() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <span className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--color-on-accent)]" style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-lime)' }}>
+                <span className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--color-on-accent)]" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)' }}>
                   Approve
                 </span>
                 <span className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-faint)] text-[var(--color-muted-6)]">
@@ -262,7 +262,7 @@ export function HeroFlow() {
 
         {/* stage footer */}
         <div className="border-t border-[var(--color-raised)] px-5 py-4">
-          <div className="text-xs font-black uppercase tracking-widest text-[var(--color-text)]" style={{ fontFamily: 'Barlow Condensed' }}>
+          <div className="text-xs font-black uppercase tracking-widest text-[var(--color-text)]" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             {s.title}
           </div>
           <p className="mt-1 text-[11px] font-mono text-[var(--color-muted-4)]">{s.caption}</p>

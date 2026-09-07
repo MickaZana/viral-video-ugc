@@ -21,6 +21,46 @@ export interface PricingTier {
   stripePriceIdEnvVar: string;
 }
 
+// ---------------------------------------------------------------------------
+// Duration-based pricing: longer videos cost proportionally more per run.
+// ---------------------------------------------------------------------------
+
+export interface DurationTier {
+  /** Inclusive upper bound in seconds. */
+  maxSec: number;
+  label: string;
+  /** Multiplier applied to the per-run overage price. A 60s video at 4× costs
+   *  4× the base overage rate. Included runs in a subscription are NOT multiplied
+   *  — the multiplier only applies to overage billing and cost-ledger accounting. */
+  costMultiplier: number;
+}
+
+/** Ordered list — match against the first tier whose `maxSec` >= requested duration. */
+export const DURATION_TIERS: DurationTier[] = [
+  { maxSec: 15, label: "short", costMultiplier: 1.0 },
+  { maxSec: 30, label: "standard", costMultiplier: 1.5 },
+  { maxSec: 45, label: "extended", costMultiplier: 2.5 },
+  { maxSec: 60, label: "premium", costMultiplier: 4.0 },
+];
+
+/** Hard cap — the system refuses to generate anything above this. */
+export const MAX_DURATION_SEC = 60;
+
+/** Resolve which duration tier a requested duration falls into.
+ *  Returns the matching tier, or the highest tier if duration exceeds all bounds
+ *  (caller should separately validate against MAX_DURATION_SEC). */
+export function getDurationTier(durationSec: number): DurationTier {
+  for (const tier of DURATION_TIERS) {
+    if (durationSec <= tier.maxSec) return tier;
+  }
+  return DURATION_TIERS[DURATION_TIERS.length - 1];
+}
+
+/** Compute the effective overage cost for a run at a given duration. */
+export function computeOverageCost(baseOveragePrice: number, durationSec: number): number {
+  return baseOveragePrice * getDurationTier(durationSec).costMultiplier;
+}
+
 export const PRICING_TIERS: PricingTier[] = [
   { id: "starter", name: "Starter", priceUsdPerMonth: 39, monthlyRunLimit: 4, overagePriceUsdPerRun: 6, stripePriceIdEnvVar: "STRIPE_PRICE_ID_STARTER" },
   { id: "growth", name: "Growth", priceUsdPerMonth: 99, monthlyRunLimit: 15, overagePriceUsdPerRun: 5, stripePriceIdEnvVar: "STRIPE_PRICE_ID_GROWTH" },

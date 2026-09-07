@@ -11,11 +11,13 @@
   "scripts": {
     "build": "tsc -b",
     "cli": "tsx src/cli.ts",
+    "long-form": "tsx src/long-form-cli.ts",
     "test": "vitest run"
   },
   "dependencies": {
     "@vvugc/shared-schema": "workspace:*",
     "@vvugc/shared-config": "workspace:*",
+    "@vvugc/curriculum-engine": "workspace:*",
     "@vvugc/mcp-discovery": "workspace:*",
     "@vvugc/mcp-transcript": "workspace:*",
     "@vvugc/mcp-video-gen": "workspace:*",
@@ -24,6 +26,7 @@
     "@vvugc/review-queue": "workspace:*",
     "@vvugc/shared-cost": "workspace:*",
     "@vvugc/shared-originality": "workspace:*",
+    "@vvugc/shared-analytics": "workspace:*",
     "@anthropic-ai/sdk": "^0.112.1",
     "commander": "^15.0.0",
     "pino": "^10.3.1",

@@ -6,10 +6,7 @@ import { History } from './tabs/History'
 import { setPreviewMode } from './lib/api'
 import { HeroFlow } from './components/HeroFlow'
 import { Logo } from './components/Logo'
-
-// Set preview routing BEFORE this module's components ever render. See the note
-// in Landing() below about why this must not live in a useEffect.
-setPreviewMode(true)
+import { LegalModals, type LegalModalType } from './components/LegalModals'
 
 type PreviewTab = 'dashboard' | 'spy' | 'rewriter' | 'history'
 
@@ -62,6 +59,7 @@ export function Landing({
   /** When authenticated, this replaces Get Started/Sign In with a return-to-workspace action. */
   onWorkspace?: () => void
 }) {
+  const [legalModal, setLegalModal] = useState<LegalModalType>(null)
   const [preview, setPreview] = useState<PreviewTab>('dashboard')
 
   const goHome = () => window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -74,8 +72,17 @@ export function Landing({
   // NOTE: this must NOT be done in a useEffect. React runs child effects before
   // parent effects, so the tabs (Dashboard/Spy/...) mounted by this component
   // fire their first data requests before a here-inline effect could run — they'd
-  // hit the auth-gated routes and 401. Setting it synchronously at module scope
-  // guarantees preview routing is active before any tab ever mounts.
+  // hit the auth-gated routes and 401. Calling it inline here, synchronously
+  // during Landing's own render (before React processes its children), gets the
+  // same "before any tab mounts" guarantee a module-scope call would — but tied
+  // to this component actually rendering, not to this file merely being
+  // imported. A module-scope call ran unconditionally on every app bootstrap
+  // (App.tsx imports Landing regardless of whether it ever renders), leaving
+  // preview mode stuck on — and every authenticated page's queue/stats/runs/
+  // creators reads silently serving fake demo data — for any session that
+  // never mounts Landing at all, e.g. every already-signed-in returning user,
+  // whose route resolves straight to the real workspace.
+  setPreviewMode(true)
   useEffect(() => {
     return () => setPreviewMode(false)
   }, [])
@@ -89,16 +96,17 @@ export function Landing({
             <Logo onClick={goHome} />
           </div>
           <nav className="hidden md:flex items-center gap-6 text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-5)]">
-            <a href="#features" className="hover:text-[var(--color-lime)] transition-colors">Features</a>
-            <a href="#preview" className="hover:text-[var(--color-lime)] transition-colors">Preview</a>
-            <a href="#how" className="hover:text-[var(--color-lime)] transition-colors">How it works</a>
+            <a href="#features" className="hover:text-[var(--color-blue)] transition-colors">Features</a>
+            <a href="#preview" className="hover:text-[var(--color-blue)] transition-colors">Preview</a>
+            <a href="#how" className="hover:text-[var(--color-blue)] transition-colors">How it works</a>
+            <a href="#pricing" className="hover:text-[var(--color-blue)] transition-colors">Pricing</a>
           </nav>
           <div className="flex items-center gap-3">
             {authenticated ? (
               <button
                 onClick={onWorkspace}
                 className="text-[11px] font-mono font-bold uppercase tracking-widest px-4 py-2.5 transition-colors hover:brightness-110"
-                style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Barlow Condensed' }}
+                style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}
               >
                 ← Back to Workspace
               </button>
@@ -106,14 +114,14 @@ export function Landing({
               <>
                 <button
                   onClick={onSignIn}
-                  className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-6)] hover:text-[var(--color-lime)] transition-colors px-3 py-2"
+                  className="text-[11px] font-mono uppercase tracking-widest text-[var(--color-muted-6)] hover:text-[var(--color-blue)] transition-colors px-3 py-2"
                 >
                   Sign In
                 </button>
                 <button
                   onClick={onGetStarted}
                   className="text-[11px] font-mono font-bold uppercase tracking-widest px-4 py-2.5 transition-colors hover:brightness-110"
-                  style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Barlow Condensed' }}
+                  style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}
                 >
                   Get Started
                 </button>
@@ -126,35 +134,35 @@ export function Landing({
       {/* Hero */}
       <section className="border-b border-[var(--color-raised)]">
         <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 border border-[var(--color-input)] bg-[var(--color-surface)] px-3 py-1.5 mb-8">
+          <div className="inline-flex items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 mb-8">
             <span className="w-1.5 h-1.5 bg-[var(--color-lime)] blink" />
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-4)]">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)]">
               AI-Powered Viral Engine
             </span>
           </div>
           <h1
             className="text-5xl md:text-7xl font-black uppercase leading-[0.95] tracking-tight"
-            style={{ fontFamily: 'Barlow Condensed' }}
+            style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}
           >
             Spy The Format.
             <br />
-            <span className="text-[var(--color-lime)]">Make It Yours.</span>
+            <span className="text-[var(--color-text)]">Make It Yours.</span>
           </h1>
-          <p className="mt-6 text-base md:text-lg font-mono text-[var(--color-muted-4)] max-w-2xl mx-auto">
-            UGU watches viral creators, rewrites their winning scripts for your niche, and remakes the content — so you
+          <p className="mt-6 text-base md:text-lg font-mono text-[var(--color-muted-3)] max-w-2xl mx-auto">
+            Viral Video UGC watches viral creators, rewrites their winning scripts for your niche, and remakes the content — so you
             go viral without guessing.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={onGetStarted}
               className="px-10 py-4 text-base font-black uppercase tracking-widest transition-colors hover:brightness-110 w-full sm:w-auto"
-              style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Barlow Condensed' }}
+              style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}
             >
               Get Started Free
             </button>
             <a
               href="#preview"
-              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-faint)] text-[var(--color-muted-6)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors w-full sm:w-auto"
+              className="px-10 py-4 text-base font-mono uppercase tracking-widest border border-[var(--color-blue)] text-[var(--color-blue)] hover:bg-[var(--color-blue)]/10 hover:shadow-lg hover:shadow-[var(--color-blue)]/20 transition-all w-full sm:w-auto rounded-full"
             >
               See It Live
             </a>
@@ -163,8 +171,8 @@ export function Landing({
           {/* Self-playing screen-flow demo */}
           <div className="mt-16 max-w-4xl mx-auto text-left">
             <div className="flex items-center gap-2 justify-center mb-4">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-lime)]">Production flow</span>
-              <span className="h-px flex-1 max-w-24 bg-[var(--color-input)]" />
+              <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text)]">Production flow</span>
+              <span className="h-px flex-1 max-w-24 bg-[var(--color-border)]" />
               <span className="text-[10px] font-mono text-[var(--color-muted-2)]">auto-plays · pause on hover</span>
             </div>
             <HeroFlow />
@@ -178,7 +186,7 @@ export function Landing({
           <div className="flex items-end justify-between mb-8">
             <div>
               <p className="text-[11px] font-mono text-[var(--color-lime)] uppercase tracking-widest mb-2">Live Preview</p>
-              <h2 className="text-3xl md:text-4xl font-black uppercase" style={{ fontFamily: 'Barlow Condensed' }}>
+              <h2 className="text-3xl md:text-4xl font-black uppercase" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                 Click around the real app
               </h2>
             </div>
@@ -195,7 +203,7 @@ export function Landing({
                 <span className="w-2 h-2 bg-[var(--color-red)]" />
                 <span className="w-2 h-2 bg-[var(--color-orange)]" />
                 <span className="w-2 h-2 bg-[var(--color-lime)]" />
-                <span className="ml-3 text-[10px] font-mono text-[var(--color-muted-3)]">ugu-program — control</span>
+                <span className="ml-3 text-[10px] font-mono text-[var(--color-muted-3)]">viral-video-ugc — control</span>
               </div>
               <span className="text-[10px] font-mono text-[var(--color-muted-3)] uppercase tracking-widest">Preview Mode</span>
             </div>
@@ -226,7 +234,7 @@ export function Landing({
               <div className="flex-1 min-w-0">
                 <div className="p-4 sm:p-6 bg-[var(--color-bg)]">
                   <div className="mb-4">
-                    <h3 className="text-2xl font-black uppercase" style={{ fontFamily: 'Barlow Condensed' }}>
+                    <h3 className="text-2xl font-black uppercase" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                       {PREVIEW_NAV.find((n) => n.id === preview)?.label}
                     </h3>
                   </div>
@@ -249,14 +257,14 @@ export function Landing({
       <section id="features" className="border-b border-[var(--color-raised)]">
         <div className="max-w-6xl mx-auto px-6 py-16">
           <p className="text-[11px] font-mono text-[var(--color-lime)] uppercase tracking-widest mb-2">Capabilities</p>
-          <h2 className="text-3xl md:text-4xl font-black uppercase mb-10" style={{ fontFamily: 'Barlow Condensed' }}>
+          <h2 className="text-3xl md:text-4xl font-black uppercase mb-10" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             Everything you need to go viral
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {FEATURES.map((f) => (
               <div key={f.title} className="border border-[var(--color-border)] bg-[var(--color-surface)] p-6 hover:border-[var(--color-lime)]/40 transition-colors">
                 <span className="text-2xl text-[var(--color-lime)]">{f.icon}</span>
-                <h3 className="text-xl font-black uppercase mt-3 mb-2" style={{ fontFamily: 'Barlow Condensed' }}>
+                <h3 className="text-xl font-black uppercase mt-3 mb-2" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                   {f.title}
                 </h3>
                 <p className="text-sm font-mono text-[var(--color-muted-4)] leading-relaxed">{f.desc}</p>
@@ -270,16 +278,16 @@ export function Landing({
       <section id="how" className="border-b border-[var(--color-raised)]">
         <div className="max-w-6xl mx-auto px-6 py-16">
           <p className="text-[11px] font-mono text-[var(--color-lime)] uppercase tracking-widest mb-2">How it works</p>
-          <h2 className="text-3xl md:text-4xl font-black uppercase mb-10" style={{ fontFamily: 'Barlow Condensed' }}>
+          <h2 className="text-3xl md:text-4xl font-black uppercase mb-10" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             Spy. Rewrite. Remake.
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {STEPS.map((s) => (
               <div key={s.n} className="border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-                <span className="text-4xl font-black text-[var(--color-lime)]" style={{ fontFamily: 'Barlow Condensed' }}>
+                <span className="text-4xl font-black text-[var(--color-lime)]" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                   {s.n}
                 </span>
-                <h3 className="text-xl font-black uppercase mt-3 mb-2" style={{ fontFamily: 'Barlow Condensed' }}>
+                <h3 className="text-xl font-black uppercase mt-3 mb-2" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
                   {s.title}
                 </h3>
                 <p className="text-sm font-mono text-[var(--color-muted-4)] leading-relaxed">{s.desc}</p>
@@ -292,7 +300,7 @@ export function Landing({
       {/* CTA */}
       <section className="border-b border-[var(--color-raised)]">
         <div className="max-w-6xl mx-auto px-6 py-20 text-center">
-          <h2 className="text-4xl md:text-6xl font-black uppercase leading-tight" style={{ fontFamily: 'Barlow Condensed' }}>
+          <h2 className="text-4xl md:text-6xl font-black uppercase leading-tight" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             Ready to go viral?
           </h2>
           <p className="mt-4 text-base font-mono text-[var(--color-muted-4)]">
@@ -301,23 +309,152 @@ export function Landing({
           <button
             onClick={onGetStarted}
             className="mt-8 px-12 py-4 text-lg font-black uppercase tracking-widest transition-colors hover:brightness-110"
-            style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Barlow Condensed' }}
+            style={{ backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)', fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}
           >
             Get Started Free
           </button>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="max-w-6xl mx-auto px-6 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Logo onClick={goHome} size={26} wordmarkClass="text-sm" />
+      {/* Pricing */}
+      <section id="pricing" className="border-t border-[var(--color-raised)] py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <h2 className="text-3xl md:text-4xl font-black uppercase mb-4 text-center" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+            Simple pricing
+          </h2>
+          <p className="text-center text-sm text-[var(--color-muted-3)] mb-12 max-w-xl mx-auto">
+            Start free. Scale as your content operation grows. No hidden fees — just runs.
+          </p>
+
+          {/* Plan headers */}
+          <div className="grid grid-cols-4 gap-0 border border-[var(--color-border)] bg-[var(--color-surface)]">
+            {/* Header row */}
+            <div className="p-5 border-b border-r border-[var(--color-border)]" />
+            <div className="p-5 border-b border-r border-[var(--color-border)] text-center">
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)] mb-1">Starter</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$39</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+            <div className="p-5 border-b border-r border-[var(--color-border)] text-center bg-[var(--color-lime)]/5 relative">
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)]">Popular</span>
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-lime)] mb-1">Growth</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$99</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+            <div className="p-5 border-b border-[var(--color-border)] text-center">
+              <h3 className="text-[10px] font-mono uppercase tracking-widest text-[var(--color-muted-3)] mb-1">Agency</h3>
+              <span className="text-2xl font-black" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>$249</span>
+              <span className="text-[11px] text-[var(--color-muted-3)]">/mo</span>
+            </div>
+
+            {/* Feature rows */}
+            {[
+              ['Pipeline runs / month', '4', '15', '60'],
+              ['All platforms (TT, IG, YT)', true, true, true],
+              ['Max video duration', '15s', '30s', '60s'],
+              ['Batch mode', false, true, true],
+              ['Cinema Studio 4.0 controls', false, true, true],
+              ['Creator Spy intel', true, true, true],
+              ['Script rewriter', true, true, true],
+              ['Auto QA scoring', true, true, true],
+              ['Priority support', false, true, true],
+              ['Multi-client workspaces', false, false, true],
+              ['API access', false, false, true],
+              ['Webhooks', false, false, true],
+              ['Custom branding', false, false, true],
+              ['Dedicated account manager', false, false, true],
+            ].map(([feature, starter, growth, agency], idx) => (
+              <div key={idx} className="contents">
+                <div className="px-5 py-3 border-b border-r border-[var(--color-border)] text-[12px] text-[var(--color-muted-2)] flex items-center">
+                  {feature}
+                </div>
+                {[starter, growth, agency].map((val, ci) => (
+                  <div key={ci} className={`px-5 py-3 border-b border-[var(--color-border)] text-center flex items-center justify-center ${ci < 2 ? 'border-r' : ''} ${ci === 1 ? 'bg-[var(--color-lime)]/5' : ''}`}>
+                    {val === true ? (
+                      <span className="text-[var(--color-lime)] text-lg font-bold">✓</span>
+                    ) : val === false ? (
+                      <span className="text-[var(--color-muted-4)] text-sm">—</span>
+                    ) : (
+                      <span className="text-[12px] font-mono text-[var(--color-text)]">{val}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            {/* CTA row */}
+            <div className="p-5 border-r border-[var(--color-border)]" />
+            <div className="p-5 border-r border-[var(--color-border)] flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors">
+                Get Started
+              </button>
+            </div>
+            <div className="p-5 border-r border-[var(--color-border)] flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest bg-[var(--color-lime)] text-[var(--color-on-accent)] hover:brightness-110 transition-colors">
+                Get Started
+              </button>
+            </div>
+            <div className="p-5 flex items-center justify-center">
+              <button onClick={onGetStarted} className="w-full py-2.5 text-[10px] font-bold uppercase tracking-widest border border-[var(--color-border)] text-[var(--color-text)] hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-colors">
+                Get Started
+              </button>
+            </div>
+          </div>
+
+          <p className="text-center text-[10px] text-[var(--color-muted-4)] mt-6">
+            All plans include overage billing — never hard-blocked. Duration-based pricing applies for extended videos.
+          </p>
         </div>
-        <div className="flex items-center gap-6 text-[11px] font-mono text-[var(--color-muted-2)]">
-          <button onClick={onSignIn} className="hover:text-[var(--color-lime)] transition-colors">Sign In</button>
-          <button onClick={onGetStarted} className="hover:text-[var(--color-lime)] transition-colors">Get Started</button>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-[var(--color-raised)] bg-[var(--color-surface)] py-12">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex flex-col items-center md:items-start gap-2">
+            <Logo onClick={goHome} size={28} wordmarkClass="text-sm" />
+            <p className="text-[11px] font-mono text-[var(--color-muted-2)]">
+              © 2026 VUGC. A Micany Company product. All rights reserved.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-6 text-[11px] font-mono text-[var(--color-muted-2)]">
+            <button
+              onClick={() => setLegalModal('privacy')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <button
+              onClick={() => setLegalModal('terms')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Terms of Service
+            </button>
+            <button
+              onClick={() => setLegalModal('dsr_gdpr')}
+              className="hover:text-[var(--color-lime)] text-[var(--color-lime)] font-bold transition-colors cursor-pointer"
+            >
+              GDPR &amp; DSR Rights
+            </button>
+            <button
+              onClick={() => setLegalModal('about')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              About Us
+            </button>
+            <button
+              onClick={() => setLegalModal('sitemap')}
+              className="hover:text-[var(--color-lime)] transition-colors cursor-pointer"
+            >
+              Site Map
+            </button>
+            <span className="text-[var(--color-border)]">|</span>
+            <button onClick={onSignIn} className="text-[var(--color-text)] hover:text-[var(--color-lime)] transition-colors">Sign In</button>
+            <button onClick={onGetStarted} className="px-3 py-1.5 bg-[var(--color-lime)] text-[var(--color-on-accent)] font-bold uppercase tracking-widest hover:brightness-110 transition-colors">Get Started</button>
+          </div>
         </div>
       </footer>
+
+      <LegalModals activeModal={legalModal} onClose={() => setLegalModal(null)} />
     </div>
   )
 }

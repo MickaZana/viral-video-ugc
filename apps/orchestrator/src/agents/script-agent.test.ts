@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CostLedger } from "@vvugc/shared-cost";
 import type { Platform, Transcript } from "@vvugc/shared-schema";
+import { getUgcTemplate } from "../templates.js";
 
 const mockCreate = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -32,10 +33,22 @@ describe("rewriteScript", () => {
   beforeEach(() => {
     mockCreate.mockReset();
     process.env.ANTHROPIC_API_KEY = "test-key";
+    // Hermeticity: generateWithFailover's Gemini/Grok fallbacks read these
+    // straight off process.env, so an ambient key left set in the shell (not
+    // this test's own env) would otherwise leak this suite onto a real
+    // network call. Clear them every test, and make any fetch a hard failure
+    // rather than a silent live call — a fallback test stubs its own fetch.
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("unexpected live fetch — mock it explicitly for this test");
+    }));
   });
 
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    vi.unstubAllGlobals();
   });
 
   it("dry-run: returns a deterministic mock script without calling the Anthropic API", async () => {
@@ -113,5 +126,30 @@ describe("rewriteScript", () => {
   it("live: a response missing required schema fields (e.g. no hook) fails Zod validation rather than silently producing a broken script", async () => {
     mockCreate.mockResolvedValue(textMessage({ points: ["p"], cta: "c" }));
     await expect(rewriteScript(makeTranscript(), baseOpts())).rejects.toThrow();
+  });
+
+  it("live: deterministically rejects a model script containing a product-profile forbidden claim", async () => {
+    mockCreate.mockResolvedValue(textMessage({ hook: "This cures insomnia", points: ["point one"], cta: "Try it" }));
+    await expect(rewriteScript(makeTranscript(), baseOpts({ productProfile: {
+      id: "product-1", orgId: "org-1", name: "Sleep Tea", forbiddenClaims: ["cures insomnia"],
+      description: "", shortDescription: "", productCategory: "", targetCustomer: "", customerPain: "", primaryBenefits: [], features: [], claims: [], differentiators: [], callToAction: "Learn more", productImages: [], extractedImageUrls: [], extractionStatus: "manual", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+    } }))).rejects.toThrow(/product claim validation failed: forbidden_product_claim:cures insomnia/);
+  });
+
+  it("live: folds extra model points into the final template beat so every generated clip has a defined shot intention", async () => {
+    const template = getUgcTemplate("testimonial")!;
+    mockCreate.mockResolvedValue(
+      textMessage({
+        hook: "I did not expect this to change my recovery.",
+        points: ["before problem", "discovery", "benefit", "qualifier", "extra model detail"],
+        cta: "See whether it works for your routine."
+      })
+    );
+
+    const result = await rewriteScript(makeTranscript(), baseOpts({ template }));
+
+    expect(result.points).toHaveLength(template.scriptStructure.length - 2);
+    expect(result.points.at(-1)).toContain("qualifier");
+    expect(result.points.at(-1)).toContain("extra model detail");
   });
 });

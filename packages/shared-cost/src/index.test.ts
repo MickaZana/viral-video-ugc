@@ -19,14 +19,33 @@ describe("estimateCostUsd", () => {
     expect(estimateCostUsd("gemini", "image", 10)).toBeCloseTo(0.39, 6);
   });
 
-  it("prices gemini text per-model per-token (LLM failover)", () => {
+  it("prices gemini text per-model per-token (LLM failover) — dead models kept for historical ledger JSON", () => {
     expect(estimateCostUsd("gemini", "input_tokens", 1_000_000, "gemini-2.5-pro")).toBeCloseTo(1.25, 6);
     expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-2.5-pro")).toBeCloseTo(10, 6);
     expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-2.5-flash")).toBeCloseTo(2.5, 6);
   });
 
-  it("returns 0 for an unknown gemini text model rather than throwing", () => {
+  it("prices gemini text for the current live model defaults (llm-failover.ts's GEMINI_TEXT_MODEL / caption-agent)", () => {
+    expect(estimateCostUsd("gemini", "input_tokens", 1_000_000, "gemini-3.1-pro-preview")).toBeCloseTo(2.0, 6);
+    expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-3.1-pro-preview")).toBeCloseTo(12.0, 6);
+    expect(estimateCostUsd("gemini", "input_tokens", 1_000_000, "gemini-3.6-flash")).toBeCloseTo(0.75, 6);
+    expect(estimateCostUsd("gemini", "output_tokens", 1_000_000, "gemini-3.6-flash")).toBeCloseTo(3.75, 6);
+  });
+
+  it("prices grok text per-model per-token (LLM failover) — dead models kept for historical ledger JSON", () => {
+    expect(estimateCostUsd("grok", "input_tokens", 1_000_000, "grok-2-latest")).toBeCloseTo(2.0, 6);
+    expect(estimateCostUsd("grok", "output_tokens", 1_000_000, "grok-2-latest")).toBeCloseTo(10.0, 6);
+    expect(estimateCostUsd("grok", "output_tokens", 1_000_000, "grok-2-mini")).toBeCloseTo(1.0, 6);
+  });
+
+  it("prices grok text for the current live model default (llm-failover.ts's GROK_TEXT_MODEL, grok-4.3)", () => {
+    expect(estimateCostUsd("grok", "input_tokens", 1_000_000, "grok-4.3")).toBeCloseTo(1.25, 6);
+    expect(estimateCostUsd("grok", "output_tokens", 1_000_000, "grok-4.3")).toBeCloseTo(2.5, 6);
+  });
+
+  it("returns 0 for an unknown gemini/grok text model rather than throwing", () => {
     expect(estimateCostUsd("gemini", "input_tokens", 1000, "gemini-nonexistent")).toBe(0);
+    expect(estimateCostUsd("grok", "input_tokens", 1000, "grok-nonexistent")).toBe(0);
   });
 });
 
@@ -63,6 +82,15 @@ describe("CostLedger", () => {
     expect(ledger.getEvents().every((e) => e.vendor === "gemini" && e.stage === "script_rewrite")).toBe(true);
     expect(ledger.totalUsd()).toBeCloseTo(1.25 + 5.0, 6);
     expect(ledger.totalsByModel()["gemini-2.5-pro"]).toBeCloseTo(6.25, 6);
+  });
+
+  it("recordGrokUsage attributes text tokens to the grok vendor, priced per model", () => {
+    const ledger = new CostLedger();
+    ledger.recordGrokUsage("script_rewrite", { input_tokens: 1_000_000, output_tokens: 500_000 }, "grok-2-latest");
+    expect(ledger.getEvents()).toHaveLength(2);
+    expect(ledger.getEvents().every((e) => e.vendor === "grok" && e.stage === "script_rewrite")).toBe(true);
+    expect(ledger.totalUsd()).toBeCloseTo(2.0 + 5.0, 6);
+    expect(ledger.totalsByModel()["grok-2-latest"]).toBeCloseTo(7.0, 6);
   });
 
   it("prices different models independently and splits totals by model", () => {

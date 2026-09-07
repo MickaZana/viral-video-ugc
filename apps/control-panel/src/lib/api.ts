@@ -9,21 +9,59 @@
  */
 
 import type {
+  AccountSettings,
+  AppMode,
   AgencyClient,
   BillingResponse,
   ClientsResponse,
   CreateClientInput,
   CreatorsResponse,
+  DiscoverBrief,
+  DiscoverRequest,
+  DiscoverResponse,
   ModelsResponse,
   RemixPreviewResponse,
   RemixRequest,
   ReviewItem,
   RunResponse,
+  RunQuote,
   RunSummary,
   Stats,
-  TrackedCreator
+  TrackedCreator,
+  TrendsResponse,
+  UpdateAccountSettings,
+  ProductProfile,
+  ProductsResponse,
+  CreatorProfile,
+  CharacterAttributes,
+  CharacterPortrait,
+  ProductEventType
+  , UGCTemplate
+  , CurriculumCourse
+  , CurriculumModule
+  , CurriculumModuleWithCounts
+  , CurriculumLesson
+  , CurriculumAsset
+  , CurriculumVersion
+  , LessonCompletion
+  , CurriculumCourseDetail
+  , CurriculumModuleDetail
+  , GeneratePlanResult
+  , LessonScriptResult
+  , LessonProduceResult
+  , CurriculumProgress
+  , CurriculumTodayItem
+  , CreateCurriculumCourseInput
+  , UpdateCurriculumCourseInput
+  , CurriculumModulePatch
+  , CurriculumLessonPatch
+  , AssetType
+  , AssetStatus
+  , CurriculumCostEstimate
+  , CurriculumQueueResult
 } from './types'
 import { loadCsrf } from './auth'
+import type { BatchPlan, BatchPlanDraft, BatchProgress, BatchRequest, Preset } from '@vvugc/shared-schema'
 
 const API_BASE = '/api'
 
@@ -92,6 +130,26 @@ export interface PublicAccount {
   orgName?: string
 }
 
+/** Assignable team roles — owner is excluded (an org has exactly one, set at signup). */
+export type AccountRole = 'admin' | 'editor' | 'reviewer' | 'viewer'
+
+export interface SocialConnection {
+  id: string
+  clientId: string
+  platform: string
+  accountLabel: string
+  status: 'connected' | 'expiring' | 'expired'
+  expiresAt?: string
+}
+
+export interface MembersResponse {
+  members: PublicAccount[]
+  role: string
+  /** Server-computed from the actual permission map — routes still enforce this
+   *  independently, so this only controls whether the UI shows manage controls. */
+  canManageTeam: boolean
+}
+
 export interface MeResponse {
   account: PublicAccount
   csrfToken?: string
@@ -104,6 +162,34 @@ export interface LoginResponse {
   mfaRequired?: boolean
   mfaToken?: string
   expiresAt?: string
+}
+
+export interface StartRequest {
+  niche?: string
+  platform?: string
+  brandVoice?: string
+  sourceUrl?: string
+  clientId?: string
+  dryRun?: boolean
+  live?: boolean
+  brief?: DiscoverBrief
+  productProfileId?: string
+  templateId?: string
+}
+export interface StartResponse {
+  job: { id: string; status: string }
+  runId: string
+  progressUrl: string
+  brief?: DiscoverBrief
+}
+
+/** Optional filters for GET /queue. Server-side; keeps the QA board focused on
+ *  exactly what the operator wants to see (e.g. hide dry-run/mock items). */
+export interface QueueFilter {
+  status?: ReviewItem['status']
+  platform?: ReviewItem['platform']
+  /** When false, excludes dry-run (mock) items from the queue. */
+  dryRun?: boolean
 }
 
 export const api = {
@@ -149,6 +235,48 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body)
     })
+  },
+  acceptInvite(body: { token: string; password: string }): Promise<{ account: PublicAccount }> {
+    return request<{ account: PublicAccount }>('/accounts/invite/accept', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+
+  // ---- Team ----
+  members(): Promise<MembersResponse> {
+    return request<MembersResponse>('/accounts/members')
+  },
+  inviteMember(body: { email: string; role: AccountRole }): Promise<{ inviteToken: string; expiresAt: string }> {
+    return request<{ inviteToken: string; expiresAt: string }>('/accounts/invite', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  updateMemberRole(id: string, role: AccountRole): Promise<{ member: PublicAccount }> {
+    return request<{ member: PublicAccount }>(`/accounts/members/${encodeURIComponent(id)}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
+    })
+  },
+  removeMember(id: string): Promise<void> {
+    return request<void>(`/accounts/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+
+  // ---- Publishing connections ----
+  socialConnections(clientId: string): Promise<{ connections: SocialConnection[] }> {
+    return request<{ connections: SocialConnection[] }>(`/accounts/social-connections?clientId=${encodeURIComponent(clientId)}`)
+  },
+  /** Starts the Google OAuth consent flow for a client's YouTube channel. Returns
+   *  the hosted authorization URL to redirect the browser to; the callback lands
+   *  back on this client's brand page with ?oauth=google-connected. */
+  startGoogleOAuth(clientId: string): Promise<{ authorizationUrl: string }> {
+    return request<{ authorizationUrl: string }>(`/accounts/clients/${encodeURIComponent(clientId)}/oauth/google/start`, {
+      method: 'POST'
+    })
+  },
+  disconnectSocial(id: string): Promise<void> {
+    return request<void>(`/accounts/social-connections/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   // ---- Billing ----
@@ -203,19 +331,320 @@ export const api = {
   },
   /** Runs the real pipeline for the org's client. Dry-run (safe, no vendor spend)
    *  is the backend default; pass dryRun:false to attempt a live run. */
-  run(body: { clientId: string; dryRun: boolean }): Promise<RunResponse> {
+  templates(): Promise<{ templates: UGCTemplate[] }> { return request('/templates') },
+  /** Curated starting configurations — see PresetSchema's doc comment. */
+  presets(): Promise<{ presets: Preset[] }> { return request('/presets') },
+  run(body: { clientId: string; dryRun: boolean; productProfileId?: string; creatorProfileId?: string; templateId?: string; visualDirection?: Record<string, string> }): Promise<RunResponse> {
     return request<RunResponse>('/accounts/run', {
       method: 'POST',
       body: JSON.stringify(body)
     })
   },
+  /** Read-only estimate for the selected client's persisted live-run setup. */
+  runQuote(body: { clientId: string; templateId?: string }): Promise<RunQuote> {
+    return request<RunQuote>('/accounts/run/quote', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  /** First-run happy path: enqueue a dry-run (or live) pipeline for the org and
+   *  return its runId + progressUrl so the SPA can land on the live run page. */
+  start(body: StartRequest): Promise<StartResponse> {
+    return request<StartResponse>('/accounts/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        niche: body.niche,
+        platform: body.platform,
+        brandVoice: body.brandVoice,
+        sourceUrl: body.sourceUrl,
+        clientId: body.clientId,
+        dryRun: body.dryRun,
+        live: body.live,
+        brief: body.brief,
+        productProfileId: body.productProfileId
+        , templateId: body.templateId
+      })
+    })
+  },
+
+  // ---- Workspace settings ----
+  settings(): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings')
+  },
+  updateSettings(body: UpdateAccountSettings): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings', { method: 'PUT', body: JSON.stringify(body) })
+  },
+  /** Dedicated app-mode toggle — a server-side merge that overrides only `appMode`,
+   *  so it works before a niche has ever been saved (the full PUT above would 400). */
+  setAppMode(appMode: AppMode): Promise<AccountSettings> {
+    return request<AccountSettings>('/accounts/settings/app-mode', { method: 'PUT', body: JSON.stringify({ appMode }) })
+  },
+
+  // ---- Curriculum Mode v2 ----
+  // Typed client for the Curriculum Mode v2 backend (apps/review-dashboard/src/
+  // curriculum-routes.ts). Every route is org-scoped and lives under
+  // /accounts/curricula; each method returns the exact backend shape. Path params
+  // are always encodeURIComponent'd; state-changing calls attach CSRF via request().
+  curricula(): Promise<{ courses: CurriculumCourse[] }> {
+    return request<{ courses: CurriculumCourse[] }>('/accounts/curricula')
+  },
+  createCurriculum(body: CreateCurriculumCourseInput): Promise<{ course: CurriculumCourse }> {
+    return request<{ course: CurriculumCourse }>('/accounts/curricula', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  curriculum(courseId: string): Promise<CurriculumCourseDetail> {
+    return request<CurriculumCourseDetail>(`/accounts/curricula/${encodeURIComponent(courseId)}`)
+  },
+  updateCurriculum(courseId: string, body: UpdateCurriculumCourseInput): Promise<{ course: CurriculumCourse }> {
+    return request<{ course: CurriculumCourse }>(`/accounts/curricula/${encodeURIComponent(courseId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    })
+  },
+  deleteCurriculum(courseId: string): Promise<{ deleted: boolean }> {
+    return request<{ deleted: boolean }>(`/accounts/curricula/${encodeURIComponent(courseId)}`, {
+      method: 'DELETE'
+    })
+  },
+  generateCurriculumPlan(
+    courseId: string,
+    body?: {
+      seed?: 'agentic-ai'
+      live?: boolean
+      // Mirrors PlanOverridesSchema in curriculum-routes.ts — every field optional.
+      overrides?: Partial<
+        Pick<
+          CreateCurriculumCourseInput,
+          | 'moduleCount'
+          | 'lessonsPerModule'
+          | 'shortDurationSec'
+          | 'longFormTargetMin'
+          | 'audience'
+          | 'startingKnowledge'
+          | 'endGoal'
+          | 'language'
+        >
+      >
+    }
+  ): Promise<GeneratePlanResult> {
+    return request<GeneratePlanResult>(`/accounts/curricula/${encodeURIComponent(courseId)}/generate-plan`, {
+      method: 'POST',
+      body: JSON.stringify(body ?? {})
+    })
+  },
+  approveCurriculum(courseId: string): Promise<{ course: CurriculumCourse; version: CurriculumVersion }> {
+    return request<{ course: CurriculumCourse; version: CurriculumVersion }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/approve`,
+      { method: 'POST' }
+    )
+  },
+  curriculumModules(courseId: string): Promise<{ modules: CurriculumModuleWithCounts[] }> {
+    return request<{ modules: CurriculumModuleWithCounts[] }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules`
+    )
+  },
+  curriculumModule(courseId: string, moduleId: string): Promise<CurriculumModuleDetail> {
+    return request<CurriculumModuleDetail>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}`
+    )
+  },
+  curriculumLesson(courseId: string, lessonId: string): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`
+    )
+  },
+  updateCurriculumModule(
+    courseId: string,
+    moduleId: string,
+    body: CurriculumModulePatch
+  ): Promise<{ module: CurriculumModule }> {
+    return request<{ module: CurriculumModule }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    )
+  },
+  updateCurriculumLesson(
+    courseId: string,
+    lessonId: string,
+    body: CurriculumLessonPatch
+  ): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`,
+      { method: 'PUT', body: JSON.stringify(body) }
+    )
+  },
+  generateLessonScript(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonScriptResult> {
+    return request<LessonScriptResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/script`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  generateModuleLongForm(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean }
+  ): Promise<{ module: CurriculumModule }> {
+    return request<{ module: CurriculumModule }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/long-form-script`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  generateLessonKnowledgeCheck(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean; count?: number }
+  ): Promise<{ lesson: CurriculumLesson }> {
+    return request<{ lesson: CurriculumLesson }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/knowledge-check`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  produceLesson(
+    courseId: string,
+    lessonId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonProduceResult> {
+    return request<LessonProduceResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/produce`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  curriculumAssets(
+    courseId: string,
+    filter?: { lessonId?: string; moduleId?: string; assetType?: AssetType; status?: AssetStatus }
+  ): Promise<{ assets: CurriculumAsset[] }> {
+    const params = new URLSearchParams()
+    if (filter?.lessonId) params.set('lessonId', filter.lessonId)
+    if (filter?.moduleId) params.set('moduleId', filter.moduleId)
+    if (filter?.assetType) params.set('assetType', filter.assetType)
+    if (filter?.status) params.set('status', filter.status)
+    const qs = params.toString()
+    return request<{ assets: CurriculumAsset[] }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/assets${qs ? `?${qs}` : ''}`
+    )
+  },
+  completeLesson(
+    courseId: string,
+    lessonId: string,
+    body?: { knowledgeCheckScore?: number; answers?: number[] }
+  ): Promise<{ completion: LessonCompletion }> {
+    return request<{ completion: LessonCompletion }>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/complete`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  curriculumProgress(courseId: string): Promise<CurriculumProgress> {
+    return request<CurriculumProgress>(`/accounts/curricula/${encodeURIComponent(courseId)}/progress`)
+  },
+  curriculumToday(): Promise<{ items: CurriculumTodayItem[] }> {
+    return request<{ items: CurriculumTodayItem[] }>('/accounts/curricula/today')
+  },
+  curriculumCostEstimate(
+    courseId: string,
+    body: { scope?: 'course' | 'module' | 'lesson'; moduleId?: string; lessonId?: string }
+  ): Promise<CurriculumCostEstimate> {
+    return request<CurriculumCostEstimate>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/cost-estimate`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  produceModuleLongForm(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean }
+  ): Promise<LessonProduceResult> {
+    return request<LessonProduceResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/produce-long-form`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  queueModule(
+    courseId: string,
+    moduleId: string,
+    body?: { live?: boolean; maxConcurrent?: number }
+  ): Promise<CurriculumQueueResult> {
+    return request<CurriculumQueueResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/modules/${encodeURIComponent(moduleId)}/queue`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
+  queueApprovedCourse(
+    courseId: string,
+    body?: { live?: boolean; maxConcurrent?: number }
+  ): Promise<CurriculumQueueResult> {
+    return request<CurriculumQueueResult>(
+      `/accounts/curricula/${encodeURIComponent(courseId)}/queue-approved`,
+      { method: 'POST', body: JSON.stringify(body ?? {}) }
+    )
+  },
 
   // ---- Data ----
+  products(clientId?: string): Promise<ProductsResponse> {
+    const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''
+    return request<ProductsResponse>(`/accounts/products${qs}`)
+  },
+  creatorProfiles(clientId?: string): Promise<{ creators: CreatorProfile[] }> { const qs = clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''; return request<{ creators: CreatorProfile[] }>(`/accounts/creators${qs}`) },
+  creatorPreflight(id: string, videoVendor: string, clientId?: string): Promise<{ creatorId: string; vendor: string; warnings: string[]; blocking: boolean }> { const qs = new URLSearchParams({ videoVendor }); if (clientId) qs.set('clientId', clientId); return request<{ creatorId: string; vendor: string; warnings: string[]; blocking: boolean }>(`/accounts/creators/${id}/preflight?${qs.toString()}`) },
+  createCreator(body: Partial<CreatorProfile> & { displayName: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>('/accounts/creators', { method: 'POST', body: JSON.stringify(body) }) },
+  updateCreator(id: string, body: Partial<CreatorProfile> & { displayName: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>(`/accounts/creators/${id}`, { method: 'PUT', body: JSON.stringify(body) }) },
+  archiveCreator(id: string): Promise<void> { return request<void>(`/accounts/creators/${id}`, { method: 'DELETE' }) },
+  uploadCreatorImage(id: string, body: { fileName: string; mimeType: string; dataBase64: string }): Promise<{ creator: CreatorProfile }> { return request<{ creator: CreatorProfile }>(`/accounts/creators/${id}/images`, { method: 'POST', body: JSON.stringify(body) }) },
+  deleteCreatorImage(id: string, imageId: string): Promise<void> { return request<void>(`/accounts/creators/${id}/images/${imageId}`, { method: 'DELETE' }) },
+
+  // Character Builder — "generate a person from scratch," a standalone flow separate
+  // from the main run pipeline. Stateless: returns candidate portraits for the caller to
+  // preview and pick from, then hand the chosen one to uploadCreatorImage above (same as
+  // an uploaded photo).
+  generateCharacterPortraits(attributes: CharacterAttributes, count?: number): Promise<{ portraits: CharacterPortrait[] }> {
+    return request<{ portraits: CharacterPortrait[] }>('/accounts/character-builder/generate', { method: 'POST', body: JSON.stringify({ attributes, count }) })
+  },
+
+  // Soul ID
+  trainCreatorIdentity(creatorId: string): Promise<CreatorProfile> {
+    return request<CreatorProfile>(`/accounts/creators/${creatorId}/train`, { method: 'POST' })
+  },
+  getCreatorIdentity(creatorId: string): Promise<{ faceEmbeddingStatus: string; primaryReferenceImageUrl?: string; referenceImageCount: number; avatarMode: string }> {
+    return request(`/accounts/creators/${creatorId}/identity`)
+  },
+
+  createProduct(body: Partial<ProductProfile> & { name: string; clientId?: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>('/accounts/products', { method: 'POST', body: JSON.stringify(body) })
+  },
+  ingestProductUrl(sourceUrl: string, clientId?: string): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>('/accounts/products/ingest-url', { method: 'POST', body: JSON.stringify({ sourceUrl, clientId }) })
+  },
+  updateProduct(id: string, body: Partial<ProductProfile> & { name: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>(`/accounts/products/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  },
+  deleteProduct(id: string): Promise<void> {
+    return request<void>(`/accounts/products/${id}`, { method: 'DELETE' })
+  },
+  uploadProductImage(id: string, body: { fileName: string; mimeType: string; dataBase64: string }): Promise<{ product: ProductProfile }> {
+    return request<{ product: ProductProfile }>(`/accounts/products/${id}/images`, { method: 'POST', body: JSON.stringify(body) })
+  },
+  deleteProductImage(id: string, imageId: string): Promise<void> {
+    return request<void>(`/accounts/products/${id}/images/${imageId}`, { method: 'DELETE' })
+  },
   stats(): Promise<Stats> {
     return request<Stats>('/stats')
   },
-  queue(): Promise<ReviewItem[]> {
-    return request<ReviewItem[]>('/queue')
+  async queue(filter?: QueueFilter): Promise<ReviewItem[]> {
+    const params = new URLSearchParams()
+    if (filter?.status) params.set('status', filter.status)
+    if (filter?.platform) params.set('platform', String(filter.platform))
+    if (filter?.dryRun !== undefined) params.set('dryRun', String(filter.dryRun))
+    const qs = params.toString()
+    // C-2 compat: server now returns { items, hasMore, total } instead of bare array
+    const raw = await request<ReviewItem[] | { items: ReviewItem[]; hasMore: boolean; total: number }>(
+      `/queue${qs ? `?${qs}` : ''}`
+    )
+    return Array.isArray(raw) ? raw : raw.items
   },
   queueItem(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}`)
@@ -225,6 +654,19 @@ export const api = {
   },
   creators(): Promise<TrackedCreator[]> {
     return request<CreatorsResponse>('/creators').then((r) => r.creators)
+  },
+  /** Proactive discovery: niches + winning angles aggregated from local history. */
+  trends(): Promise<TrendsResponse> {
+    return request<TrendsResponse>('/accounts/trends')
+  },
+  /** Discovery: finds what's working in a niche, explains why, and returns a
+   *  riff-able brief. Never throws on an empty/erroring external fetch — the
+   *  backend returns 200 with a seeded brief. */
+  discover(body: DiscoverRequest): Promise<DiscoverResponse> {
+    return request<DiscoverResponse>('/accounts/discover', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
   },
   regenerateScript(id: string, body: { hook: string; points: string[]; cta: string }): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/regenerate-script`, {
@@ -238,12 +680,91 @@ export const api = {
   reject(id: string): Promise<ReviewItem> {
     return request<ReviewItem>(`/queue/${id}/reject`, { method: 'POST' })
   },
+  /** Send an approved/rejected item back to pending (undo decision). */
+  sendBack(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/send-back`, { method: 'POST' })
+  },
+  /** Publish a previously-approved item to its connected platform account.
+   *  Refuses (via the backend) for mock/dry-run items or anything not approved. */
+  publish(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/publish`, { method: 'POST' })
+  },
+  /** Promote a dry-run (mock) item to a real, publishable render by re-rendering
+   *  it live. Flips dryRun to false so the item can then be published. */
+  regenerateLive(id: string): Promise<ReviewItem> {
+    return request<ReviewItem>(`/queue/${id}/regenerate-live`, { method: 'POST' })
+  },
+  bulkApprove(ids: string[]): Promise<{ updated: number }> {
+    return request<{ updated: number }>('/queue/bulk/approve', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
+  },
+  bulkReject(ids: string[]): Promise<{ updated: number }> {
+    return request<{ updated: number }>('/queue/bulk/reject', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
+  },
+  bulkPublish(ids: string[]): Promise<{ published: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }> {
+    return request<{ published: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }>('/queue/bulk/publish', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    })
+  },
   /** Same-origin URL for a review item's finished video — consumed directly by a
    *  <video> element (History tab), not through this JSON client, because the
    *  response is binary MP4. The backend serves it at /api/media/:id behind the
    *  same session/Basic-Auth gate as every other data route. */
   mediaUrl(id: string): string {
     return `${API_BASE}/media/${encodeURIComponent(id)}`
+  },
+
+  // ---- Batch variation generation ----
+  /** Natural-language front end to batchPlan below: describe a batch in plain
+   *  language ("a week of fitness content for my protein brand, TikTok and
+   *  Reels") and get back a draft BatchRequest to review/edit before planning.
+   *  Never plans or enqueues anything itself. */
+  batchPlanFromDescription(description: string, clientId?: string): Promise<BatchPlanDraft> {
+    return request<BatchPlanDraft>('/accounts/batch/plan-from-description', {
+      method: 'POST',
+      body: JSON.stringify({ description, clientId })
+    })
+  },
+  /** Plan a batch — returns cost breakdown, warnings, variation count. */
+  batchPlan(body: BatchRequest): Promise<BatchPlan> {
+    return request<BatchPlan>('/accounts/batch/plan', { method: 'POST', body: JSON.stringify(body) })
+  },
+  /** Confirm and enqueue a planned batch. */
+  batchEnqueue(body: { plan: BatchPlan; request: BatchRequest }): Promise<{
+    batchId: string
+    variationCount: number
+    totalEstimatedCost: number
+    isDryRun: boolean
+    overage: boolean
+    overagePriceUsdPerRun?: number
+    message: string
+  }> {
+    return request('/accounts/batch/enqueue', { method: 'POST', body: JSON.stringify(body) })
+  },
+  /** Get current batch progress (polling fallback). */
+  batchProgress(batchId: string): Promise<BatchProgress> {
+    return request<BatchProgress>(`/accounts/batch/${encodeURIComponent(batchId)}/progress`)
+  },
+  /** Cancel a running batch. */
+  batchCancel(batchId: string): Promise<void> {
+    return request(`/accounts/batch/${encodeURIComponent(batchId)}/cancel`, { method: 'POST' })
+  },
+
+  // ---- Product/UX usage analytics ----
+  /** Best-effort, fire-and-forget usage telemetry — never throws, never awaited by
+   *  callers. A tracking hiccup (network blip, ad blocker) must never break the UI or
+   *  surface an error the user didn't cause. Session-authenticated only: an anonymous
+   *  guest (e.g. Landing.tsx) has nothing to record against yet. */
+  trackEvent(eventType: ProductEventType, meta?: Record<string, string | number | boolean>): void {
+    request('/accounts/analytics/event', { method: 'POST', body: JSON.stringify({ eventType, meta }) }).catch(() => {
+      // Intentionally swallowed — see doc comment above.
+    })
   }
 }
 

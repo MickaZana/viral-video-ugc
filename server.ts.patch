@@ -1,0 +1,263 @@
+--- a/apps/review-dashboard/src/server.ts
++++ b/apps/review-dashboard/src/server.ts
+@@ -21,6 +21,7 @@
+ import { join, resolve, sep } from "node:path";
+ import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+ import { listRuns } from "./runs.js";
+ import { listTrackedCreators } from "./creators.js";
++import { createAccountStore, resolveOrgId } from "@vvugc/shared-auth";
+ import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
+ import { registerAccountRoutes } from "./accounts.js";
+ import { renderAccountPage } from "./account-page.js";
+@@ -40,6 +41,11 @@
+ const logger = pino({ name: "vvugc-review-dashboard" });
+ const startedAt = Date.now();
+ const credentials = resolveCredentials(logger);
+ const { metricsMiddleware, metricsHandler } = createAppMetrics("review-dashboard");
++// Account store used by the tenant-isolation helper below — same store path as
++// registerAccountRoutes, created separately because that function's return value
++// doesn't expose the raw store (and shouldn't — its public surface is requireSession
++// and verifySessionRequest). Both access the same JSON file (or Postgres table).
++const operatorAccountStore = createAccountStore(join(loadEnv().VVUGC_RUNS_DIR, "accounts.json"));
+ 
+ async function clientPublishAccessToken(item: { orgId?: string; clientId?: string; platform: string }): Promise<string | undefined> {
+   // ... unchanged ...
+@@ -255,6 +261,25 @@
+ const { requireSession, verifySessionRequest } = registerAccountRoutes(app, { lo
+ 
+ const PREVIEW_QUEUE_LIMIT = 12;
+ 
++/**
++ * Resolves the calling user's orgId for tenant scoping on the operator routes.
++ * - Session-authenticated users (control-panel SPA): returns their org's ID — they
++ *   can only see/act on their own organization's data.
++ * - Operator-authenticated users (Basic Auth): returns undefined — the operator
++ *   intentionally has cross-org visibility (they're the platform admin).
++ *
++ * This is the SINGLE point of truth for tenant scoping on every route below the
++ * dual-auth gate. If this returns a string, every data query MUST filter by it.
++ */
++function resolveRequestOrg(req: Request & { accountId?: string }): string | undefined {
++  if (!req.accountId) return undefined; // Basic Auth operator — sees all
++  const account = operatorAccountStore.findById(req.accountId);
++  if (!account) return undefined; // Deleted account edge case — fail open to 401 elsewhere
++  return resolveOrgId(account);
++}
++
++const MAX_PAGE_LIMIT = 200;
++const DEFAULT_PAGE_LIMIT = 50;
+ 
+ // === FIX H-1: Strip sensitive data from /preview/queue ===
+ // This endpoint is registered BEFORE the auth gate. It must NOT expose internal
+@@ -279,8 +304,15 @@
+ app.get(
+   "/preview/queue",
+   asyncHandler(async (_req, res) => {
+     const items = await listReviewItems();
+-    // Bounded slice of the queue, full item shape — the tabs render the whole
+-    // ReviewItem (script, flags, clips, captions), so strip nothing here.
+-    res.json(items.slice(0, PREVIEW_QUEUE_LIMIT));
++    // SECURITY FIX (H-1): Only expose a safe subset of fields to unauthenticated
++    // visitors. Never expose videoPath, clips[].filePath, sourceTranscriptText,
++    // or full script content (points, CTA) — those reveal intellectual property
++    // and internal infrastructure paths.
++    const safeItems = items.slice(0, PREVIEW_QUEUE_LIMIT).map((item) => ({
++      id: item.id,
++      niche: item.niche,
++      platform: item.platform,
++      score: item.score,
++      status: item.status,
++      createdAt: item.createdAt,
++      script: { hook: item.script.hook }  // Only the hook for preview/marketing
++    }));
++    res.json(safeItems);
+   })
+ );
+@@ -336,7 +368,12 @@
+ app.use((req: Request & { accountId?: string; auditActor?: string }, res: Respon
+ app.post(
+   "/scheduler/run-due",
+-  asyncHandler(async (_req, res) => {
+-    res.json(await runDueClientSchedules());
++  asyncHandler(async (req: Request & { accountId?: string }, res) => {
++    // FIX H-3: Restrict scheduler triggering to the caller's own org when
++    // authenticated via session. Operator (Basic Auth) can trigger all.
++    const orgId = resolveRequestOrg(req);
++    // runDueClientSchedules already accepts an optional orgId filter —
++    // pass it through so session users can only trigger their own schedules.
++    res.json(await runDueClientSchedules(orgId));
+   })
+ );
+@@ -343,6 +380,9 @@
+ app.get(
+   "/queue",
+   asyncHandler(async (req, res) => {
++    // FIX C-1: Tenant isolation — session users see only their org's items
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++
+     const statusParsed = req.query.status ? ReviewItemStatusSchema.safeParse(req.query.status) : undefined;
+     if (statusParsed && !statusParsed.success) {
+       return res.status(400).json({
+@@ -360,7 +400,11 @@
+     const dryRun =
+       dryRunRaw === "true" ? true : dryRunRaw === "false" ? false : undefined;
+ 
++    // FIX C-2: Pagination — bounded query, never unbounded
++    const limit = Math.min(Math.max(Number(req.query.limit) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
++    const offset = Math.max(Number(req.query.offset) || 0, 0);
++
+     // Batch-metadata filters (Atom E: Review Grouping) — applied in-memory
+     const batchIdFilter = typeof req.query.batchId === "string" ? req.query.batchId : undefined;
+     const productProfileIdFilter = typeof req.query.productProfileId === "string" ? req.query.productProfileId : undefined;
+     const creatorProfileIdFilter = typeof req.query.creatorProfileId === "string" ? req.query.creatorProfileId : undefined;
+     const templateIdFilter = typeof req.query.templateId === "string" ? req.query.templateId : undefined;
+-    let items = await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun });
++    let items = await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun, orgId });
+     if (batchIdFilter || productProfileIdFilter || creatorProfileIdFilter || templateIdFilter) {
+       items = items.filter((item) => {
+@@ -384,7 +428,10 @@
+       });
+     }
+ 
+-    res.json(items);
++    // FIX C-2: Apply pagination after in-memory filters
++    const page = items.slice(offset, offset + limit + 1);
++    const hasMore = page.length > limit;
++    res.json({ items: page.slice(0, limit), hasMore, total: items.length });
+   })
+ );
+@@ -389,8 +433,10 @@
+ app.get(
+   "/stats",
+   asyncHandler(async (_req, res) => {
+-    const items = await listReviewItems();
+-    const pending = items.filter((i) => i.status === "pending").length;
++    // FIX C-1: Stats should also be org-scoped for session users
++    const orgId = resolveRequestOrg(_req as Request & { accountId?: string });
++    const items = await listReviewItems(orgId ? { orgId } : undefined);
++    const pending = items.filter((i) => i.status === "pending").length;
+     const approved = items.filter((i) => i.status === "approved").length;
+     const rejected = items.filter((i) => i.status === "rejected").length;
+     const estimatedCostUsd = listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
+@@ -429,8 +475,16 @@
+ app.post(
+   "/queue/bulk/approve",
+   asyncHandler(async (req, res) => {
+     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
+     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
+-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "approved") });
++    // FIX C-1: Tenant isolation on bulk operations
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    let ids = parsed.data.ids;
++    if (orgId) {
++      // Filter to only IDs that belong to this user's org
++      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
++      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
++    }
++    res.json({ updated: await setReviewItemsStatus(ids, "approved") });
+   })
+ );
+@@ -438,8 +492,16 @@
+ app.post(
+   "/queue/bulk/reject",
+   asyncHandler(async (req, res) => {
+     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
+     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
+-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "rejected") });
++    // FIX C-1: Tenant isolation on bulk operations
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    let ids = parsed.data.ids;
++    if (orgId) {
++      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
++      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
++    }
++    res.json({ updated: await setReviewItemsStatus(ids, "rejected") });
+   })
+ );
+@@ -447,8 +509,11 @@
+ app.get(
+   "/queue/:id",
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation on single-item access
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+     res.json(item);
+   })
+ );
+@@ -465,6 +530,9 @@
+ app.get(
+   "/media/:itemId",
+   asyncHandler<{ itemId: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.itemId);
++    // FIX C-1: Tenant isolation on media access
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item?.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+     if (!item || typeof item.videoPath !== "string" || !item.videoPath) {
+       return res.status(404).json({ error: "not found" });
+     }
+@@ -489,6 +557,9 @@
+ app.post(
+   "/queue/:id/approve",
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+     await setReviewItemStatus(req.params.id, "approved");
+     res.json({ ...item, status: "approved" });
+   })
+@@ -499,6 +570,9 @@
+ app.post(
+   "/queue/:id/reject",
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+     await setReviewItemStatus(req.params.id, "rejected");
+     res.json({ ...item, status: "rejected" });
+   })
+@@ -528,6 +602,9 @@
+ app.post(
+   "/queue/:id/regenerate-scene",
+   regenerateRateLimiter,
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+@@ -560,6 +637,9 @@
+ app.post(
+   "/queue/:id/regenerate-script",
+   regenerateRateLimiter,
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+@@ -594,6 +674,9 @@
+ app.post(
+   "/queue/:id/regenerate-live",
+   regenerateRateLimiter,
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });
+@@ -628,6 +711,9 @@
+ app.post(
+   "/queue/:id/publish",
+   regenerateRateLimiter,
+   asyncHandler<{ id: string }>(async (req, res) => {
+     const item = await getReviewItem(req.params.id);
+     if (!item) return res.status(404).json({ error: "not found" });
++    // FIX C-1: Tenant isolation
++    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
++    if (orgId && item.orgId && item.orgId !== orgId) return res.status(404).json({ error: "not found" });

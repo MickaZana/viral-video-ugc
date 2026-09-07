@@ -109,4 +109,38 @@ describe("listRuns", () => {
     writeRun("new", { config: { niche: "b", createdAt: "2026-01-02T00:00:00.000Z" } });
     expect(listRuns().map((r) => r.runId)).toEqual(["new", "old"]);
   });
+
+  it("filters runs by orgId when provided (tenant isolation)", () => {
+    writeRun("org-a-run", {
+      config: { niche: "fitness", platforms: ["tiktok"], createdAt: "2026-01-01T00:00:00.000Z", accountId: "org-a" },
+      candidatesFound: 3,
+      reviewItemsCreated: 2
+    });
+    writeRun("org-b-run", {
+      config: { niche: "beauty", platforms: ["instagram_reels"], createdAt: "2026-01-02T00:00:00.000Z", accountId: "org-b" },
+      candidatesFound: 5,
+      reviewItemsCreated: 4
+    });
+    writeRun("org-a-run-2", {
+      config: { niche: "nutrition", platforms: ["youtube_shorts"], createdAt: "2026-01-03T00:00:00.000Z", accountId: "org-a" },
+      candidatesFound: 2,
+      reviewItemsCreated: 1
+    });
+
+    // Org A should only see their 2 runs
+    const orgARuns = listRuns("org-a");
+    expect(orgARuns).toHaveLength(2);
+    expect(orgARuns.map((r) => r.runId).sort()).toEqual(["org-a-run", "org-a-run-2"].sort());
+
+    // Org B should only see their 1 run
+    const orgBRuns = listRuns("org-b");
+    expect(orgBRuns).toHaveLength(1);
+    expect(orgBRuns[0].runId).toBe("org-b-run");
+
+    // No org filter returns all (operator access)
+    expect(listRuns()).toHaveLength(3);
+
+    // Non-existent org returns nothing
+    expect(listRuns("org-doesnt-exist")).toHaveLength(0);
+  });
 });

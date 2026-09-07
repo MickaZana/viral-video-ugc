@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGeminiAdapter } from "./gemini.js";
+import { createGeminiAdapter, generateImage } from "./gemini.js";
 import { makeTestImage } from "../test-fixtures.js";
 
 function jsonResponse(body: unknown, ok = true): Response {
@@ -9,6 +9,11 @@ function jsonResponse(body: unknown, ok = true): Response {
 }
 
 const outDir = `${process.cwd()}/.test-out-gemini`;
+
+// An AIza…-shaped value (39 chars) that satisfies the adapter's Google AI Studio
+// key format guard — the happy-path tests need a well-formed key or the guard
+// rejects before any fetch is made.
+const WELL_FORMED_KEY = "AIza" + "b".repeat(35);
 
 // Real Ken Burns rendering at production dimensions (2160x3840 doubled-for-9:16) is
 // already verified against real ffmpeg by ken-burns.test.ts at a small resolution —
@@ -25,7 +30,7 @@ vi.mock("../ken-burns.js", () => ({
 
 describe("createGeminiAdapter", () => {
   beforeEach(() => {
-    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
   });
 
   afterEach(() => {
@@ -59,7 +64,7 @@ describe("createGeminiAdapter", () => {
     });
 
     expect(capturedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
-    expect(capturedHeaders?.["x-goog-api-key"]).toBe("test-gemini-key");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
     expect(capturedBody?.model).toBe("gemini-2.5-flash-image");
     expect((capturedBody?.input as { text: string }[])?.[0]?.text).toContain("fitness creator");
     expect((capturedBody?.response_format as { aspect_ratio: string })?.aspect_ratio).toBe("9:16");
@@ -104,5 +109,256 @@ describe("createGeminiAdapter", () => {
     await expect(
       adapter.generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 2, aspectRatio: "9:16" })
     ).rejects.toThrow(/no output_image/);
+  });
+
+  it("still forwards referenceImageDataUri to the image input slot now that it delegates to generateImage internally", async () => {
+    const fixture = makeTestImage(`${outDir}/fixture-ref.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+    const refDataUri = "data:image/png;base64,ZmFrZS1yZWZlcmVuY2UtaW1hZ2U=";
+
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    const adapter = createGeminiAdapter(outDir);
+    await adapter.generate({
+      scriptSegmentIndex: 2,
+      prompt: "x",
+      durationSec: 2,
+      aspectRatio: "9:16",
+      referenceImageDataUri: refDataUri
+    });
+
+    const input = capturedBody?.input as { type: string; image?: string }[];
+    expect(input[1]).toEqual({ type: "image", image: refDataUri });
+  }, 30_000);
+});
+
+describe("generateImage (standalone, no video attached)", () => {
+  beforeEach(() => {
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_IMAGE_MODEL;
+    if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
+  });
+
+  it("posts to /v1beta/interactions with the default model and default 1:1/1K response_format, returning real image bytes", async () => {
+    const fixture = makeTestImage(`${outDir}/standalone-fixture.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+    const rawBytes = readFileSync(fixture);
+
+    let capturedUrl: string | undefined;
+    let capturedHeaders: Record<string, string> | undefined;
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        capturedUrl = url.toString();
+        capturedHeaders = init?.headers as Record<string, string>;
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    const result = await generateImage("a red circle on a white background");
+
+    expect(capturedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
+    expect(capturedBody?.model).toBe("gemini-2.5-flash-image");
+    expect((capturedBody?.input as { type: string; text: string }[])?.[0]).toEqual({ type: "text", text: "a red circle on a white background" });
+    expect((capturedBody?.response_format as { aspect_ratio: string; image_size: string })?.aspect_ratio).toBe("1:1");
+    expect((capturedBody?.response_format as { aspect_ratio: string; image_size: string })?.image_size).toBe("1K");
+
+    expect(result.mimeType).toBe("image/png");
+    expect(Buffer.compare(result.imageBytes, rawBytes)).toBe(0);
+  });
+
+  it("honors a per-call model override independent of GEMINI_IMAGE_MODEL", async () => {
+    process.env.GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image";
+    const fixture = makeTestImage(`${outDir}/standalone-fixture2.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    await generateImage("x", { model: "gemini-3-pro-image-preview" });
+
+    expect(capturedBody?.model).toBe("gemini-3-pro-image-preview");
+  });
+
+  it("falls back to GEMINI_IMAGE_MODEL when no per-call model is given", async () => {
+    process.env.GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image";
+    const fixture = makeTestImage(`${outDir}/standalone-fixture3.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    await generateImage("x");
+
+    expect(capturedBody?.model).toBe("gemini-3.1-flash-image");
+  });
+
+  it("passes referenceImageDataUri through as the single image input slot (image editing / image-to-image)", async () => {
+    const fixture = makeTestImage(`${outDir}/standalone-fixture4.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+    const refDataUri = "data:image/png;base64,ZmFrZS1yZWZlcmVuY2UtaW1hZ2U=";
+
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    await generateImage("edit this image: add a hat", { referenceImageDataUri: refDataUri });
+
+    const input = capturedBody?.input as { type: string; text?: string; image?: string }[];
+    expect(input).toHaveLength(2);
+    expect(input[0]).toEqual({ type: "text", text: "edit this image: add a hat" });
+    expect(input[1]).toEqual({ type: "image", image: refDataUri });
+  });
+
+  it("respects a custom aspectRatio and imageSize", async () => {
+    const fixture = makeTestImage(`${outDir}/standalone-fixture5.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return jsonResponse({ output_image: { data: imageBase64 } });
+      })
+    );
+
+    await generateImage("x", { aspectRatio: "16:9", imageSize: "4K" });
+
+    expect((capturedBody?.response_format as { aspect_ratio: string; image_size: string })?.aspect_ratio).toBe("16:9");
+    expect((capturedBody?.response_format as { aspect_ratio: string; image_size: string })?.image_size).toBe("4K");
+  });
+
+  it("uses the response's mime_type when present instead of defaulting to image/png", async () => {
+    const fixture = makeTestImage(`${outDir}/standalone-fixture6.png`);
+    const imageBase64 = readFileSync(fixture).toString("base64");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ output_image: { data: imageBase64, mime_type: "image/jpeg" } })));
+
+    const result = await generateImage("x");
+
+    expect(result.mimeType).toBe("image/jpeg");
+  });
+
+  it("throws a clear error when the request responds non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "quota exceeded" }, false)));
+    await expect(generateImage("x")).rejects.toThrow(/Gemini image generation failed/);
+  });
+
+  it("throws a clear error when the response has no output_image", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
+    await expect(generateImage("x")).rejects.toThrow(/no output_image/);
+  });
+});
+
+describe("GEMINI_API_KEY format guard", () => {
+  // A 1x1 PNG as base64 — the guard tests only care about which key reaches the
+  // request (or that no request is made at all), not about real image bytes, so
+  // there's no need to touch the filesystem / shared outDir here.
+  const TINY_PNG_BASE64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_IMAGE_MODEL;
+  });
+
+  it("rejects a malformed (OAuth-token-shaped) key before making any request, and does not leak the value", async () => {
+    const fakeValue = "AQ.Ab8fakeoauthtokenvalue...";
+    process.env.GEMINI_API_KEY = fakeValue;
+    const fetchMock = vi.fn(async () => jsonResponse({ output_image: { data: "" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let err: Error | undefined;
+    try {
+      await generateImage("x");
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect(err?.message).toMatch(/not a Google AI Studio API key/);
+    expect(err?.message).not.toContain("AQ.Ab8");
+    expect(err?.message).not.toContain(fakeValue);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects with the existing requireEnvVar message when the key is missing (guard does not swallow that path)", async () => {
+    delete process.env.GEMINI_API_KEY;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ output_image: { data: "" } })));
+    await expect(generateImage("x")).rejects.toThrow(/Missing required env var/);
+  });
+
+  it("passes a well-formed AIza… key through to the request", async () => {
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
+    let capturedHeaders: Record<string, string> | undefined;
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return jsonResponse({ output_image: { data: TINY_PNG_BASE64 } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImage("x")).resolves.toMatchObject({ mimeType: "image/png" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
+  });
+
+  it.each([
+    ["AIza" + "b".repeat(34), "AIza + 34 chars (too short)"],
+    ["ya29.a0Afake-google-oauth-access-token-value", "ya29. Google OAuth token"],
+    ["AIza" + "b".repeat(35) + " x", "trailing junk after an otherwise valid key"]
+  ])("rejects %s (%s)", async (key) => {
+    process.env.GEMINI_API_KEY = key;
+    const fetchMock = vi.fn(async () => jsonResponse({ output_image: { data: "" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImage("x")).rejects.toThrow(/not a Google AI Studio API key/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an AIza… key with surrounding whitespace (trimmed) and forwards the trimmed value", async () => {
+    process.env.GEMINI_API_KEY = `  ${WELL_FORMED_KEY}\n`;
+    let capturedHeaders: Record<string, string> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedHeaders = init?.headers as Record<string, string>;
+        return jsonResponse({ output_image: { data: TINY_PNG_BASE64 } });
+      })
+    );
+
+    await generateImage("x");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
   });
 });

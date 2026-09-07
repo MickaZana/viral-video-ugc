@@ -1,6 +1,6 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 export interface Session {
   token: string;
@@ -9,7 +9,17 @@ export interface Session {
   expiresAt: string;
 }
 
-const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — a dashboard login, not a banking session.
+// P1: Configurable via SESSION_TTL_SECONDS env var. Defaults to 30 days.
+// Rejects non-positive, NaN, and unreasonably large (>1 year) values.
+const DEFAULT_TTL_MS = (() => {
+  const envSeconds = process.env.SESSION_TTL_SECONDS;
+  if (!envSeconds) return 30 * 24 * 60 * 60 * 1000;
+  const parsed = Number(envSeconds);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 365 * 24 * 60 * 60) {
+    return 30 * 24 * 60 * 60 * 1000; // fallback to 30 days for invalid values
+  }
+  return parsed * 1000;
+})();
 
 /** Same exclusive-lockfile pattern as accounts.ts / review-queue's json-store.ts. */
 function acquireLock(dbPath: string, timeoutMs = 5000): void {
@@ -43,7 +53,7 @@ function readAllUnlocked(dbPath: string): Session[] {
 
 function writeAllUnlocked(dbPath: string, sessions: Session[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(sessions, null, 2));
+  { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(sessions, null, 2)); renameSync(_atomicTmp, dbPath); };
 }
 
 export interface SessionStore {

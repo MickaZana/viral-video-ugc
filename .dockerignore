@@ -1,6 +1,8 @@
 node_modules
 **/node_modules
 dist
+# dist is excluded so Docker builds from source — the Dockerfile's multi-stage
+# build compiles TypeScript itself, then the runtime stage strips source files.
 **/dist
 **/*.tsbuildinfo
 runs
@@ -15,3 +17,13 @@ coverage
 .git
 .env
 .test-out-*
+# Test files never belong in production images
+**/*.test.ts
+**/*.spec.ts
+**/__tests__
+# Documentation / markdown (keep LICENSE if present)
+docs
+**/*.md
+!LICENSE.md
+# Editor / IDE artifacts
+.vscode

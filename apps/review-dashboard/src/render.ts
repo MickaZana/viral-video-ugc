@@ -421,7 +421,8 @@ async function load() {
 
   const res = await fetch('/queue?' + params.toString());
   if (!res.ok) throw new Error('Failed to load queue (' + res.status + ')');
-  state.items = await res.json();
+  const body = await res.json();
+  state.items = Array.isArray(body) ? body : body.items;
   state.selected.clear();
   document.getElementById('select-all').checked = false;
   populateFilterOptions();

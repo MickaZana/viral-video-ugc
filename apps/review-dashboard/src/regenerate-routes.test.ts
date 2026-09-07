@@ -49,6 +49,7 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     ],
     sourceTranscriptText: "An unrelated source transcript about a totally different topic.",
     status: "approved",
+    dryRun: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };

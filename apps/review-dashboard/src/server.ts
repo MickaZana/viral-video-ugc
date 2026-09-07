@@ -15,40 +15,70 @@ import {
 } from "@vvugc/review-queue";
 import { regenerateScene, regenerateScript } from "@vvugc/orchestrator";
 import { getPublishAdapter } from "@vvugc/mcp-publish";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { join, resolve, sep } from "node:path";
-import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { listRuns } from "./runs.js";
 import { listTrackedCreators } from "./creators.js";
-import { renderDashboardPage } from "./render.js";
 import { createBasicAuthMiddleware, resolveCredentials } from "./auth.js";
-import { registerAccountRoutes } from "./accounts.js";
-import { renderAccountPage } from "./account-page.js";
+import { renderDashboardPage } from "./render.js";
+import { initializeIdentity, parseCookies, registerAccountRoutes } from "./accounts.js";
 import { registerBillingRoutes, registerStripeWebhookRoute } from "./billing.js";
+import { registerBatchRoutes } from "./batch-routes.js";
+import { registerSoulIdRoutes } from "./soul-id-routes.js";
+import { registerCurriculumRoutes } from "./curriculum-routes.js";
 import { createPublicAssetUrl, registerPublicAssetRoute } from "./public-assets.js";
 import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
+import { DEMO_PREVIEW_STATS, DEMO_PREVIEW_CREATORS, DEMO_PREVIEW_RUNS, DEMO_PREVIEW_QUEUE } from "./demo-preview-data.js";
+import { type AuthedRequest } from "./auth-context.js";
+import { v1Router } from "./api-v1-routes.js";
 import { pruneRetainedLogs } from "./retention.js";
 import { MODEL_CATALOG, groupModelsByResult } from "./models.js";
-import { createSocialConnectionStore } from "@vvugc/shared-auth";
+import { resolveOrgId, roleHasPermission, type Account, type AccountPermission } from "@vvugc/shared-auth";
 import { refreshGoogleAccessToken } from "./google-oauth.js";
-import { resolveSocialTokenEncryptionKey } from "./social-token-key.js";
+import { isLLMLive } from "./llm-gate.js";
+import { createPublishReceiptStore } from "./publish-receipts.js";
+import { LocalBillingRepository, PostgresBillingRepository } from "./billing-postgres.js";
 
 const require = createRequire(import.meta.url);
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const logger = pino({ name: "vvugc-review-dashboard" });
 const startedAt = Date.now();
 const credentials = resolveCredentials(logger);
 const { metricsMiddleware, metricsHandler } = createAppMetrics("review-dashboard");
 
+// --- C-1 Tenant Isolation Infrastructure ---
+// Top-level initialization intentionally blocks module readiness: PostgreSQL schema
+// migration and MFA key validation must succeed before this service can listen.
+const initializedIdentity = await initializeIdentity();
+// One repository instance is injected into every billing-adjacent path.  This
+// prevents a production route or worker from silently selecting JSON state.
+const billingRepository = initializedIdentity.database
+  ? new PostgresBillingRepository(initializedIdentity.database.pool)
+  : new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR);
+
+/**
+ * Resolves the calling user's orgId for tenant scoping.
+ * - Session-authenticated (control-panel SPA): returns their org's ID
+ * - Operator (Basic Auth): returns undefined (cross-org visibility intentional)
+ */
+function resolveRequestOrg(req: Request & { accountId?: string; account?: Account }): string | undefined {
+  return req.accountId && req.account ? resolveOrgId(req.account) : undefined;
+}
+
+const MAX_PAGE_LIMIT = 200;
+const DEFAULT_PAGE_LIMIT = 50;
+
 async function clientPublishAccessToken(item: { orgId?: string; clientId?: string; platform: string }): Promise<string | undefined> {
   if (!item.orgId || !item.clientId) return undefined;
   const env = loadEnv();
-  const encryptionKey = resolveSocialTokenEncryptionKey();
-  const store = createSocialConnectionStore(join(env.VVUGC_RUNS_DIR, "social-connections.json"), encryptionKey);
-  const connection = store.list(item.orgId, item.clientId).find((entry) => entry.platform === item.platform);
+  const profiles = initializedIdentity.tenantProfiles!;
+  const connections = await profiles.socialList(item.orgId, item.clientId);
+  const connection = connections.find((entry) => entry.platform === item.platform);
   if (!connection) throw new Error(`Connect the client's ${item.platform} account before publishing`);
-  const secrets = store.getSecrets(item.orgId, connection.id);
+  const secrets = await profiles.socialSecrets(item.orgId, connection.id);
   if (!secrets) throw new Error("The client's publishing credentials could not be decrypted");
 
   if (item.platform !== "youtube_shorts" || connection.status !== "expired") return secrets.accessToken;
@@ -61,15 +91,16 @@ async function clientPublishAccessToken(item: { orgId?: string; clientId?: strin
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET
   });
-  store.connect(item.orgId, {
+  const refreshedConnection = {
     clientId: item.clientId,
-    platform: "youtube_shorts",
+    platform: "youtube_shorts" as const,
     accountLabel: connection.accountLabel,
     providerAccountId: connection.providerAccountId,
     accessToken: refreshed.accessToken,
     refreshToken: secrets.refreshToken,
     expiresAt: refreshed.expiresAt
-  });
+  };
+  await profiles.socialConnect(item.orgId, refreshedConnection);
   return refreshed.accessToken;
 }
 
@@ -83,9 +114,9 @@ if (TRUST_PROXY_HOPS > 0) app.set("trust proxy", TRUST_PROXY_HOPS);
 // Must be registered before express.json() below — Stripe's webhook signature check
 // needs the raw request body, which express.json() would otherwise already have
 // consumed and replaced with a parsed object by the time any route handler runs.
-registerStripeWebhookRoute(app);
+registerStripeWebhookRoute(app, { pool: initializedIdentity.database?.pool });
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 // The control-panel SPA (served from this same origin below, so its session-cookie
 // auth works without CORS) calls /api/* in dev and prod alike. Strip the prefix so
@@ -177,7 +208,27 @@ app.use((req: Request & { id?: string }, res, next) => {
 // file or missing credentials don't fail the probe. Registered before the auth
 // middleware below on purpose — every other route requires it.
 app.get("/healthz", (_req, res) => {
-  res.json({ status: "ok", uptimeSeconds: Math.round((Date.now() - startedAt) / 1000) });
+  const uptimeSeconds = Math.round((Date.now() - startedAt) / 1000);
+  // Deep health check: verify database/store connectivity, not just process liveness.
+  // listReviewItems is always async (supports Postgres + JSON-file backends).
+  listReviewItems("pending")
+    .then(() => res.json({ status: "ok", uptimeSeconds, db: "connected" }))
+    .catch(() => res.status(503).json({ status: "degraded", uptimeSeconds, db: "unreachable" }));
+});
+
+// P1: Readiness probe — verifies all dependencies required for serving traffic.
+// Separate from /healthz (liveness) so orchestrators can distinguish "process alive
+// but not ready" from "process dead". /healthz = cheap liveness, /readyz = deep check.
+app.get("/readyz", async (_req, res) => {
+  try {
+    await listReviewItems({ status: "pending" });
+    const { VVUGC_RUNS_DIR } = loadEnv();
+    const runsOk = existsSync(VVUGC_RUNS_DIR);
+    if (!runsOk) throw new Error("VVUGC_RUNS_DIR not accessible");
+    res.json({ status: "ready", db: "connected", storage: "accessible" });
+  } catch (err) {
+    res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : "unknown" });
+  }
 });
 
 // Prometheus scrape target — aggregate operational data (request counts/timings,
@@ -205,19 +256,56 @@ const authRateLimiter = rateLimit({
 // they stay reachable. /accounts/me and /accounts/usage guard themselves via
 // requireSession (see accounts.ts). This is a separate, additive auth surface
 // from the dashboard's own operator Basic Auth; neither one weakens the other.
-const { requireSession, verifySessionRequest } = registerAccountRoutes(app, { logger });
-registerBillingRoutes(app, requireSession);
+const { requireSession, verifySessionRequest } = registerAccountRoutes(app, {
+  logger,
+  identity: initializedIdentity.identity,
+  tenantProfiles: initializedIdentity.tenantProfiles,
+  billing: billingRepository
+});
+registerBillingRoutes(app, requireSession, { pool: initializedIdentity.database?.pool });
+// Batch Studio (structured plan/enqueue/progress/cancel + the natural-language
+// plan-from-description front end) — the control-panel BatchStudio.tsx page
+// already calls these routes; this was left commented out after the P2 orgId
+// bypass fix in e7744ad and never re-enabled, leaving the whole feature 404 in
+// production despite a finished, tested UI pointed at it.
+// initializeIdentity() always populates tenantProfiles on every return branch
+// (LocalTenantProfileRepository or PostgresTenantProfileRepository) — the field
+// is optional only for the InitializedIdentity DI type's other injection points.
+registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles! });
 
-// The self-service account page — public (session-cookie auth handled client-side),
-// deliberately reachable without the operator Basic Auth below, same reasoning as
-// the /accounts/* API routes it talks to. /account/join is the same page (its
-// client-side JS reads ?token= to switch into invite-accept mode — see
-// account-page.ts) under the exact URL account-page.ts's own invite flow hands
-// the owner to send a teammate; without this second route it fell through past
-// /account to the operator Basic Auth gate below and 401'd for every invited
-// teammate, the same failure mode /tokens.css had before it was moved up here.
-app.get(["/dashboard", "/account", "/account/join"], (req: Request & { scriptNonce?: string }, res) => {
-  res.type("html").send(renderAccountPage(req.scriptNonce));
+// API v1 namespace — disabled by default (VVUGC_API_ENABLED=false), returns 404 when off.
+app.use("/v1", v1Router);
+
+// Soul ID: identity training and status endpoints. Previously wired to a fake
+// no-op store (`{ get: () => undefined, update: () => undefined } as any`),
+// which 404'd/no-op'd the "Train Identity" button in production forever — the
+// route was never mounted with a real store. Now wired to the same real
+// tenantProfiles repository as registerBatchRoutes above (same non-null-assertion
+// reasoning: initializeIdentity() always populates tenantProfiles on every
+// return branch).
+registerSoulIdRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
+
+// Curriculum Mode v2: course CRUD (generate-plan / approve / modules / lessons /
+// produce land in later units). Same real tenantProfiles repository and
+// non-null-assertion reasoning as the two registrations above.
+registerCurriculumRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
+
+// /account and /dashboard used to be separate HTML self-service pages
+// (account-page.ts, now deleted). The product workspace is the SPA now for
+// everything, including team invites (Settings' Team panel) — bounce there.
+// The query string is preserved (not just the path) so an existing external
+// link like /account?mode=signup still lands on the SPA's signup form instead
+// of silently dropping the ?mode= the SPA's own auth gate reads.
+// /account/join preserves any already-sent invite link's ?token= by forwarding
+// it into the SPA's own invite mode (SignIn.tsx) rather than 404ing on it.
+app.get(["/account", "/dashboard"], (req: Request, res) => {
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(302, `/app${qs}`);
+});
+app.get("/account/join", (req: Request, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const qs = token ? `?mode=invite&token=${encodeURIComponent(token)}` : "?mode=invite";
+  res.redirect(302, `/app${qs}`);
 });
 
 // Serves a single, signed, time-limited video URL per request — see
@@ -235,6 +323,16 @@ app.get("/tokens.css", (_req, res) => {
   res.type("css").sendFile(require.resolve("@vvugc/design-tokens"));
 });
 
+app.get(["/favicon.png", "/favicon.ico", "/logo.png"], (_req, res) => {
+  const publicDir = resolve(__dirname, "../public");
+  const fallback = resolve(publicDir, "logo.png");
+  if (existsSync(fallback)) {
+    res.type("png").sendFile(fallback);
+  } else {
+    res.status(404).end();
+  }
+});
+
 // Read-only public preview endpoints for the marketing landing page's "live
 // preview" frame (control-panel's Landing.tsx). They mirror the same data the
 // authenticated tabs render, but deliberately expose only non-sensitive
@@ -243,43 +341,36 @@ app.get("/tokens.css", (_req, res) => {
 // paths). They're registered here, BEFORE the auth gate, so anonymous visitors
 // can click around the landing page's preview; they return nothing a caller
 // couldn't already see summarized in the marketing copy.
-const PREVIEW_QUEUE_LIMIT = 12;
 app.get(
   "/preview/stats",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
-    res.json({
-      pending: items.filter((i) => i.status === "pending").length,
-      approved: items.filter((i) => i.status === "approved").length,
-      rejected: items.filter((i) => i.status === "rejected").length,
-      estimatedCostUsd: listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0)
-    });
-  })
+  (_req, res) => {
+    // P0: Public preview uses static synthetic data — never real customer data
+    res.json(DEMO_PREVIEW_STATS);
+  }
 );
 
 app.get("/preview/creators", (_req, res) => {
-  res.json({ creators: listTrackedCreators().slice(0, 8) });
+  // P0: Public preview uses static synthetic data — never real customer data
+  res.json(DEMO_PREVIEW_CREATORS);
 });
 
 app.get("/preview/runs", (_req, res) => {
-  res.json(listRuns().slice(0, 6));
+  // P0: Public preview uses static synthetic data — never real customer data
+  res.json(DEMO_PREVIEW_RUNS);
 });
 
 app.get(
   "/preview/queue",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
-    // Bounded slice of the queue, full item shape — the tabs render the whole
-    // ReviewItem (script, flags, clips, captions), so strip nothing here.
-    res.json(items.slice(0, PREVIEW_QUEUE_LIMIT));
-  })
+  (_req, res) => {
+    // P0: Public preview uses static synthetic data — never real customer data
+    res.json(DEMO_PREVIEW_QUEUE);
+  }
 );
 
-// The control-panel SPA — the product workspace / landing (see the "better yorbi"
+// The control-panel SPA — the product workspace / landing (see the
 // front-end). Served from this same origin so its session-cookie auth and CSRF
 // protection work exactly as they do in dev (Vite proxies /api to this backend).
-// Mounted at /app (the operator dashboard stays at /) and public: guests load the
-// landing, then sign in. The hashed Vite assets are served at /assets. Optional —
+// Mounted at /app. Guests see sign-in; authenticated / redirects to /app/review. The hashed Vite assets are served at /assets. Optional —
 // if the SPA hasn't been built in this checkout, /app simply 404s and the
 // dashboard's own operator UI is unaffected.
 const CONTROL_PANEL_DIST = fileURLToPath(new URL("../../control-panel/dist/", import.meta.url));
@@ -296,6 +387,29 @@ if (existsSync(CONTROL_PANEL_DIST)) {
   app.use("/app", serveControlPanel);
 }
 
+// / is the operator's page — it always has been; customers have their own
+// entry at /app (linked from marketing-site and /account) and were never
+// meant to land on this dashboard's bare root. A signed-in customer session
+// still gets redirected to their own workspace rather than shown an
+// operator-only view, but anyone else falls through to the standard Basic
+// Auth gate below — a real 401 + WWW-Authenticate challenge, exactly like
+// every other route here, so the browser's normal credential prompt (or
+// Playwright's httpCredentials) responds to it correctly. Basic Auth is
+// challenge-response, not proactively sent, so short-circuiting straight to
+// a redirect here (an earlier version of this fix did) never gives the
+// browser the 401 it needs to actually send credentials on the first hit.
+// The matching app.get("/", ...) that renders the dashboard is registered
+// after the gate, below.
+app.get("/", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const session = await verifySessionRequest(req);
+    if (session) return res.redirect(302, "/app/review");
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
 // Two valid ways to get past this gate:
@@ -304,20 +418,61 @@ if (existsSync(CONTROL_PANEL_DIST)) {
 // A request that carries neither is rejected. This is what lets the control-panel
 // reach the data endpoints with a real user login rather than only operator creds.
 app.use(authRateLimiter);
-app.use((req: Request & { accountId?: string; auditActor?: string }, res: Response, next: NextFunction) => {
-  const session = verifySessionRequest(req);
-  if (session) {
-    req.accountId = session.accountId;
-    req.auditActor = `account:${session.accountId}`;
-    return next();
-  }
+app.use((req: Request & { accountId?: string; auditActor?: string; account?: Account }, res: Response, next: NextFunction) => { void (async () => {
+  const session = await verifySessionRequest(req);
+  if (session) { req.accountId = session.accountId; req.account = session.account; req.auditActor = `account:${session.accountId}`; return next(); }
   return createBasicAuthMiddleware(credentials)(req, res, next);
+})().catch(next);
 });
+
+// Reachable only past the gate above — a customer session was already
+// redirected to /app/review before reaching here, so this is exclusively the
+// Basic-Auth-authenticated operator's cross-tenant queue dashboard (see
+// resolveRequestOrg: an operator request has no orgId, so /queue and friends
+// return every org's items — a view the per-tenant SPA has no way to show).
+app.get("/", (req: Request & { scriptNonce?: string }, res) => {
+  res.type("html").send(renderDashboardPage(req.scriptNonce));
+});
+
+/** Applies account-route CSRF and role enforcement to legacy queue mutations while
+ * deliberately preserving the operator's Basic Auth workflow.  Session callers are
+ * re-checked through requireSession so a valid cookie alone cannot bypass CSRF. */
+function requireQueuePermission(permission: AccountPermission): RequestHandler {
+  return (req: Request & { accountId?: string; account?: Account }, res, next) => {
+    if (!req.accountId) return next();
+    return requireSession(req, res, () => {
+      // Unlike the account routes, legacy queue mutations must reject a session
+      // cookie without a CSRF token even when a non-browser client omits Origin.
+      // Basic Auth never reaches this branch and remains intentionally exempt.
+      const sessionCookie = process.env.NODE_ENV === "production" ? "__Host-vvugc_session" : "vvugc_session";
+      const sessionToken = parseCookies(req.headers.cookie)[sessionCookie];
+      const supplied = typeof req.headers["x-csrf-token"] === "string" ? req.headers["x-csrf-token"] : undefined;
+      const expected = sessionToken ? createHash("sha256").update(`vvugc-csrf:${sessionToken}`).digest("base64url") : undefined;
+      const validCsrf = Boolean(supplied && expected && Buffer.byteLength(supplied) === Buffer.byteLength(expected) && timingSafeEqual(Buffer.from(supplied), Buffer.from(expected)));
+      if (!validCsrf) return res.status(403).json({ error: "invalid CSRF token" });
+      const account = req.account;
+      if (!account) return res.status(401).json({ error: "not authenticated" });
+      if (!roleHasPermission(account.role, permission)) {
+        return res.status(403).json({ error: `requires the ${permission} permission` });
+      }
+      return next();
+    });
+  };
+}
+
+/** Session users must match an explicitly owned row. Legacy rows without an org
+ * remain available only to the deliberately cross-tenant operator credential. */
+function isReviewItemVisibleToRequest(req: Request & { accountId?: string }, item: { orgId?: string }): boolean {
+  const orgId = resolveRequestOrg(req);
+  return !orgId || item.orgId === orgId;
+}
 
 app.post(
   "/scheduler/run-due",
-  asyncHandler(async (_req, res) => {
-    res.json(await runDueClientSchedules());
+  asyncHandler(async (req: Request & { accountId?: string }, res) => {
+    // H-3 FIX: Session users can only trigger their own org's schedules
+    const orgId = resolveRequestOrg(req);
+    res.json(await runDueClientSchedules(initializedIdentity.tenantProfiles!, orgId, new Date(), billingRepository));
   })
 );
 
@@ -339,26 +494,65 @@ app.get(
     }
 
     const niche = typeof req.query.niche === "string" && req.query.niche ? req.query.niche : undefined;
-    res.json(
-      await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data })
-    );
+    const dryRunRaw = req.query.dryRun;
+    const dryRun =
+      dryRunRaw === "true" ? true : dryRunRaw === "false" ? false : undefined;
+
+    // Batch-metadata filters (Atom E: Review Grouping) — applied in-memory
+    // after the store query since ReviewItemFilter doesn't include these yet.
+    const batchIdFilter = typeof req.query.batchId === "string" ? req.query.batchId : undefined;
+    const productProfileIdFilter = typeof req.query.productProfileId === "string" ? req.query.productProfileId : undefined;
+    const creatorProfileIdFilter = typeof req.query.creatorProfileId === "string" ? req.query.creatorProfileId : undefined;
+    const templateIdFilter = typeof req.query.templateId === "string" ? req.query.templateId : undefined;
+
+    // C-1: Tenant isolation
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+
+    // C-2: Pagination
+    const limit = Math.min(Math.max(Number(req.query.limit) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    let items = await listReviewItems({ status: statusParsed?.data, niche, platform: platformParsed?.data, dryRun, orgId });
+
+    if (batchIdFilter || productProfileIdFilter || creatorProfileIdFilter || templateIdFilter) {
+      items = items.filter((item) => {
+        const meta = item as Record<string, unknown>;
+        if (batchIdFilter && meta.batchId !== batchIdFilter) return false;
+        if (productProfileIdFilter && meta.productProfileId !== productProfileIdFilter) return false;
+        if (creatorProfileIdFilter && meta.creatorProfileId !== creatorProfileIdFilter) return false;
+        if (templateIdFilter && meta.templateId !== templateIdFilter) return false;
+        return true;
+      });
+    }
+
+    // C-2: Paginate after in-memory filters
+    const page = items.slice(offset, offset + limit + 1);
+    const hasMore = page.length > limit;
+    res.json({ items: page.slice(0, limit), hasMore, total: items.length });
   })
 );
 
 app.get(
   "/stats",
-  asyncHandler(async (_req, res) => {
-    const items = await listReviewItems();
+  asyncHandler(async (req, res) => {
+    // P0: Tenant-scoped stats — both review items AND runs are filtered by org
+    const orgId = resolveRequestOrg(req as AuthedRequest);
+    const items = await listReviewItems(orgId ? { orgId } : undefined);
     const pending = items.filter((i) => i.status === "pending").length;
     const approved = items.filter((i) => i.status === "approved").length;
     const rejected = items.filter((i) => i.status === "rejected").length;
-    const estimatedCostUsd = listRuns().reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
-    res.json({ pending, approved, rejected, estimatedCostUsd });
+    // P0 FIX: estimatedCostUsd was previously calculated across ALL tenants' runs
+    const estimatedCostUsd = listRuns(orgId).reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0);
+    // Surfaced so the control-panel can disable live-only actions (publish,
+    // regenerate-live) when this dashboard is running in mock mode.
+    res.json({ pending, approved, rejected, estimatedCostUsd, isLLMLive: isLLMLive() });
   })
 );
 
-app.get("/runs", (_req, res) => {
-  res.json(listRuns());
+app.get("/runs", (req, res) => {
+  // P0: Tenant-scoped — session users only see their org's runs
+  const orgId = resolveRequestOrg(req as AuthedRequest);
+  res.json(listRuns(orgId));
 });
 
 // Model catalog for the Video Generator / model-choice flow: every model the
@@ -373,8 +567,10 @@ app.get("/models", (_req, res) => {
 // Control-panel connection: tracked creators derived from real run manifests.
 // Registered after the Basic Auth gate (same as /queue and /runs) so this is
 // never exposed unauthenticated — the SPA sends the same operator credentials.
-app.get("/creators", (_req, res) => {
-  res.json({ creators: listTrackedCreators() });
+app.get("/creators", (req, res) => {
+  // P0: Tenant-scoped — session users only see creators from their org's runs
+  const orgId = resolveRequestOrg(req as AuthedRequest);
+  res.json({ creators: listTrackedCreators(orgId) });
 });
 
 // Bulk routes must be registered before the "/queue/:id/..." routes below — Express
@@ -385,19 +581,67 @@ app.get("/creators", (_req, res) => {
 // type error, so nothing caught it until something actually hit the endpoint.
 app.post(
   "/queue/bulk/approve",
+  requireQueuePermission("review.manage"),
   asyncHandler(async (req, res) => {
     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "approved") });
+    // C-1: Tenant isolation on bulk operations
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    let ids = parsed.data.ids;
+    if (orgId) {
+      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
+      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
+    }
+    res.json({ updated: await setReviewItemsStatus(ids, "approved") });
   })
 );
 
 app.post(
   "/queue/bulk/reject",
+  requireQueuePermission("review.manage"),
   asyncHandler(async (req, res) => {
     const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(100) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–100 valid item identifiers" });
-    res.json({ updated: await setReviewItemsStatus(parsed.data.ids, "rejected") });
+    // C-1: Tenant isolation on bulk operations
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    let ids = parsed.data.ids;
+    if (orgId) {
+      const ownItems = await Promise.all(ids.map((id) => getReviewItem(id)));
+      ids = ids.filter((_, i) => ownItems[i]?.orgId === orgId);
+    }
+    res.json({ updated: await setReviewItemsStatus(ids, "rejected") });
+  })
+);
+
+app.post(
+  "/queue/bulk/publish",
+  requireQueuePermission("social.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = z.object({ ids: z.array(z.string().trim().min(1).max(200)).min(1).max(20) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "ids must contain 1–20 valid item identifiers" });
+    const orgId = resolveRequestOrg(req as Request & { accountId?: string });
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+    for (const id of parsed.data.ids) {
+      const item = await getReviewItem(id);
+      if (!item) { results.push({ id, success: false, error: "not found" }); continue; }
+      if (orgId && item.orgId !== orgId) { results.push({ id, success: false, error: "not found" }); continue; }
+      if (item.status !== "approved") { results.push({ id, success: false, error: `not approved (${item.status})` }); continue; }
+      if (item.dryRun) { results.push({ id, success: false, error: "dry-run item" }); continue; }
+      if (item.publishedPostId) { results.push({ id, success: true }); continue; } // already published = idempotent success
+      try {
+        const accessToken = await clientPublishAccessToken(item);
+        const adapter = getPublishAdapter(item.platform, { accessToken });
+        const caption = [item.script.hook, ...item.script.points, item.script.cta].join(" ");
+        const publicVideoUrl = item.platform === "instagram_reels" ? createPublicAssetUrl(item.videoPath).url : undefined;
+        const result = await adapter.publish({ videoPath: item.videoPath, caption, publicVideoUrl });
+        const published = { ...item, publishedPostId: result.postId, publishedUrl: result.url, publishedAt: new Date().toISOString() };
+        await replaceReviewItem(published);
+        results.push({ id, success: true });
+      } catch (e) {
+        results.push({ id, success: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    res.json({ results, published: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
   })
 );
 
@@ -406,6 +650,8 @@ app.get(
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    // C-1: Tenant isolation
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
     res.json(item);
   })
 );
@@ -426,12 +672,15 @@ app.get(
     if (!item || typeof item.videoPath !== "string" || !item.videoPath) {
       return res.status(404).json({ error: "not found" });
     }
-    const absPath = resolve(item.videoPath);
+    // C-1: Tenant isolation (placed after null guard)
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
+    // realpathSync resolves symlinks, preventing symlink-based traversal attacks
+    const absPath = existsSync(resolve(item.videoPath)) ? realpathSync(resolve(item.videoPath)) : resolve(item.videoPath);
     const runsRoot = resolve(loadEnv().VVUGC_RUNS_DIR);
-    if (absPath !== runsRoot && !absPath.startsWith(runsRoot + sep)) {
+    if (!absPath.startsWith(runsRoot + sep)) {
       return res.status(404).json({ error: "not found" });
     }
-    if (!existsSync(absPath)) {
+    if (!existsSync(absPath) || !statSync(absPath).isFile()) {
       return res.status(404).json({ error: "not found" });
     }
     const stat = statSync(absPath);
@@ -445,9 +694,11 @@ app.get(
 
 app.post(
   "/queue/:id/approve",
+  requireQueuePermission("review.manage"),
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
     await setReviewItemStatus(req.params.id, "approved");
     res.json({ ...item, status: "approved" });
   })
@@ -455,11 +706,29 @@ app.post(
 
 app.post(
   "/queue/:id/reject",
+  requireQueuePermission("review.manage"),
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
     await setReviewItemStatus(req.params.id, "rejected");
     res.json({ ...item, status: "rejected" });
+  })
+);
+
+// Send back: undo an approve/reject decision — returns item to "pending" so
+// the reviewer can reconsider. Cannot undo a published item (that's shipped).
+app.post(
+  "/queue/:id/send-back",
+  requireQueuePermission("review.manage"),
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
+    if (item.publishedPostId) return res.status(409).json({ error: "cannot undo — item is already published" });
+    if (item.status === "pending") return res.json(item); // Already pending, no-op
+    await setReviewItemStatus(req.params.id, "pending");
+    res.json({ ...item, status: "pending" });
   })
 );
 
@@ -484,10 +753,12 @@ function regenerateWorkDir(runId: string): string {
 
 app.post(
   "/queue/:id/regenerate-scene",
+  requireQueuePermission("pipeline.run"),
   regenerateRateLimiter,
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
 
     const sceneIndex = Number(req.body?.sceneIndex);
     if (!Number.isInteger(sceneIndex)) {
@@ -501,7 +772,9 @@ app.post(
     try {
       const regenerated = await regenerateScene(item, sceneIndex, {
         videoVendor,
-        dryRun: Boolean(req.body?.dryRun),
+        // Regeneration stays in mock mode unless real LLM spend is explicitly
+        // enabled (VVUGC_LLM_LIVE=true); otherwise it is always a dry-run.
+        dryRun: Boolean(req.body?.dryRun) || !isLLMLive(),
         outDir: regenerateWorkDir(item.runId)
       });
       await replaceReviewItem(regenerated);
@@ -514,10 +787,12 @@ app.post(
 
 app.post(
   "/queue/:id/regenerate-script",
+  requireQueuePermission("pipeline.run"),
   regenerateRateLimiter,
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
 
     const { hook, points, cta } = req.body ?? {};
     if (typeof hook !== "string" || !Array.isArray(points) || typeof cta !== "string") {
@@ -532,7 +807,7 @@ app.post(
       const regenerated = await regenerateScript(
         item,
         { hook, points, cta },
-        { videoVendor, dryRun: Boolean(req.body?.dryRun), outDir: regenerateWorkDir(item.runId) }
+        { videoVendor, dryRun: Boolean(req.body?.dryRun) || !isLLMLive(), outDir: regenerateWorkDir(item.runId) }
       );
       await replaceReviewItem(regenerated);
       res.json(regenerated);
@@ -542,22 +817,97 @@ app.post(
   })
 );
 
+// Promote a dry-run (mock) item to a real, publishable render. Forces a live
+// render regardless of the server's LLM mode — this is the explicit "make the
+// mock real" action. After a successful render the item's dryRun flag is flipped
+// to false so the publish route will accept it.
+app.post(
+  "/queue/:id/regenerate-live",
+  requireQueuePermission("pipeline.run.live"),
+  regenerateRateLimiter,
+  asyncHandler<{ id: string }>(async (req, res) => {
+    const item = await getReviewItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
+    if (!item.dryRun) {
+      return res.status(409).json({ error: "item is already a live (real) render — nothing to promote" });
+    }
+    const videoVendor = req.body?.videoVendor ?? item.clips?.[0]?.vendor;
+    if (!videoVendor) {
+      return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
+    }
+    try {
+      const regenerated = await regenerateScript(
+        item,
+        { hook: item.script.hook, points: item.script.points, cta: item.script.cta },
+        { videoVendor, dryRun: false, outDir: regenerateWorkDir(item.runId) }
+      );
+      // regenerateScript spreads the original item, so dryRun would survive as true —
+      // flip it off explicitly since this render is real.
+      const promoted = { ...regenerated, dryRun: false };
+      await replaceReviewItem(promoted);
+      res.json(promoted);
+    } catch (err) {
+      res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  })
+);
+
 // Publishing is only ever reachable from here — nowhere in conductor.ts calls
+// Per-process guard against two concurrent requests both reaching
+// adapter.publish() for the same item before either has a chance to record
+// its receipt. Deliberately not a queue/coalescing mechanism — the second
+// concurrent request is just told to back off and retry, which is enough to
+// stop a double-click from posting twice. Like every other in-memory guard
+// in this codebase (see Phase 7's CostCap), this is per-process only; a
+// true cross-process guard needs the same DB-transaction treatment.
+const publishesInFlight = new Set<string>();
+
 // mcp-publish. Gated on status === "approved" so this can't be used to post
 // something a human hasn't signed off on, and can't double-post an item that's
 // already been published.
 app.post(
   "/queue/:id/publish",
+  requireQueuePermission("social.manage"),
   regenerateRateLimiter, // real vendor calls, same "every attempt counts" reasoning as regeneration
   asyncHandler<{ id: string }>(async (req, res) => {
     const item = await getReviewItem(req.params.id);
     if (!item) return res.status(404).json({ error: "not found" });
+    if (!isReviewItemVisibleToRequest(req as Request & { accountId?: string }, item)) return res.status(404).json({ error: "not found" });
     if (item.status !== "approved") {
       return res.status(409).json({ error: `item must be approved before publishing (current status: ${item.status})` });
+    }
+    if (item.dryRun) {
+      return res.status(409).json({
+        error: "this is a dry-run (mock) item — it has no real asset to publish. Regenerate it live (VVUGC_LLM_LIVE=true) first."
+      });
     }
     if (item.publishedPostId) {
       return res.status(409).json({ error: `item was already published (postId: ${item.publishedPostId})` });
     }
+
+    const receipts = createPublishReceiptStore(join(loadEnv().VVUGC_RUNS_DIR, "publish-receipts.ndjson"));
+    // Covers the retry-after-crash case: adapter.publish() succeeded on a
+    // prior attempt but the replaceReviewItem() write that would have set
+    // publishedPostId (and tripped the guard above) never landed. The
+    // receipt is the only durable record that a real vendor post already
+    // happened, so a retry re-persists it instead of posting again.
+    const existingReceipt = receipts.find(item.id, item.orgId);
+    if (existingReceipt) {
+      const published = {
+        ...item,
+        publishedPostId: existingReceipt.postId,
+        publishedUrl: existingReceipt.url,
+        publishedAt: existingReceipt.at
+      };
+      await replaceReviewItem(published);
+      return res.json(published);
+    }
+
+    if (publishesInFlight.has(item.id)) {
+      return res.status(409).json({ error: "a publish for this item is already in progress — try again shortly" });
+    }
+    publishesInFlight.add(item.id);
 
     try {
       const accessToken = await clientPublishAccessToken(item);
@@ -569,6 +919,18 @@ app.post(
         item.platform === "instagram_reels" ? createPublicAssetUrl(item.videoPath).url : undefined;
       const result = await adapter.publish({ videoPath: item.videoPath, caption, publicVideoUrl });
 
+      // Persisted BEFORE replaceReviewItem, deliberately: if the line below
+      // throws, the vendor post already happened and this receipt is what
+      // lets a retry find that out instead of posting a duplicate.
+      receipts.record({
+        itemId: item.id,
+        orgId: item.orgId,
+        postId: result.postId,
+        url: result.url,
+        platform: item.platform,
+        at: new Date().toISOString()
+      });
+
       const published = {
         ...item,
         publishedPostId: result.postId,
@@ -579,13 +941,13 @@ app.post(
       res.json(published);
     } catch (err) {
       res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      publishesInFlight.delete(item.id);
     }
   })
 );
 
-app.get("/", (req: Request & { scriptNonce?: string }, res) => {
-  res.type("html").send(renderDashboardPage(req.scriptNonce));
-});
+
 
 // Error-handling middleware — must have exactly 4 params for Express to
 // recognize it as such. Catches rejections forwarded by asyncHandler.
@@ -606,10 +968,11 @@ if (isMain) {
   const server = app.listen(port, host, () => {
     logger.info({ host, port }, "review dashboard listening");
   });
-  startClientScheduler(Number(process.env.CLIENT_SCHEDULER_INTERVAL_MS ?? 60_000));
+  startClientScheduler(initializedIdentity.tenantProfiles!, Number(process.env.CLIENT_SCHEDULER_INTERVAL_MS ?? 60_000), billingRepository);
   startPipelineJobWorker(
     createPipelineJobStore(join(loadEnv().VVUGC_RUNS_DIR, "pipeline-jobs.json")),
-    Number(process.env.PIPELINE_JOB_INTERVAL_MS ?? 1_000)
+    Number(process.env.PIPELINE_JOB_INTERVAL_MS ?? 1_000),
+    billingRepository
   );
   // Prune the append-only audit/security-event logs once at boot and then daily —
   // bounded retention (SECURITY_LOG_RETENTION_DAYS) keeps these files from growing
@@ -626,5 +989,9 @@ if (isMain) {
       logger.error({ err }, "retention prune failed");
     }
   }, 24 * 60 * 60 * 1000).unref();
-  installLifecycleHandlers(server, logger);
+  installLifecycleHandlers(server, logger, {
+    // Await the owned PG pool before process exit so a rolling deploy cannot
+    // leave identity sockets behind after the HTTP listener has drained.
+    onDrained: () => initializedIdentity.database?.close() ?? Promise.resolve()
+  });
 }

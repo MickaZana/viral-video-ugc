@@ -11,7 +11,7 @@ WORKDIR /repo
 # fails outright — see Dockerfile.orchestrator's identical comment.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/review-dashboard/package.json apps/review-dashboard/package.json
@@ -59,7 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python-
 # container's ephemeral layer instead of the shared, persisted volume.
 ENV INIT_CWD=/repo
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 
 COPY --from=build /repo ./
 # The build stage's `pnpm install` pulls in devDependencies too (needed for `tsc -b`,
@@ -73,6 +73,19 @@ COPY --from=build /repo ./
 # deterministic; dist/ output from the build stage is untouched (it's outside node_modules).
 RUN find . -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} + \
     && pnpm install --prod --frozen-lockfile
+
+# ─── SOURCE CODE PROTECTION ──────────────────────────────────────────────────
+# The build stage compiled TypeScript → JavaScript (dist/). The runtime image
+# only needs dist/ and package.json to run. Strip everything a reverse engineer
+# could use: original TypeScript source, test files, declaration files (only
+# needed by downstream TypeScript compilation, not at runtime), and markdown.
+RUN find . -name '*.ts' ! -name '*.d.ts' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.tsx' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.test.*' -delete 2>/dev/null; \
+    find . -name '*.spec.*' -delete 2>/dev/null; \
+    find . -name '*.d.ts' -delete 2>/dev/null; \
+    find . -name '*.map' -delete 2>/dev/null; \
+    find . -name '*.md' ! -name 'LICENSE*' -delete 2>/dev/null; true
 
 # Runs as the non-root "node" user the base image already ships (uid/gid 1000),
 # not root — limits blast radius if a dependency vulnerability leads to code
