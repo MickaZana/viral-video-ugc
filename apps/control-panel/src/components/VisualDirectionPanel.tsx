@@ -113,10 +113,14 @@ export function VisualDirectionPanel({ value, onChange }: Props) {
         <div className="px-4 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {(Object.keys(OPTIONS) as Array<keyof typeof OPTIONS>).map((key) => (
             <div key={key}>
-              <label className="text-[10px] uppercase tracking-widest text-[var(--color-muted-2)] block mb-1">
+              <label
+                htmlFor={`visual-direction-${key}`}
+                className="text-[10px] uppercase tracking-widest text-[var(--color-muted-2)] block mb-1"
+              >
                 {LABELS[key] ?? key}
               </label>
               <select
+                id={`visual-direction-${key}`}
                 className="w-full bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-xs p-2"
                 value={value[key] ?? ''}
                 onChange={(e) => set(key, e.target.value)}

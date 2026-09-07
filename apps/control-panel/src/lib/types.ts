@@ -289,6 +289,22 @@ export interface RunResponse {
   overage: { priceUsdPerRun: number } | null;
 }
 
+/** Read-only live-run vendor-spend quote. The backend derives vendors and
+ * platform configuration from the persisted client; it never starts a run. */
+export interface RunQuote {
+  currency: string
+  videoVendor: VideoVendor
+  minimumVideoVendorSpendUsd: number
+  maximumVideoVendorSpendUsd: number
+  clipsPerCandidate: number
+  maximumClipsPerCandidate: number
+  platformCount: number
+  minimumCandidateCount: number
+  maximumPlatformVideosPerFlow: number
+  voiceover: { cost: 'variable'; vendor?: VoiceVendor } | { cost: 'not_selected' }
+  notes: string[]
+}
+
 // ---- Discovery ("what's working" + brief) ----
 // Mirrors POST /accounts/discover. The backend wraps external discovery in
 // try/catch, so even an empty/erroring fetch returns 200 with a seeded brief.
@@ -436,7 +452,6 @@ export const CHARACTER_ATTRIBUTE_OPTIONS: { [K in keyof Required<Omit<CharacterA
   renderingStyle: ['photorealistic', 'cinematic_photo', 'editorial_fashion_photo']
 }
 export interface CharacterPortrait { index: number; prompt: string; mimeType: string; dataBase64: string }
-
 
 // ---- Curriculum Mode v2 ----
 // Mirrors packages/curriculum-engine/src/schema.ts — keep in sync by hand. Not

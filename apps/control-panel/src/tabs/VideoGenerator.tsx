@@ -9,6 +9,7 @@ import type {
   ModelsResponse,
   Platform,
   RunResponse,
+  RunQuote,
   VideoVendor,
   VoiceVendor
   ,ProductProfile, CreatorProfile, UGCTemplate
@@ -133,6 +134,11 @@ export function VideoGenerator() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [creatorPreflight, setCreatorPreflight] = useState<{ warnings: string[]; blocking: boolean } | null>(null)
   const [visualDirection, setVisualDirection] = useState<Partial<VisualDirectionState>>({})
+  const [quote, setQuote] = useState<RunQuote | null>(null)
+  const [quoteState, setQuoteState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [quoteRevision, setQuoteRevision] = useState(0)
+  const [updatingClientConfig, setUpdatingClientConfig] = useState(false)
 
   const clientList = clients.data?.clients ?? []
   const selectedClient = clientList.find((c) => c.id === clientId) ?? clientList[0] ?? null
@@ -157,18 +163,67 @@ export function VideoGenerator() {
   const videoChosen = videoList.find((m) => m.id === videoChosenId)
   const voiceChosen = voiceList.find((m) => m.id === voiceChosenId)
 
-  // Best-effort total-cost estimate for the RUN LIVE button label. Only sums
-  // rates that are honestly a per-run multiplier of 1: video is priced per
-  // "clip" and a run produces at least one clip, so its priceUsdPerUnit is a
-  // real per-run floor. Voiceover is priced per "character" (a script-length
-  // count this page doesn't have), so it's only added when its unit is itself
-  // a per-run unit like "clip" — never multiplied by a guessed character
-  // count. Framed as "from $X" (a floor), not a precise total, since a real
-  // run may render more than one clip.
-  const liveCostEstimate =
-    live && videoChosen
-      ? videoChosen.priceUsdPerUnit + (voiceChosen && voiceChosen.unit === 'clip' ? voiceChosen.priceUsdPerUnit : 0)
-      : undefined
+  useEffect(() => {
+    if (!live || !selectedClient) {
+      setQuote(null)
+      setQuoteState('idle')
+      setQuoteError(null)
+      return
+    }
+    let cancelled = false
+    setQuote(null)
+    setQuoteState('loading')
+    setQuoteError(null)
+    void api.runQuote({ clientId: selectedClient.id, templateId: templateId || undefined })
+      .then((value) => {
+        if (!cancelled) {
+          setQuote(value)
+          setQuoteState('success')
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setQuoteState('error')
+          setQuoteError(err instanceof Error ? err.message : String(err))
+        }
+      })
+    return () => { cancelled = true }
+  }, [live, selectedClient?.id, templateId, quoteRevision])
+
+  async function selectModel(kind: ModelKind, modelId: string) {
+    if ((kind !== 'video' && kind !== 'voiceover') || !selectedClient) {
+      setSelected((s) => ({ ...s, [kind]: modelId }))
+      return
+    }
+    const videoVendor = (kind === 'video' ? vendorForModelId(modelId) : selectedClient.videoVendor) as VideoVendor
+    const voiceVendor = kind === 'voiceover' ? vendorForModelId(modelId) as VoiceVendor : selectedClient.voiceVendor
+    setUpdatingClientConfig(true)
+    setError(null)
+    try {
+      const updated = await api.updateClient(selectedClient.id, {
+        name: selectedClient.name,
+        niche: selectedClient.niche,
+        brandVoice: selectedClient.brandVoice,
+        brandKit: selectedClient.brandKit,
+        locale: selectedClient.locale,
+        platforms: selectedClient.platforms,
+        targetDurationSec: selectedClient.targetDurationSec,
+        videoVendor,
+        voiceVendor,
+        cadence: selectedClient.cadence,
+        active: selectedClient.active
+      })
+      setSelected((s) => ({ ...s, [kind]: modelId }))
+      clients.reload()
+      // Quote only after the persisted configuration update succeeds.
+      setQuoteRevision((revision) => revision + 1)
+      void updated
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUpdatingClientConfig(false)
+    }
+  }
   useEffect(() => {
     const vendor = videoChosen ? vendorForModelId(videoChosen.id) : selectedClient?.videoVendor
     if (!creatorProfileId || !vendor) { setCreatorPreflight(null); return }
@@ -296,8 +351,9 @@ export function VideoGenerator() {
                   {list.map((m) => (
                     <button
                       key={m.id}
-                      onClick={() => setSelected((s) => ({ ...s, [kind]: m.id }))}
-                      className="text-left bg-[var(--color-bg)] p-4 hover:bg-[var(--color-raised)] transition-colors"
+                      onClick={() => void selectModel(kind, m.id)}
+                      disabled={updatingClientConfig && (kind === 'video' || kind === 'voiceover')}
+                      className="text-left bg-[var(--color-bg)] p-4 hover:bg-[var(--color-raised)] transition-colors disabled:opacity-50"
                       style={{ borderLeft: chosenId === m.id ? '2px solid var(--color-lime)' : '2px solid transparent' }}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -502,17 +558,11 @@ export function VideoGenerator() {
                 <div className="flex items-center gap-4 flex-wrap">
                   <button
                     onClick={handleRun}
-                    disabled={running}
+                    disabled={running || updatingClientConfig}
                     className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
                     style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                   >
-                    {running
-                      ? 'RUNNING...'
-                      : live
-                        ? liveCostEstimate !== undefined
-                          ? `RUN LIVE — Est. from $${liveCostEstimate.toFixed(2)}`
-                          : 'RUN LIVE'
-                        : 'RUN DRY-RUN'}
+                    {running ? 'RUNNING...' : live ? 'RUN LIVE' : 'RUN DRY-RUN'}
                   </button>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -524,6 +574,14 @@ export function VideoGenerator() {
                     <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Live run (real vendor spend)</span>
                   </label>
                 </div>
+                {live && (
+                  <LiveRunQuote
+                    state={quoteState}
+                    quote={quote}
+                    error={quoteError}
+                    onRetry={() => setQuoteRevision((revision) => revision + 1)}
+                  />
+                )}
                 <p className="text-[10px] font-mono text-[var(--color-muted-3)]">
                   Dry run: full pipeline end-to-end (discovery → script → video → QA → review queue) with no vendor spend. Live run attempts real vendor calls and is billed.
                 </p>
@@ -554,6 +612,41 @@ export function VideoGenerator() {
       {clients.error && (
         <p className="text-[11px] font-mono text-[var(--color-red)]">Load error: {clients.error}</p>
       )}
+    </div>
+  )
+}
+
+function LiveRunQuote({ state, quote, error, onRetry }: {
+  state: 'idle' | 'loading' | 'success' | 'error'
+  quote: RunQuote | null
+  error: string | null
+  onRetry: () => void
+}) {
+  if (state === 'loading') {
+    return <div role="status" aria-label="Live vendor-spend estimate" className="border border-[var(--color-border)] p-3 text-[10px] font-mono text-[var(--color-muted-2)]">Calculating live vendor-spend estimate…</div>
+  }
+  if (state === 'error') {
+    return (
+      <div role="alert" className="border border-[var(--color-red)] p-3 text-[10px] font-mono text-[var(--color-red)]">
+        <p>Unable to calculate a live vendor-spend estimate{error ? `: ${error}` : '.'}</p>
+        <button type="button" onClick={onRetry} className="mt-2 underline underline-offset-2 text-[var(--color-text)]">Retry estimate</button>
+      </div>
+    )
+  }
+  if (state !== 'success' || !quote) return null
+
+  const minScope = `${quote.clipsPerCandidate} clips × ${quote.platformCount} selected ${quote.platformCount === 1 ? 'platform' : 'platforms'} for ${quote.minimumCandidateCount === 1 ? 'one candidate' : `${quote.minimumCandidateCount} candidates`}`
+  const maxScope = `Up to $${quote.maximumVideoVendorSpendUsd.toFixed(2)} video spend for up to ${quote.maximumPlatformVideosPerFlow} generated platform videos.`
+  const voiceover = quote.voiceover.cost === 'variable'
+    ? `Plus variable ${quote.voiceover.vendor ?? 'voiceover'} usage.`
+    : 'Voiceover is not selected.'
+  return (
+    <div role="status" aria-label="Live vendor-spend estimate" className="border border-[var(--color-orange)] bg-[var(--color-bg)] p-3 text-[10px] font-mono space-y-1">
+      <p className="text-[var(--color-text)]">Estimated vendor spend: <strong className="text-[var(--color-orange)]">from ${quote.minimumVideoVendorSpendUsd.toFixed(2)} {quote.currency}</strong></p>
+      <p className="text-[var(--color-muted-2)]">{minScope} via {quote.videoVendor}.</p>
+      <p className="text-[var(--color-muted-2)]">{maxScope}</p>
+      <p className="text-[var(--color-muted-2)]">{voiceover}</p>
+      <p className="text-[var(--color-muted-3)]">This is vendor spend only. Subscription-plan overages, if any, are shown separately in Billing.</p>
     </div>
   )
 }

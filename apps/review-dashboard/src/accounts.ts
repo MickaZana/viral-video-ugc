@@ -27,6 +27,7 @@ import type { CandidateVideo } from "@vvugc/shared-schema";
 import { runAcceptance, runCycle, fetchRemixTranscript, parseSourceUrl, previewRemix } from "@vvugc/orchestrator";
 import { BUILTIN_UGC_TEMPLATES, getUgcTemplate, templateCompatibility, BUILTIN_PRESETS, getPreset, listPresetsByCategory } from "@vvugc/orchestrator";
 import { createProductEventStore, ProductEventTypeSchema, summarizeUsage } from "@vvugc/shared-product-analytics";
+import { estimateCostUsd, type CostVendor } from "@vvugc/shared-cost";
 import { discoverPlatform } from "@vvugc/mcp-discovery";
 import { generateCharacterPortraitBatch, CharacterAttributesSchema } from "@vvugc/mcp-video-gen";
 import { isRealRun, isLLMLive, isDiscoveryLive } from "./llm-gate.js";
@@ -345,6 +346,38 @@ const ClientInputSchema = z.object({
   cadence: z.enum(["weekly", "manual"]),
   active: z.boolean().default(true)
 });
+
+// This is intentionally a quote for the video-generation vendor only.  The
+// pipeline cannot know narration character count until it has written captions,
+// so voiceover is disclosed as variable rather than being made-up precision.
+const LiveRunQuoteInputSchema = z.object({
+  clientId: z.string().min(1),
+  templateId: z.string().min(1).optional()
+}).strict();
+const MAX_PLATFORM_VIDEOS_PER_FLOW = 8;
+
+/**
+ * The canonical shape of GET-style POST /accounts/run/quote's response. `.strict()`
+ * so the route cannot silently return a field the control-panel `RunQuote` type
+ * (apps/control-panel/src/lib/types.ts) doesn't consume — parity between the two
+ * is asserted key-for-key in accounts.test.ts. Keep the two in lockstep.
+ */
+const LiveRunQuoteResponseSchema = z.object({
+  currency: z.literal("USD"),
+  videoVendor: z.string(),
+  minimumVideoVendorSpendUsd: z.number(),
+  maximumVideoVendorSpendUsd: z.number(),
+  clipsPerCandidate: z.number().int(),
+  maximumClipsPerCandidate: z.number().int(),
+  platformCount: z.number().int(),
+  minimumCandidateCount: z.number().int(),
+  maximumPlatformVideosPerFlow: z.number().int(),
+  voiceover: z.union([
+    z.object({ cost: z.literal("variable"), vendor: z.string().optional() }),
+    z.object({ cost: z.literal("not_selected") })
+  ]),
+  notes: z.array(z.string())
+}).strict();
 
 const ProductInputSchema = ProductProfileSchema.omit({ id: true, orgId: true, createdAt: true, updatedAt: true, productImages: true, extractionStatus: true }).extend({
   clientId: z.string().min(1).optional(),
@@ -1252,6 +1285,60 @@ export function registerAccountRoutes(
   // and review items are attributable to the org, not just whichever member clicked
   // the button. Defaults to --dry-run (safe, no vendor credentials needed) unless the
   // caller explicitly asks for a live run — mirrors the CLI's own default posture.
+  app.post(
+    "/accounts/run/quote",
+    requireSession,
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const account = requirePermission("pipeline.run.live")(req, res);
+      if (!account) return;
+      const parsed = LiveRunQuoteInputSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
+
+      const orgId = resolveOrgId(account);
+      // clientGet is tenant-scoped, so an ID from another org is intentionally
+      // indistinguishable from an unknown ID.
+      const client = await tenantProfiles.clientGet(orgId, parsed.data.clientId);
+      if (!client) return res.status(404).json({ error: "client not found" });
+      if (!client.active) return res.status(409).json({ error: "client is archived" });
+
+      let template;
+      try { template = resolveTemplate(parsed.data.templateId); }
+      catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : "invalid template" }); }
+
+      // The live pipeline reads vendor selections from the persisted client.
+      // Deliberately do the same here: a caller cannot receive a quote for a
+      // transient selection that /accounts/run would ignore.
+      const videoVendor = client.videoVendor as CostVendor;
+      const voiceVendor = client.voiceVendor;
+      // Freeform scripts produce hook + 2--4 points + CTA. Templates declare
+      // their exact beat count and therefore their exact clips per platform.
+      const clipsPerCandidate = template ? template.scriptStructure.length : 4;
+      const maximumClipsPerCandidate = template ? clipsPerCandidate : 6;
+      const platformCount = client.platforms.length;
+      const minimumVideoVendorSpendUsd = estimateCostUsd(videoVendor, "clip", clipsPerCandidate * platformCount);
+      const maximumVideoVendorSpendUsd = estimateCostUsd(videoVendor, "clip", maximumClipsPerCandidate * MAX_PLATFORM_VIDEOS_PER_FLOW);
+
+      res.json(LiveRunQuoteResponseSchema.parse({
+        currency: "USD",
+        videoVendor,
+        minimumVideoVendorSpendUsd,
+        maximumVideoVendorSpendUsd,
+        clipsPerCandidate,
+        maximumClipsPerCandidate,
+        platformCount,
+        minimumCandidateCount: 1,
+        maximumPlatformVideosPerFlow: MAX_PLATFORM_VIDEOS_PER_FLOW,
+        voiceover: voiceVendor ? { vendor: voiceVendor, cost: "variable" } : { cost: "not_selected" },
+        notes: [
+          "Minimum covers one generated candidate across the selected platforms.",
+          `The pipeline caps platform videos at ${MAX_PLATFORM_VIDEOS_PER_FLOW}; the maximum uses that cap and ${maximumClipsPerCandidate} clips per platform video.`,
+          "Voiceover cost is variable until captions determine the character count.",
+          "This is estimated vendor spend only; subscription overages are separate."
+        ]
+      }));
+    })
+  );
+
   app.post(
     "/accounts/run",
     requireSession,

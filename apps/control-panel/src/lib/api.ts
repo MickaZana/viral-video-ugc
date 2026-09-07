@@ -24,6 +24,7 @@ import type {
   RemixRequest,
   ReviewItem,
   RunResponse,
+  RunQuote,
   RunSummary,
   Stats,
   TrackedCreator,
@@ -335,6 +336,13 @@ export const api = {
   presets(): Promise<{ presets: Preset[] }> { return request('/presets') },
   run(body: { clientId: string; dryRun: boolean; productProfileId?: string; creatorProfileId?: string; templateId?: string; visualDirection?: Record<string, string> }): Promise<RunResponse> {
     return request<RunResponse>('/accounts/run', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  },
+  /** Read-only estimate for the selected client's persisted live-run setup. */
+  runQuote(body: { clientId: string; templateId?: string }): Promise<RunQuote> {
+    return request<RunQuote>('/accounts/run/quote', {
       method: 'POST',
       body: JSON.stringify(body)
     })
