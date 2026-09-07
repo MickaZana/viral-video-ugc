@@ -101,9 +101,12 @@ describe("buildCharacterPrompt", () => {
 });
 
 describe("generateCharacterPortraitBatch", () => {
+  // Shaped like a real Google AI Studio key ("AIza" + 35 url-safe chars) so it
+  // passes gemini.ts's format guard; the HTTP call itself is mocked below.
+  const WELL_FORMED_GEMINI_KEY = "AIza" + "b".repeat(35);
   beforeEach(() => {
     mockFetch.mockReset();
-    process.env.GEMINI_API_KEY = "test-key";
+    process.env.GEMINI_API_KEY = WELL_FORMED_GEMINI_KEY;
   });
   afterEach(() => {
     delete process.env.GEMINI_API_KEY;

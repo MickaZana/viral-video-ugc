@@ -10,6 +10,11 @@ function jsonResponse(body: unknown, ok = true): Response {
 
 const outDir = `${process.cwd()}/.test-out-gemini`;
 
+// An AIza…-shaped value (39 chars) that satisfies the adapter's Google AI Studio
+// key format guard — the happy-path tests need a well-formed key or the guard
+// rejects before any fetch is made.
+const WELL_FORMED_KEY = "AIza" + "b".repeat(35);
+
 // Real Ken Burns rendering at production dimensions (2160x3840 doubled-for-9:16) is
 // already verified against real ffmpeg by ken-burns.test.ts at a small resolution —
 // re-running a full-res encode here on every adapter test just adds slow, flaky
@@ -25,7 +30,7 @@ vi.mock("../ken-burns.js", () => ({
 
 describe("createGeminiAdapter", () => {
   beforeEach(() => {
-    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
   });
 
   afterEach(() => {
@@ -59,7 +64,7 @@ describe("createGeminiAdapter", () => {
     });
 
     expect(capturedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
-    expect(capturedHeaders?.["x-goog-api-key"]).toBe("test-gemini-key");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
     expect(capturedBody?.model).toBe("gemini-2.5-flash-image");
     expect((capturedBody?.input as { text: string }[])?.[0]?.text).toContain("fitness creator");
     expect((capturedBody?.response_format as { aspect_ratio: string })?.aspect_ratio).toBe("9:16");
@@ -136,7 +141,7 @@ describe("createGeminiAdapter", () => {
 
 describe("generateImage (standalone, no video attached)", () => {
   beforeEach(() => {
-    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
   });
 
   afterEach(() => {
@@ -167,7 +172,7 @@ describe("generateImage (standalone, no video attached)", () => {
     const result = await generateImage("a red circle on a white background");
 
     expect(capturedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
-    expect(capturedHeaders?.["x-goog-api-key"]).toBe("test-gemini-key");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
     expect(capturedBody?.model).toBe("gemini-2.5-flash-image");
     expect((capturedBody?.input as { type: string; text: string }[])?.[0]).toEqual({ type: "text", text: "a red circle on a white background" });
     expect((capturedBody?.response_format as { aspect_ratio: string; image_size: string })?.aspect_ratio).toBe("1:1");
@@ -274,5 +279,86 @@ describe("generateImage (standalone, no video attached)", () => {
   it("throws a clear error when the response has no output_image", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
     await expect(generateImage("x")).rejects.toThrow(/no output_image/);
+  });
+});
+
+describe("GEMINI_API_KEY format guard", () => {
+  // A 1x1 PNG as base64 — the guard tests only care about which key reaches the
+  // request (or that no request is made at all), not about real image bytes, so
+  // there's no need to touch the filesystem / shared outDir here.
+  const TINY_PNG_BASE64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_IMAGE_MODEL;
+  });
+
+  it("rejects a malformed (OAuth-token-shaped) key before making any request, and does not leak the value", async () => {
+    const fakeValue = "AQ.Ab8fakeoauthtokenvalue...";
+    process.env.GEMINI_API_KEY = fakeValue;
+    const fetchMock = vi.fn(async () => jsonResponse({ output_image: { data: "" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let err: Error | undefined;
+    try {
+      await generateImage("x");
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect(err?.message).toMatch(/not a Google AI Studio API key/);
+    expect(err?.message).not.toContain("AQ.Ab8");
+    expect(err?.message).not.toContain(fakeValue);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects with the existing requireEnvVar message when the key is missing (guard does not swallow that path)", async () => {
+    delete process.env.GEMINI_API_KEY;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ output_image: { data: "" } })));
+    await expect(generateImage("x")).rejects.toThrow(/Missing required env var/);
+  });
+
+  it("passes a well-formed AIza… key through to the request", async () => {
+    process.env.GEMINI_API_KEY = WELL_FORMED_KEY;
+    let capturedHeaders: Record<string, string> | undefined;
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return jsonResponse({ output_image: { data: TINY_PNG_BASE64 } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImage("x")).resolves.toMatchObject({ mimeType: "image/png" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
+  });
+
+  it.each([
+    ["AIza" + "b".repeat(34), "AIza + 34 chars (too short)"],
+    ["ya29.a0Afake-google-oauth-access-token-value", "ya29. Google OAuth token"],
+    ["AIza" + "b".repeat(35) + " x", "trailing junk after an otherwise valid key"]
+  ])("rejects %s (%s)", async (key) => {
+    process.env.GEMINI_API_KEY = key;
+    const fetchMock = vi.fn(async () => jsonResponse({ output_image: { data: "" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateImage("x")).rejects.toThrow(/not a Google AI Studio API key/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an AIza… key with surrounding whitespace (trimmed) and forwards the trimmed value", async () => {
+    process.env.GEMINI_API_KEY = `  ${WELL_FORMED_KEY}\n`;
+    let capturedHeaders: Record<string, string> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        capturedHeaders = init?.headers as Record<string, string>;
+        return jsonResponse({ output_image: { data: TINY_PNG_BASE64 } });
+      })
+    );
+
+    await generateImage("x");
+    expect(capturedHeaders?.["x-goog-api-key"]).toBe(WELL_FORMED_KEY);
   });
 });

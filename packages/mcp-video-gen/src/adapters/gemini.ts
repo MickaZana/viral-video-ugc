@@ -10,6 +10,23 @@ import type { VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
+const GEMINI_API_KEY_PATTERN = /^AIza[0-9A-Za-z_-]{35}$/;
+
+/** Google AI Studio keys are `AIza…` (39 chars). A value in any other shape
+ *  (an OAuth token, a service-account JSON blob, a placeholder) will only ever
+ *  come back from Gemini as a 401 mid-run — fail here instead, before the call. */
+function requireGeminiApiKey(): string {
+  const key = requireEnvVar("GEMINI_API_KEY"); // handles the missing-var case already
+  if (!GEMINI_API_KEY_PATTERN.test(key.trim())) {
+    throw new Error(
+      "GEMINI_API_KEY is set but is not a Google AI Studio API key (expected an \"AIza…\" key, 39 chars). " +
+        "It looks like an OAuth token or another credential type. Generate a key at " +
+        "https://aistudio.google.com/apikey and set it in .env."
+    );
+  }
+  return key.trim();
+}
+
 // gemini-2.5-flash-image ("Nano Banana") — the stable, flat-per-image-priced
 // ($0.039/image up to 1024x1024) Gemini image model, verified against the
 // current Gemini API docs. Overridable via GEMINI_IMAGE_MODEL for anyone who
@@ -75,7 +92,7 @@ export interface GeneratedImage {
  * function callers invoke directly, independent of any single adapter).
  */
 export async function generateImage(prompt: string, opts: GenerateImageOptions = {}): Promise<GeneratedImage> {
-  const apiKey = requireEnvVar("GEMINI_API_KEY");
+  const apiKey = requireGeminiApiKey();
   const model = opts.model || process.env.GEMINI_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
   const aspectRatio = opts.aspectRatio || "1:1";
   const imageSize = opts.imageSize || "1K";
