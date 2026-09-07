@@ -70,19 +70,6 @@ export const CHARACTER_ATTRIBUTE_OPTIONS = {
   renderingStyle: RENDERING_STYLES
 } as const;
 
-const ATTRIBUTE_LABELS: Record<string, string> = {
-  characterType: "", // folded into the opening clause instead of a labeled fragment
-  gender: "",
-  ageRange: "",
-  bodyType: "body type",
-  hairStyle: "hairstyle",
-  hairColor: "hair color",
-  skinTone: "skin tone",
-  eyeColor: "eye color",
-  style: "wearing",
-  renderingStyle: ""
-};
-
 const AGE_RANGE_PHRASE: Record<(typeof AGE_RANGES)[number], string> = {
   early_20s: "early 20s", late_20s: "late 20s", "30s": "in their 30s", "40s": "in their 40s", "50_plus": "50 or older"
 };
