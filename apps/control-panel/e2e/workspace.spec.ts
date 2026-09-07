@@ -124,11 +124,26 @@ test("history shows the run's review items and the workflow run, all rendering r
 test("theme toggle flips the document between dark and light", async ({ page }) => {
   await signup(page);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+
+  // Settings' appearance group — each button's accessible name is exactly
+  // "Dark" / "Light", distinct from the header toggle's
+  // "Switch to … background" action label, so these strict selectors each
+  // resolve exactly one element.
+  const themeGroup = page.getByRole("group", { name: "Theme" });
+  const lightButton = themeGroup.getByRole("button", { name: "Light", exact: true });
+  const darkButton = themeGroup.getByRole("button", { name: "Dark", exact: true });
+
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByRole("button", { name: "light" }).click();
+  await expect(darkButton).toHaveAttribute("aria-pressed", "true");
+
+  await lightButton.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page.getByRole("button", { name: "dark" }).click();
+  await expect(lightButton).toHaveAttribute("aria-pressed", "true");
+  await expect(darkButton).toHaveAttribute("aria-pressed", "false");
+
+  await darkButton.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(darkButton).toHaveAttribute("aria-pressed", "true");
 });
 
 test("sign out clears the session and returns to the landing page", async ({ page }) => {

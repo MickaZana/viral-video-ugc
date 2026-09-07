@@ -38,20 +38,26 @@ export function Settings({
       </section>
 
       <section className="border border-[var(--color-border)] bg-[var(--color-surface)] rounded-lg p-5 space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-widest">Theme</h2>
-        <div className="flex gap-2">
+        <h2 id="settings-theme-heading" className="text-sm font-semibold uppercase tracking-widest">Theme</h2>
+        {/* A single-select group of the two themes. Each button's accessible name
+            is exactly "Dark" / "Light" (not the header toggle's
+            "Switch to … background" action label), and aria-pressed reflects the
+            active choice, so assistive tech and tests can address one control
+            unambiguously. */}
+        <div className="flex gap-2" role="group" aria-labelledby="settings-theme-heading">
           {(['dark', 'light'] as Theme[]).map((t) => (
             <button
               key={t}
               onClick={() => onTheme(t)}
-              className="px-4 py-2 text-[11px] uppercase tracking-widest border rounded-md"
+              aria-pressed={theme === t}
+              className="px-4 py-2 text-[11px] uppercase tracking-widest border rounded-md capitalize"
               style={{
                 color: theme === t ? 'var(--color-on-accent)' : 'var(--color-muted-2)',
                 backgroundColor: theme === t ? 'var(--color-lime)' : 'transparent',
                 borderColor: theme === t ? 'var(--color-lime)' : 'var(--color-raised)'
               }}
             >
-              {t}
+              {t === 'dark' ? 'Dark' : 'Light'}
             </button>
           ))}
         </div>
