@@ -53,8 +53,15 @@ export async function runDueClientSchedules(profiles: TenantProfileRepository, o
         dryRun: process.env.SCHEDULED_RUNS_LIVE !== "true" || !isLLMLive(),
         createdAt: now.toISOString()
       });
-      reservedRunId = config.runId;
       await billing.reserveRun({ orgId: client.orgId, runId: config.runId, clientId: client.id, durationSec: config.targetDurationSec });
+      // Only mark this run as "actually reserved" once reserveRun itself has
+      // succeeded — setting reservedRunId before the await meant a client that
+      // fails ITS OWN reserveRun call (e.g. quota exceeded, no row ever written)
+      // still triggered a releaseReservation call for a reservation that was
+      // never created. Harmless today (release is a no-op UPDATE/lookup miss on
+      // both the Postgres and JSON billing stores), but wrong, and a wasted
+      // write on every such failure — found by scheduler.test.ts.
+      reservedRunId = config.runId;
       enqueued.push(await jobStore.enqueue(
         client.orgId,
         client.id,
