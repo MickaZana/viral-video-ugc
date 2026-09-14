@@ -173,6 +173,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.112.1
         version: 0.112.3(zod@4.4.3)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
       '@vvugc/curriculum-engine':
         specifier: workspace:*
         version: link:../../packages/curriculum-engine
