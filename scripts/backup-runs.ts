@@ -27,6 +27,35 @@ const BACKUP_DIR = process.env.BACKUP_DIR || join(process.cwd(), "backups");
 const RETAIN_DAYS = parseInt(process.env.BACKUP_RETAIN_DAYS || "7", 10);
 const EXCLUDE_VIDEOS = process.env.BACKUP_EXCLUDE_VIDEOS === "true";
 
+/**
+ * Runs a tar command, self-adapting to whichever tar is on PATH — found to
+ * genuinely matter on Windows, which can have EITHER of two different tars
+ * depending on the shell: Git Bash puts GNU tar first, while a plain
+ * cmd.exe/PowerShell session picks up Windows' own bundled bsdtar
+ * (System32\tar.exe, libarchive-based). They disagree on this exact case:
+ * GNU tar misreads an absolute "C:\..." path's colon as remote host syntax
+ * ("host:path", its legacy tar-over-rsh feature) and fails with "Cannot
+ * connect to C: resolve failed" unless given --force-local; bsdtar has no
+ * such remote-path heuristic at all and, when actually tested, rejects
+ * --force-local outright as an unsupported option. Neither environment
+ * variable nor a version string reliably tells you which one you have ahead
+ * of time — so this tries the plain command first (correct for bsdtar and for
+ * GNU tar on a non-colon path) and only retries with --force-local when the
+ * failure is specifically GNU tar's remote-parse error, rather than assuming
+ * one tar flavor and breaking the other. Verified against both, on this
+ * machine, not just reasoned about.
+ */
+function runTar(cmd: string): void {
+  try {
+    execSync(cmd, { stdio: "pipe", timeout: 300_000 }); // 5-min timeout
+  } catch (err) {
+    const stderr = (err as { stderr?: Buffer })?.stderr?.toString() ?? String(err);
+    const looksLikeGnuTarRemoteMisparse = /Cannot connect to .*resolve failed|Cannot connect to .*Unknown/i.test(stderr);
+    if (!looksLikeGnuTarRemoteMisparse || !cmd.startsWith("tar ")) throw err;
+    execSync(cmd.replace(/^tar /, "tar --force-local "), { stdio: "pipe", timeout: 300_000 });
+  }
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 function main() {
@@ -43,17 +72,16 @@ function main() {
   const archiveName = `vvugc-backup-${timestamp}.tar.gz`;
   const archivePath = join(BACKUP_DIR, archiveName);
 
-  // Build tar command
   const excludeFlags = EXCLUDE_VIDEOS ? '--exclude="*.mp4" --exclude="*.webm"' : "";
   const tarCmd = `tar -czf "${archivePath}" ${excludeFlags} -C "${join(VVUGC_RUNS_DIR, "..")}" "${basename(VVUGC_RUNS_DIR)}"`;
 
   console.log(`Creating archive: ${archiveName}`);
   try {
-    execSync(tarCmd, { stdio: "pipe", timeout: 300_000 }); // 5-min timeout
+    runTar(tarCmd);
     const size = statSync(archivePath).size;
     console.log(`  ✓ Archive created: ${(size / 1024 / 1024).toFixed(1)} MB`);
   } catch (err) {
-    // tar might not be available on Windows — fall back to a manifest-only backup
+    // tar might not be available at all — fall back to a manifest-only backup
     console.error(`  ✗ tar failed: ${String(err)}`);
     console.log("  Attempting manifest-only backup (JSON files)...");
     fallbackJsonBackup(archivePath.replace(".tar.gz", ".json"));

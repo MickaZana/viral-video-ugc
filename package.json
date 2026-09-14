@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "cli": "pnpm --filter @vvugc/orchestrator cli",
     "feedback": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/collect-feedback.ts",
-    "backup": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/backup-runs.ts"
+    "backup": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/backup-runs.ts",
+    "restore": "pnpm --filter @vvugc/orchestrator exec tsx ../../scripts/restore-runs.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9",
