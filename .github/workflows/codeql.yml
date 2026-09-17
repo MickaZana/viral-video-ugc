@@ -83,7 +83,7 @@ jobs:
 
       - name: Initialize CodeQL
         if: steps.ghas.outputs.enabled == 'true'
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # The repo is a pnpm workspace whose packages build with plain `tsc -b`
@@ -96,7 +96,7 @@ jobs:
 
       - name: Perform CodeQL Analysis
         if: steps.ghas.outputs.enabled == 'true'
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
 
