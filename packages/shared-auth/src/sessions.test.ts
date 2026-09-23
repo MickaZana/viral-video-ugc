@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -104,16 +105,112 @@ describe("createSessionStore", () => {
     expect(store.verify(other.token)).toBeUndefined();
   });
 
-  // Characterization test for the KNOWN plaintext-token concern in sessions.ts:
-  // tokens are persisted verbatim, not hashed. This documents current behavior
-  // only — the fix is tracked as a separate atom. Do not extend this pattern.
-  it("CURRENT BEHAVIOR: the raw session token is stored verbatim (plaintext) in the sessions file", () => {
+  // Replaces the earlier "CURRENT BEHAVIOR" characterization that pinned the
+  // KNOWN plaintext-token concern (raw token stored verbatim). Hash-at-rest
+  // landed in atom B7: storage now holds the SHA-256 hex digest only.
+  it("stores the SHA-256 hex digest of the token (64 lowercase hex chars), never the raw token", () => {
     const store = freshStore();
     const session = store.create("account-1");
-    const onDisk = JSON.parse(readFileSync(dbPath, "utf-8"));
+    const rawFile = readFileSync(dbPath, "utf-8");
+    const onDisk = JSON.parse(rawFile);
     expect(onDisk).toHaveLength(1);
-    expect(onDisk[0].token).toBe(session.token);
-    expect(readFileSync(dbPath, "utf-8")).toContain(`"token": "${session.token}"`);
+    expect(onDisk[0].token).toMatch(/^[0-9a-f]{64}$/);
+    expect(onDisk[0].token).not.toBe(session.token);
+    expect(onDisk[0].token).toBe(createHash("sha256").update(session.token, "utf8").digest("hex"));
+    expect(rawFile).not.toContain(session.token);
+  });
+
+  it("rejects a wrong token, even one that differs from a valid token by a single character", () => {
+    const store = freshStore();
+    const session = store.create("account-1");
+    const nearMiss =
+      session.token.slice(0, -1) + (session.token.endsWith("A") ? "B" : "A");
+    expect(store.verify(nearMiss)).toBeUndefined();
+    expect(store.verify(session.token + "x")).toBeUndefined();
+    expect(store.verify(session.token.slice(0, -1))).toBeUndefined();
+  });
+
+  it("legacy plaintext record: verify succeeds once, rewrites the file hashed, and verify still succeeds (self-heal is idempotent)", () => {
+    const store = freshStore();
+    const legacyToken = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    writeFileSync(
+      dbPath,
+      JSON.stringify([{ token: legacyToken, accountId: "account-1", createdAt: new Date().toISOString(), expiresAt }])
+    );
+
+    const first = store.verify(legacyToken);
+    expect(first?.accountId).toBe("account-1");
+    expect(first?.token).toBe(legacyToken);
+    let onDisk = JSON.parse(readFileSync(dbPath, "utf-8"));
+    expect(onDisk[0].token).toMatch(/^[0-9a-f]{64}$/);
+    expect(onDisk[0].token).not.toBe(legacyToken);
+    expect(onDisk[0].token).toBe(createHash("sha256").update(legacyToken, "utf8").digest("hex"));
+
+    const second = store.verify(legacyToken);
+    expect(second?.accountId).toBe("account-1");
+    onDisk = JSON.parse(readFileSync(dbPath, "utf-8"));
+    expect(onDisk[0].token).toBe(createHash("sha256").update(legacyToken, "utf8").digest("hex"));
+    expect(existsSync(`${dbPath}.lock`)).toBe(false);
+  });
+
+  it("expired legacy plaintext record: verify fails and leaves the file un-migrated (expiry is checked before migration)", () => {
+    const store = freshStore();
+    const legacyToken = randomBytes(32).toString("base64url");
+    const record = {
+      token: legacyToken,
+      accountId: "account-1",
+      createdAt: new Date(Date.now() - 120_000).toISOString(),
+      expiresAt: new Date(Date.now() - 60_000).toISOString()
+    };
+    writeFileSync(dbPath, JSON.stringify([record]));
+
+    expect(store.verify(legacyToken)).toBeUndefined();
+    const onDisk = JSON.parse(readFileSync(dbPath, "utf-8"));
+    expect(onDisk[0].token).toBe(legacyToken);
+  });
+
+  it("revoke removes a legacy plaintext record by its raw token as well as a hashed record", () => {
+    const store = freshStore();
+    const legacyToken = randomBytes(32).toString("base64url");
+    writeFileSync(
+      dbPath,
+      JSON.stringify([
+        { token: legacyToken, accountId: "account-1", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }
+      ])
+    );
+    store.revoke(legacyToken);
+    expect(JSON.parse(readFileSync(dbPath, "utf-8"))).toHaveLength(0);
+
+    const hashed = store.create("account-2");
+    store.revoke(hashed.token);
+    expect(JSON.parse(readFileSync(dbPath, "utf-8"))).toHaveLength(0);
+    expect(store.verify(hashed.token)).toBeUndefined();
+  });
+
+  it("malformed stored token values fail closed (undefined, no throw) instead of opening verification", () => {
+    const store = freshStore();
+    const presented = randomBytes(32).toString("base64url");
+    // Not structurally valid digests: 63 hex chars (wrong length) and 64 non-hex chars.
+    // Neither may match an unrelated presented token, and none of this may throw
+    // (timingSafeEqual is only reached for structurally valid 64-hex digests).
+    writeFileSync(
+      dbPath,
+      JSON.stringify([
+        { token: "a".repeat(63), accountId: "account-1", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() },
+        { token: "z".repeat(64), accountId: "account-2", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() },
+        { token: "a".repeat(64), accountId: "account-3", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() }
+      ])
+    );
+    expect(store.verify(presented)).toBeUndefined();
+    // A structurally valid digest stored as the token field must be checked via
+    // timingSafeEqual against sha256(presented) — never accepted by plaintext
+    // equality just because presented === stored.
+    expect(store.verify("a".repeat(64))).toBeUndefined();
+    expect(JSON.parse(readFileSync(dbPath, "utf-8"))[0].token).toBe("a".repeat(63));
+    // And a record whose stored digest genuinely is sha256(presented) still verifies.
+    const legit = store.create("account-4");
+    expect(store.verify(legit.token)?.accountId).toBe("account-4");
   });
 });
 

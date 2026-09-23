@@ -1,12 +1,41 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 export interface Session {
+  /** Raw session token handed to the caller. On disk this field holds the SHA-256
+   *  hex digest of the token instead (legacy pre-hash records hold it verbatim
+   *  and are rewritten hashed on first successful verify). */
   token: string;
   accountId: string;
   createdAt: string;
   expiresAt: string;
+}
+
+/** A stored token is a hash iff it is exactly 64 lowercase hex chars (SHA-256 hex).
+ *  Legacy plaintext tokens are base64url of 32 bytes = 43 chars, so the two
+ *  formats can never be confused structurally — no version field needed. */
+const HASHED_TOKEN_RE = /^[0-9a-f]{64}$/;
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+/** Constant-time comparison of the presented token against a stored token field.
+ *  SHA-256 (fast hash) is correct here because the token itself is 256 bits of
+ *  CSPRNG entropy — no KDF stretching needed. Fails CLOSED: any malformed
+ *  stored value (e.g. hex-looking but wrong length) that isn't a structurally
+ *  valid 64-hex digest is only accepted via exact legacy-plaintext equality,
+ *  and timingSafeEqual is only reached when both sides are known 32-byte digests. */
+function tokenMatches(stored: string, presented: string): boolean {
+  if (HASHED_TOKEN_RE.test(stored)) {
+    const storedDigest = Buffer.from(stored, "hex");
+    const presentedDigest = Buffer.from(hashToken(presented), "hex");
+    if (storedDigest.length !== presentedDigest.length) return false;
+    return timingSafeEqual(storedDigest, presentedDigest);
+  }
+  // Legacy plaintext record (pre-hash format): direct compare; verify() rewrites it hashed on success.
+  return stored === presented;
 }
 
 // P1: Configurable via SESSION_TTL_SECONDS env var. Defaults to 30 days.
@@ -71,16 +100,19 @@ export function createSessionStore(dbPath: string): SessionStore {
   return {
     create(accountId, ttlMs = DEFAULT_TTL_MS) {
       const now = Date.now();
+      const token = randomBytes(32).toString("base64url");
       const session: Session = {
-        token: randomBytes(32).toString("base64url"),
+        token,
         accountId,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + ttlMs).toISOString()
       };
+      // Only the SHA-256 digest is persisted; the raw token is returned to the caller.
+      const stored: Session = { ...session, token: hashToken(token) };
       mkdirSync(dirname(dbPath), { recursive: true });
       acquireLock(dbPath);
       try {
-        writeAllUnlocked(dbPath, [...readAllUnlocked(dbPath), session]);
+        writeAllUnlocked(dbPath, [...readAllUnlocked(dbPath), stored]);
       } finally {
         releaseLock(dbPath);
       }
@@ -88,10 +120,25 @@ export function createSessionStore(dbPath: string): SessionStore {
     },
 
     verify(token) {
-      const session = readAllUnlocked(dbPath).find((s) => s.token === token);
+      const sessions = readAllUnlocked(dbPath);
+      const session = sessions.find((s) => tokenMatches(s.token, token));
       if (!session) return undefined;
       if (new Date(session.expiresAt).getTime() <= Date.now()) return undefined;
-      return session;
+      if (!HASHED_TOKEN_RE.test(session.token)) {
+        // Legacy plaintext record verified successfully: rewrite it hashed so the
+        // file self-heals on first use (expired records never reach this point,
+        // so they are left as-is and keep failing at the expiry check above).
+        acquireLock(dbPath);
+        try {
+          writeAllUnlocked(
+            dbPath,
+            readAllUnlocked(dbPath).map((s) => (s.token === token ? { ...s, token: hashToken(token) } : s))
+          );
+        } finally {
+          releaseLock(dbPath);
+        }
+      }
+      return { ...session, token };
     },
 
     revoke(token) {
@@ -99,7 +146,7 @@ export function createSessionStore(dbPath: string): SessionStore {
       try {
         writeAllUnlocked(
           dbPath,
-          readAllUnlocked(dbPath).filter((s) => s.token !== token)
+          readAllUnlocked(dbPath).filter((s) => !tokenMatches(s.token, token))
         );
       } finally {
         releaseLock(dbPath);
