@@ -104,4 +104,55 @@ describe("createAlibabaAdapter", () => {
     }));
     await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" })).rejects.toThrow(/not a valid MP4/);
   });
+
+  it("requires DASHSCOPE_API_KEY when neither it nor the alias is set", async () => {
+    delete process.env.DASHSCOPE_API_KEY;
+    delete process.env["WAN3.0_API_KEY"];
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("fetch must not be reached"); }));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" })).rejects.toThrow(/DASHSCOPE_API_KEY/);
+  });
+
+  it("throws a clear error when the submit call responds non-ok, including the body", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ code: "Throttling", message: "QPS limit exceeded" }, 429)));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" }))
+      .rejects.toThrow(/Alibaba Model Studio submit failed: 429 .*Throttling.*QPS limit exceeded/);
+  });
+
+  it("throws a clear error when a poll request responds non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      if (url.toString() === endpoint) return json({ output: { task_id: "task-poll-err" } });
+      return json({ error: "InternalError" }, 500);
+    }));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" }))
+      .rejects.toThrow(/task-poll-err poll failed: 500/);
+  });
+
+  it("surfaces the vendor code and message when a polled task fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      if (url.toString() === endpoint) return json({ output: { task_id: "task-fail" } });
+      return json({ output: { task_status: "FAILED", code: "InvalidParameter", message: "duration out of range" } });
+    }));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" }))
+      .rejects.toThrow(/task-fail FAILED: InvalidParameter duration out of range/);
+  });
+
+  it("gives up after ALIBABA_VIDEO_MAX_WAIT_MS with a clear timeout error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      if (url.toString() === endpoint) return json({ output: { task_id: "task-slow" } });
+      return json({ output: { task_status: "RUNNING" } }); // never finishes
+    }));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" }))
+      .rejects.toThrow(/task-slow did not complete within 50 ms/);
+  });
+
+  it("includes the response body when the video download fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      const urlStr = url.toString();
+      if (urlStr === endpoint) return json({ output: { task_id: "task-dl" } });
+      if (urlStr.includes("/tasks/task-dl")) return json({ output: { task_status: "SUCCEEDED", video_url: "https://result.example/denied.mp4" } });
+      return { ok: false, status: 403, text: async () => "signed URL expired" } as Response;
+    }));
+    await expect(createAlibabaAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" }))
+      .rejects.toThrow(/task-dl video download failed: 403 signed URL expired/);
+  });
 });
