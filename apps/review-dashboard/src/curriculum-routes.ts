@@ -36,7 +36,7 @@ import { randomUUID } from "node:crypto";
 import type { Express, Response, RequestHandler } from "express";
 import pino from "pino";
 import { z } from "zod";
-import { resolveOrgId, roleHasPermission, type AccountPermission, type AccountSettings } from "@vvugc/shared-auth";
+import { resolveOrgId, roleHasPermission, aggregateUsage, type AccountPermission, type AccountSettings } from "@vvugc/shared-auth";
 import {
   buildMockCurriculumPlan,
   generateCurriculumPlan,
@@ -75,6 +75,8 @@ import {
 } from "@vvugc/curriculum-engine";
 import type { AuthedRequest } from "./accounts.js";
 import type { TenantProfileRepository } from "./tenant-profile-postgres.js";
+import { loadEnv } from "@vvugc/shared-config";
+import { LocalBillingRepository, type BillingRepository } from "./billing-postgres.js";
 
 const logger = pino({ name: "curriculum" });
 
@@ -298,7 +300,7 @@ function estimateLessonProduceUsd(
  * route; that route keeps its own inline copy.
  */
 async function produceOneLessonForQueue(
-  deps: { tenantProfiles: TenantProfileRepository },
+  deps: { tenantProfiles: TenantProfileRepository; billing?: BillingRepository },
   orgId: string,
   course: CurriculumCourse,
   lesson: CurriculumLesson,
@@ -333,7 +335,34 @@ async function produceOneLessonForQueue(
     createdAt: new Date().toISOString()
   });
 
-  const result = await runCycle(config, {});
+  const billing = deps.billing ?? new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR);
+
+  if (!dryRun) {
+    await billing.reserveRun({
+      orgId,
+      runId,
+      durationSec: config.targetDurationSec,
+      usageRunCount: aggregateUsage(orgId, loadEnv().VVUGC_RUNS_DIR).runs.length
+    });
+  }
+
+  let result;
+  try {
+    result = await runCycle(config, {});
+  } catch (err) {
+    if (!dryRun) {
+      try {
+        await billing.settleReservation({ orgId, runId });
+      } catch (settleErr) {
+        logger.error({ err: settleErr }, "curriculum queue settlement failed");
+      }
+    }
+    throw err;
+  }
+
+  if (!dryRun) {
+    await billing.settleReservation({ orgId, runId, estimatedVendorCostUsd: result.estimatedCostUsd });
+  }
 
   // RunResult carries no review-item ids and ReviewItemFilter has no runId facet —
   // list and match on runId, exactly as the single-lesson produce route does.
@@ -398,7 +427,7 @@ interface QueueRunOutcome {
  *     rejected task is reported in `skipped` as "error", never a 500.
  */
 async function runBoundedProduceQueue(args: {
-  deps: { tenantProfiles: TenantProfileRepository };
+  deps: { tenantProfiles: TenantProfileRepository; billing?: BillingRepository };
   orgId: string;
   course: CurriculumCourse;
   settings: AccountSettings;
@@ -517,9 +546,11 @@ async function runBoundedProduceQueue(args: {
  */
 export function registerCurriculumRoutes(
   app: Express,
-  deps: { tenantProfiles: TenantProfileRepository },
+  deps: { tenantProfiles: TenantProfileRepository; billing?: BillingRepository },
   requireSession: RequestHandler
 ): void {
+  const billing: BillingRepository = deps.billing ?? new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR);
+  deps.billing = billing;
   /**
    * Resolve the caller's org, or write the error response and return undefined.
    * 401 when the session has no account, 403 when the role lacks `permission`
@@ -1217,10 +1248,9 @@ export function registerCurriculumRoutes(
    * uses. Under dry-run the whole pipeline is hermetic (mock discovery /
    * transcript / vendors) and free.
    *
-   * FUTURE (out of scope for Curriculum Mode v2): a LIVE curriculum production
-   * run should also pass through billing.reserveRun / settleReservation the way
-   * POST /accounts/run does — it spends a real, potentially paid vendor chain.
-   * Deliberately left unwired here; dry-run production is free and safe.
+   * BILLING (wired): a LIVE run reserves via billing.reserveRun BEFORE runCycle
+   * and settles after (no-cost settle on failure) — the POST /accounts/run
+   * pattern. Mock/dry runs reserve nothing and stay free.
    */
   app.post(
     "/accounts/curricula/:courseId/lessons/:lessonId/produce",
@@ -1274,12 +1304,36 @@ export function registerCurriculumRoutes(
           createdAt: new Date().toISOString()
         });
 
+        if (!dryRun) {
+          try {
+            await billing.reserveRun({
+              orgId,
+              runId,
+              durationSec: config.targetDurationSec,
+              usageRunCount: aggregateUsage(orgId, loadEnv().VVUGC_RUNS_DIR).runs.length
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return res.status(402).json({ error: `billing reservation failed: ${msg}` });
+          }
+        }
+
         let result;
         try {
           result = await runCycle(config, {});
         } catch (err) {
+          if (!dryRun) {
+            try {
+              await billing.settleReservation({ orgId, runId });
+            } catch (settleErr) {
+              logger.error({ err: settleErr }, "curriculum produce settlement failed");
+            }
+          }
           const msg = err instanceof Error ? err.message : String(err);
           return res.status(502).json({ error: `production run failed: ${msg}` });
+        }
+        if (!dryRun) {
+          await billing.settleReservation({ orgId, runId, estimatedVendorCostUsd: result.estimatedCostUsd });
         }
 
         // RunResult carries no review-item ids and ReviewItemFilter has no runId
@@ -1347,10 +1401,9 @@ export function registerCurriculumRoutes(
    * uses. Under dry-run the whole pipeline is hermetic (mock discovery /
    * transcript / vendors) and free.
    *
-   * FUTURE (out of scope for Curriculum Mode v2): a LIVE curriculum production
-   * run should also pass through billing.reserveRun / settleReservation the way
-   * POST /accounts/run does — it spends a real, potentially paid vendor chain.
-   * Deliberately left unwired here; dry-run production is free and safe.
+   * BILLING (wired): a LIVE run reserves via billing.reserveRun BEFORE runCycle
+   * and settles after (no-cost settle on failure) — the POST /accounts/run
+   * pattern. Mock/dry runs reserve nothing and stay free.
    */
   app.post(
     "/accounts/curricula/:courseId/modules/:moduleId/produce-long-form",
@@ -1408,12 +1461,36 @@ export function registerCurriculumRoutes(
           createdAt: new Date().toISOString()
         });
 
+        if (!dryRun) {
+          try {
+            await billing.reserveRun({
+              orgId,
+              runId,
+              durationSec: config.targetDurationSec,
+              usageRunCount: aggregateUsage(orgId, loadEnv().VVUGC_RUNS_DIR).runs.length
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return res.status(402).json({ error: `billing reservation failed: ${msg}` });
+          }
+        }
+
         let result;
         try {
           result = await runCycle(config, {});
         } catch (err) {
+          if (!dryRun) {
+            try {
+              await billing.settleReservation({ orgId, runId });
+            } catch (settleErr) {
+              logger.error({ err: settleErr }, "curriculum produce settlement failed");
+            }
+          }
           const msg = err instanceof Error ? err.message : String(err);
           return res.status(502).json({ error: `production run failed: ${msg}` });
+        }
+        if (!dryRun) {
+          await billing.settleReservation({ orgId, runId, estimatedVendorCostUsd: result.estimatedCostUsd });
         }
 
         // RunResult carries no review-item ids and ReviewItemFilter has no runId
@@ -1478,8 +1555,8 @@ export function registerCurriculumRoutes(
    * + the course spend cap (`CostCap` seeded from `course.maxGenerationSpendUsd`)
    * are what keep a 200-lesson course from launching 200 `runCycle` calls at
    * once. Dry-run by default (same live double-gate as every curriculum route).
-   * FUTURE: a LIVE batch must additionally reserve budget via billing.reserveRun,
-   * as POST /accounts/run does — deliberately unwired here (dry-run is free/safe).
+   * LIVE batches reserve per lesson inside produceOneLessonForQueue (reserveRun
+   * before runCycle, settleReservation after); dry runs reserve nothing.
    */
   app.post(
     "/accounts/curricula/:courseId/modules/:moduleId/queue",

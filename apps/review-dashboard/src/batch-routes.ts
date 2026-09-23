@@ -33,15 +33,15 @@ import { planBatch, type EntityLookup } from "@vvugc/shared-schema";
 import {
   aggregateUsage,
 } from "@vvugc/shared-auth";
-import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
+import { createPostgresDatabase } from "@vvugc/shared-persistence";
 import { getUgcTemplate, BUILTIN_UGC_TEMPLATES, planBatchFromDescription, type BatchPlannerContext } from "@vvugc/orchestrator";
 
 import { createProductEventStore } from "@vvugc/shared-product-analytics";
 
 import { checkRunQuota } from "./quota.js";
-import { createOverageStore } from "./overage.js";
 import { isLLMLive, isRealRun } from "./llm-gate.js";
+import { LocalBillingRepository, PostgresBillingRepository, type BillingRepository } from "./billing-postgres.js";
 import type { AuthedRequest } from "./accounts.js";
 import type { IdentityRepository } from "./accounts.js";
 import type { TenantProfileRepository } from "./tenant-profile-postgres.js";
@@ -97,6 +97,28 @@ export function setProviderJobStore(store: ProviderJobStore): void {
   providerJobStore = store;
 }
 
+// ─── Billing repository (same selection rule as server.ts:58-60) ────────────
+// server.ts passes its one app-wide billingRepository into registerBatchRoutes
+// (server.ts:274), so production uses the shared instance verbatim. The
+// fallback below remains for tests and any caller that omits the seam: it
+// mirrors server.ts's exact selection — PostgresBillingRepository over
+// DATABASE_URL, else the local file adapter — so batch quota checks and
+// reservations read and write the SAME billing state as every other route,
+// never a parallel JSON-only path when Postgres is configured.
+let fallbackBilling: { url: string; repository: BillingRepository } | undefined;
+async function resolveBillingRepository(injected: BillingRepository | undefined): Promise<BillingRepository> {
+  if (injected) return injected;
+  const { VVUGC_RUNS_DIR, DATABASE_URL } = loadEnv();
+  if (!DATABASE_URL) return new LocalBillingRepository(VVUGC_RUNS_DIR);
+  if (fallbackBilling?.url !== DATABASE_URL) {
+    fallbackBilling = {
+      url: DATABASE_URL,
+      repository: new PostgresBillingRepository(createPostgresDatabase({ connectionString: DATABASE_URL }).pool),
+    };
+  }
+  return fallbackBilling.repository;
+}
+
 // ─── Entity Lookup wired to real stores (Atom C) ─────────────────────────────
 function createEntityLookup(orgId: string, profiles: TenantProfileRepository): EntityLookup {
   return {
@@ -121,7 +143,7 @@ function createEntityLookup(orgId: string, profiles: TenantProfileRepository): E
 export function registerBatchRoutes(
   app: Express,
   requireSession: RequestHandler,
-  deps: { identity: IdentityRepository; tenantProfiles: TenantProfileRepository }
+  deps: { identity: IdentityRepository; tenantProfiles: TenantProfileRepository; billing?: BillingRepository }
 ): void {
   // Same product-events file registerAccountRoutes writes to (accounts.ts) —
   // the store is a stateless file-backed wrapper, so a second instance pointed
@@ -275,19 +297,28 @@ export function registerBatchRoutes(
         });
       }
 
-      // ── Gate: Quota check (per-run quota applied per-batch) ─────────────
+      // ── Gate: Quota pre-check (informational — hybrid billing never blocks) ──
+      // The plan comes from the injected billing repository (Postgres
+      // billing_plans when DATABASE_URL is set, the local plan store
+      // otherwise) — the SAME source reserveRun below consults — instead of
+      // reading account-plans.json directly, which is stale/empty in
+      // production and made this gate always pass. usage stays file-derived
+      // exactly as accounts.ts:1396 passes it into reserveRun; the
+      // repository performs the authoritative included-vs-overage decision
+      // under its advisory lock at reserve time, not here.
       const { VVUGC_RUNS_DIR } = loadEnv();
-      const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
-      const accountPlan = planStore.get(orgId);
+      const billing = await resolveBillingRepository(deps.billing);
+      const accountPlan = await billing.getPlan(orgId);
       const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
       const quotaCheck = checkRunQuota(accountPlan, usage);
 
-      // Quota is hybrid (overage-based) so we never hard-block, but we record
-      // overage for billing. The check is here so the caller knows upfront.
+      // Quota is hybrid (overage-based) so we never hard-block. This check
+      // only tells the caller upfront; the charge itself is recorded by
+      // billing.reserveRun further below — not by this log line.
       if (quotaCheck.overage && quotaCheck.overagePriceUsdPerRun !== undefined) {
         logger.info(
           { batchId, orgId, overagePriceUsdPerRun: quotaCheck.overagePriceUsdPerRun },
-          "batch enqueue will incur overage charges"
+          "batch enqueue is over the included allowance — reserveRun will record the overage"
         );
       }
 
@@ -301,6 +332,30 @@ export function registerBatchRoutes(
 
       if (batchPlan.variations.length === 0) {
         return res.status(400).json({ error: "plan contains no variations to enqueue" });
+      }
+
+      // ── Meter: reserve batch spend (the single authoritative reserve point) ──
+      // Control flow: variations are handed to the ProviderJobStore below and
+      // executed by the separate video-worker process (which claims that queue
+      // at apps/video-worker/src/worker.ts:140) — NOT inline here, and never
+      // via the PipelineJob queue whose claim-time reserve lives at
+      // jobs.ts:232. Video-worker has no billing handle, so this enqueue is
+      // where batch spend must be metered; jobs.ts cannot see these jobs, so
+      // there is no double-reserve (reserveRun is additionally idempotent per
+      // (orgId, runId) — see billing-postgres.test.ts). One reservation per
+      // batch: every provider job below carries runId = batchId. Dry-run
+      // enqueues contact no vendor, so they reserve nothing — the same
+      // two-key gate enforced above.
+      let batchReserved = false;
+      if (!isDryRun) {
+        await billing.reserveRun({
+          orgId,
+          runId: batchId,
+          clientId,
+          durationSec: batchRequest.targetDurationSec,
+          usageRunCount: usage.runs.length,
+        });
+        batchReserved = true;
       }
 
       // ── Store batch record ──────────────────────────────────────────────
@@ -345,29 +400,37 @@ export function registerBatchRoutes(
         enqueuePromises.push(store.enqueue(input));
       }
 
-      // Fire-and-forget the enqueue (async — return immediately with batchId)
+      // Fire-and-forget the enqueue (async — return immediately with batchId).
+      // Execution completes inside video-worker, which has no billing handle;
+      // settle here on successful handoff with the plan's estimated vendor
+      // cost — the batch analogue of accounts.ts:1404's post-run settle — so
+      // Postgres overage charges are actually written for this runId. A failed
+      // handoff settles without cost (the jobs.ts:250 failure pattern): some
+      // variations may already be queued for real spend, so releasing the
+      // reservation would un-meter them. This replaces the old file-only
+      // overage.json record, which production billing never read.
       Promise.all(enqueuePromises)
         .then(() => {
           logger.info(
             { batchId, variationCount: batchPlan.variations.length, isDryRun },
             "batch variations enqueued successfully"
           );
+          if (batchReserved) {
+            billing
+              .settleReservation({ orgId, runId: batchId, estimatedVendorCostUsd: batchPlan.totalEstimatedCost })
+              .catch((err) => logger.error({ batchId, err }, "failed to settle batch billing reservation"));
+          }
         })
         .catch((err) => {
           logger.error({ batchId, err }, "batch enqueue partial failure");
+          if (batchReserved) {
+            billing
+              .settleReservation({ orgId, runId: batchId })
+              .catch((settleErr) =>
+                logger.error({ batchId, err: settleErr }, "failed to settle batch billing reservation after enqueue failure")
+              );
+          }
         });
-
-      // ── Record overage if applicable ────────────────────────────────────
-      if (quotaCheck.overage && quotaCheck.overagePriceUsdPerRun !== undefined) {
-        const overageStore = createOverageStore(join(VVUGC_RUNS_DIR, "overage.json"));
-        overageStore.record({
-          orgId,
-          runId: batchId,
-          priceUsdPerRun: quotaCheck.overagePriceUsdPerRun,
-          estimatedVendorCostUsd: batchPlan.totalEstimatedCost,
-          clientId,
-        });
-      }
 
       productEvents.record({ orgId, accountId: acct2.id, eventType: "batch_enqueued", meta: { variationCount: batchPlan.variations.length, isDryRun } });
 

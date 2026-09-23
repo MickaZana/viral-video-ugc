@@ -271,7 +271,7 @@ registerBillingRoutes(app, requireSession, { pool: initializedIdentity.database?
 // initializeIdentity() always populates tenantProfiles on every return branch
 // (LocalTenantProfileRepository or PostgresTenantProfileRepository) — the field
 // is optional only for the InitializedIdentity DI type's other injection points.
-registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles! });
+registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles!, billing: billingRepository });
 
 // API v1 namespace — disabled by default (VVUGC_API_ENABLED=false), returns 404 when off.
 app.use("/v1", v1Router);
@@ -288,7 +288,7 @@ registerSoulIdRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! 
 // Curriculum Mode v2: course CRUD (generate-plan / approve / modules / lessons /
 // produce land in later units). Same real tenantProfiles repository and
 // non-null-assertion reasoning as the two registrations above.
-registerCurriculumRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles! }, requireSession);
+registerCurriculumRoutes(app, { tenantProfiles: initializedIdentity.tenantProfiles!, billing: billingRepository }, requireSession);
 
 // /account and /dashboard used to be separate HTML self-service pages
 // (account-page.ts, now deleted). The product workspace is the SPA now for
@@ -751,6 +751,43 @@ function regenerateWorkDir(runId: string): string {
   return join(loadEnv().VVUGC_RUNS_DIR, runId, "regenerate", randomUUID());
 }
 
+const { aggregateUsage } = await import("@vvugc/shared-auth");
+
+async function reserveLiveRegeneration(
+  res: Response,
+  item: { runId: string; orgId?: string; script: { durationSec: number } }
+): Promise<Response | undefined> {
+  if (!item.orgId) {
+    return res.status(403).json({
+      error: "live regeneration requires an org-scoped review item — billing reservation cannot be metered"
+    });
+  }
+  try {
+    await billingRepository.reserveRun({
+      orgId: item.orgId,
+      runId: item.runId,
+      durationSec: item.script.durationSec,
+      usageRunCount: aggregateUsage(item.orgId, loadEnv().VVUGC_RUNS_DIR).runs.length
+    });
+    return undefined;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(402).json({ error: `billing reservation failed: ${msg}` });
+  }
+}
+
+async function settleLiveRegeneration(item: { runId: string; orgId?: string }): Promise<void> {
+  if (!item.orgId) return;
+  try {
+    await billingRepository.settleReservation({ orgId: item.orgId, runId: item.runId });
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), runId: item.runId },
+      "regeneration settlement failed"
+    );
+  }
+}
+
 app.post(
   "/queue/:id/regenerate-scene",
   requireQueuePermission("pipeline.run"),
@@ -769,17 +806,23 @@ app.post(
       return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
     }
 
+    const dryRun = Boolean(req.body?.dryRun) || !isLLMLive();
+    if (!dryRun) {
+      const blocked = await reserveLiveRegeneration(res, item);
+      if (blocked) return blocked;
+    }
+
     try {
       const regenerated = await regenerateScene(item, sceneIndex, {
         videoVendor,
-        // Regeneration stays in mock mode unless real LLM spend is explicitly
-        // enabled (VVUGC_LLM_LIVE=true); otherwise it is always a dry-run.
-        dryRun: Boolean(req.body?.dryRun) || !isLLMLive(),
+        dryRun,
         outDir: regenerateWorkDir(item.runId)
       });
       await replaceReviewItem(regenerated);
+      if (!dryRun) await settleLiveRegeneration(item);
       res.json(regenerated);
     } catch (err) {
+      if (!dryRun) await settleLiveRegeneration(item);
       res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
     }
   })
@@ -803,15 +846,23 @@ app.post(
       return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
     }
 
+    const dryRun = Boolean(req.body?.dryRun) || !isLLMLive();
+    if (!dryRun) {
+      const blocked = await reserveLiveRegeneration(res, item);
+      if (blocked) return blocked;
+    }
+
     try {
       const regenerated = await regenerateScript(
         item,
         { hook, points, cta },
-        { videoVendor, dryRun: Boolean(req.body?.dryRun) || !isLLMLive(), outDir: regenerateWorkDir(item.runId) }
+        { videoVendor, dryRun, outDir: regenerateWorkDir(item.runId) }
       );
       await replaceReviewItem(regenerated);
+      if (!dryRun) await settleLiveRegeneration(item);
       res.json(regenerated);
     } catch (err) {
+      if (!dryRun) await settleLiveRegeneration(item);
       res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
     }
   })
@@ -836,6 +887,8 @@ app.post(
     if (!videoVendor) {
       return res.status(400).json({ error: "videoVendor is required (item has no stored clips to infer it from)" });
     }
+    const blocked = await reserveLiveRegeneration(res, item);
+    if (blocked) return blocked;
     try {
       const regenerated = await regenerateScript(
         item,
@@ -846,8 +899,10 @@ app.post(
       // flip it off explicitly since this render is real.
       const promoted = { ...regenerated, dryRun: false };
       await replaceReviewItem(promoted);
+      await settleLiveRegeneration(item);
       res.json(promoted);
     } catch (err) {
+      await settleLiveRegeneration(item);
       res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
     }
   })
