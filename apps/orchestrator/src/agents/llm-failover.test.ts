@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CostLedger } from "@vvugc/shared-cost";
 import type { Platform, Transcript } from "@vvugc/shared-schema";
-import { generateWithFailover } from "./llm-failover.js";
+import { generateWithFailover, LlmFailoverError } from "./llm-failover.js";
 
 const mockCreate = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -573,3 +573,175 @@ describe("generateWithFailover / multimodal images", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("generateWithFailover / failover policy (audit F10)", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_MODEL;
+    delete process.env.GEMINI_MODEL;
+    delete process.env.GROK_MODEL;
+    delete process.env.MOONSHOT_API_KEY;
+    delete process.env.KIMI_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GROK_API_KEY = "xai-test-key";
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  function mockLedger() {
+    return {
+      recordAnthropicUsage: vi.fn(),
+      recordOpenAIUsage: vi.fn(),
+      recordGeminiUsage: vi.fn(),
+      recordGrokUsage: vi.fn(),
+      recordKimiUsage: vi.fn()
+    };
+  }
+
+  const baseCall = (overrides: Record<string, unknown> = {}) => ({
+    system: "s", userPrompt: "u", maxTokens: 100,
+    anthropicModel: "claude-fable-5", geminiModel: "gemini-2.5-pro", grokModel: "grok-2-latest",
+    stage: "script_rewrite", ...overrides
+  });
+
+  it("fails fast on a non-retryable 400 from a fallback provider instead of burning the rest of the chain", async () => {
+    process.env.OPENAI_API_KEY = "openai-key";
+    mockCreate.mockRejectedValue(sdkError("APIError"));
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => '{"error":{"type":"invalid_request_error","message":"max_tokens is too large for this model"}}'
+    });
+    const onFallback = vi.fn();
+
+    const err = await generateWithFailover(baseCall({ onFallback })).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(LlmFailoverError);
+    const failover = err as LlmFailoverError;
+    expect(failover.reason).toBe("non-retryable");
+    expect(failover.attempts.map((a) => a.provider)).toEqual(["anthropic", "openai"]);
+    expect(failover.message).toContain("anthropic/claude-fable-5");
+    expect(failover.message).toContain("openai/gpt-4.1-mini");
+    expect(failover.message).toContain("400");
+    // Gemini and Grok are still configured — they must NOT have been attempted.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onFallback).toHaveBeenCalledTimes(1);
+    expect(onFallback).toHaveBeenCalledWith("openai", "gpt-4.1-mini", expect.anything());
+  });
+
+  it("retries the chain on a retryable timeout from the primary and succeeds on the next provider", async () => {
+    mockCreate.mockRejectedValue(sdkError("APITimeoutError"));
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      geminiTextResponse({ hook: "h", points: ["p"], cta: "c" })
+    );
+    const onFallback = vi.fn();
+
+    const result = await generateWithFailover(baseCall({ onFallback }));
+
+    expect(result.provider).toBe("gemini");
+    expect(result.model).toBe("gemini-2.5-pro");
+    expect(onFallback).toHaveBeenCalledWith("gemini", "gemini-2.5-pro", expect.anything());
+  });
+
+  it("treats a fallback provider 5xx as retryable and continues to the next provider", async () => {
+    process.env.OPENAI_API_KEY = "openai-key";
+    mockCreate.mockRejectedValue(sdkError("APIError"));
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => "OpenAI internal error" })
+      .mockResolvedValueOnce(geminiTextResponse({ hook: "h", points: ["p"], cta: "c" }));
+
+    const result = await generateWithFailover(baseCall());
+
+    expect(result.provider).toBe("gemini");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("aggregates every provider/model/error into one error when the whole chain is exhausted", async () => {
+    process.env.OPENAI_API_KEY = "openai-key";
+    mockCreate.mockRejectedValue(sdkError("APIError"));
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => "OpenAI internal error" })
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => "Gemini unavailable" })
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => "Grok exploded" });
+
+    const err = await generateWithFailover(baseCall()).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(LlmFailoverError);
+    const failover = err as LlmFailoverError;
+    expect(failover.reason).toBe("exhausted");
+    expect(failover.attempts.map((a) => a.provider)).toEqual(["anthropic", "openai", "gemini", "grok"]);
+    expect(failover.attempts.every((a) => a.classification === "retryable")).toBe(true);
+    expect(failover.message).toContain("APIError");
+    expect(failover.message).toContain("OpenAI internal error");
+    expect(failover.message).toContain("Gemini unavailable");
+    expect(failover.message).toContain("Grok exploded");
+  });
+
+  it("bounds the whole chain with the total wall-clock deadline before any provider is called", async () => {
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+
+    const err = await generateWithFailover(baseCall({ maxTotalMs: 0 })).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(LlmFailoverError);
+    const failover = err as LlmFailoverError;
+    expect(failover.reason).toBe("deadline");
+    expect(failover.message).toMatch(/deadline/i);
+    expect(failover.attempts).toHaveLength(0);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("records usage on the ledger for the attempt that produced it, under that attempt's own model", async () => {
+    mockCreate.mockRejectedValue(sdkError("APIError"));
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      geminiTextResponse({ hook: "h", points: ["p"], cta: "c" })
+    );
+    const ledger = mockLedger();
+
+    const result = await generateWithFailover(baseCall({ costLedger: ledger }));
+
+    expect(result.provider).toBe("gemini");
+    expect(ledger.recordAnthropicUsage).not.toHaveBeenCalled();
+    expect(ledger.recordGeminiUsage).toHaveBeenCalledTimes(1);
+    expect(ledger.recordGeminiUsage).toHaveBeenCalledWith(
+      "script_rewrite",
+      { input_tokens: 100, output_tokens: 50 },
+      "gemini-2.5-pro"
+    );
+    expect(ledger.recordGrokUsage).not.toHaveBeenCalled();
+    expect(ledger.recordOpenAIUsage).not.toHaveBeenCalled();
+  });
+
+  it("records Anthropic usage even when the response fails shape validation (tokens were still consumed)", async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: "image" }], usage: { input_tokens: 7, output_tokens: 3 } });
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    const ledger = mockLedger();
+
+    const err = await generateWithFailover(baseCall({ costLedger: ledger })).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(LlmFailoverError);
+    expect((err as LlmFailoverError).message).toContain("no text block");
+    expect(ledger.recordAnthropicUsage).toHaveBeenCalledTimes(1);
+    expect(ledger.recordAnthropicUsage).toHaveBeenCalledWith(
+      "script_rewrite",
+      { input_tokens: 7, output_tokens: 3 },
+      "claude-fable-5"
+    );
+    // The shape error is non-retryable, so the fallback chain must not run.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
