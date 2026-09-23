@@ -14,7 +14,7 @@
  *   - Future: full implementation with auth, quota, idempotency
  */
 
-import { Router, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import type { Router as RouterType } from "express";
 
 // Feature flag check — inline since we can't depend on shared-platform
@@ -31,12 +31,19 @@ export const v1Router: RouterType = Router();
 // --------------------------------------------------------------------------
 // Feature gate — all /v1 routes return 404 when API is disabled
 // --------------------------------------------------------------------------
-v1Router.use((_req: Request, res: Response, next) => {
+// Request-time check (reads process.env on every request — never a value captured
+// at module load), fail-closed. Exported so server.ts can run this SAME gate
+// ahead of its auth middleware on the /v1 mount: the flag must win (404,
+// existence-hiding) even for unauthenticated callers, and auth must only engage
+// once the flag is actually on.
+export const apiEnabledGate: RequestHandler = (_req: Request, res: Response, next: NextFunction) => {
   if (!isApiEnabled()) {
     return res.status(404).json({ error: "not found" });
   }
   next();
-});
+};
+
+v1Router.use(apiEnabledGate);
 
 // --------------------------------------------------------------------------
 // Future API routes (Section 18) — stubs returning 501

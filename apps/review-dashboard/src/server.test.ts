@@ -80,6 +80,7 @@ describe("review-dashboard HTTP API", () => {
     delete process.env.VVUGC_RUNS_DIR;
     delete process.env.DASHBOARD_USERNAME;
     delete process.env.DASHBOARD_PASSWORD;
+    delete process.env.VVUGC_METRICS_TOKEN;
     if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
   });
 
@@ -260,15 +261,44 @@ describe("review-dashboard HTTP API", () => {
     expect(body.status).toBe("ok");
   });
 
-  it("GET /metrics serves Prometheus text format without credentials, and records prior requests", async () => {
-    await startServer();
-    await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER }); // generate at least one recorded request first
-    const res = await fetch(`${baseUrl}/metrics`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/plain");
-    const text = await res.text();
-    expect(text).toContain("http_requests_total");
-    expect(text).toContain('service="review-dashboard"');
+  // /metrics is fail-closed behind VVUGC_METRICS_TOKEN (an ops scrape secret,
+  // deliberately separate from DASHBOARD_USERNAME/PASSWORD so a Prometheus config
+  // never embeds the dashboard login). Unset must mean "locked", not "public".
+  describe("/metrics gate", () => {
+    it("returns 401 without serving the registry when VVUGC_METRICS_TOKEN is unset (fail-closed)", async () => {
+      delete process.env.VVUGC_METRICS_TOKEN;
+      await startServer();
+      await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER }); // generate at least one recorded request first
+      const res = await fetch(`${baseUrl}/metrics`);
+      expect(res.status).toBe(401);
+      const text = await res.text();
+      expect(text).not.toContain("http_requests_total");
+    });
+
+    it("returns 401 for a wrong bearer token even when VVUGC_METRICS_TOKEN is configured", async () => {
+      process.env.VVUGC_METRICS_TOKEN = "correct-horse-battery-staple";
+      await startServer();
+      const res = await fetch(`${baseUrl}/metrics`, {
+        headers: { Authorization: "Bearer wrong-token" }
+      });
+      expect(res.status).toBe(401);
+      const text = await res.text();
+      expect(text).not.toContain("http_requests_total");
+    });
+
+    it("serves Prometheus text format for the correct bearer token, and records prior requests", async () => {
+      process.env.VVUGC_METRICS_TOKEN = "correct-horse-battery-staple";
+      await startServer();
+      await fetch(`${baseUrl}/queue`, { headers: AUTH_HEADER }); // generate at least one recorded request first
+      const res = await fetch(`${baseUrl}/metrics`, {
+        headers: { Authorization: "Bearer correct-horse-battery-staple" }
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/plain");
+      const text = await res.text();
+      expect(text).toContain("http_requests_total");
+      expect(text).toContain('service="review-dashboard"');
+    });
   });
 
   it("every response carries an X-Request-Id header, and a caller-supplied one is echoed back", async () => {
@@ -439,6 +469,24 @@ describe("review-dashboard HTTP API", () => {
 
       const res = await fetch(`${baseUrl}/v1/runs`, { method: "POST", headers: AUTH_HEADER });
       expect(res.status).toBe(404);
+    });
+
+    it("returns 404 (not 401) to an UNAUTHENTICATED caller when the flag is off — the flag gate runs before auth, so a dormant /v1 stays existence-hiding", async () => {
+      delete process.env.VVUGC_API_ENABLED;
+      await startServer();
+
+      const res = await fetch(`${baseUrl}/v1/runs`, { method: "POST" });
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 401 (never the 501 stub body) to an unauthenticated caller when the flag is on — auth runs before any handler", async () => {
+      process.env.VVUGC_API_ENABLED = "true";
+      await startServer();
+
+      const res = await fetch(`${baseUrl}/v1/runs`, { method: "POST" });
+      expect(res.status).toBe(401);
+      const text = await res.text();
+      expect(text).not.toContain("not_implemented");
     });
 
     it("returns 501 not_implemented for every stub route once VVUGC_API_ENABLED=true", async () => {

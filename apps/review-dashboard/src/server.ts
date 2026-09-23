@@ -33,7 +33,7 @@ import { runDueClientSchedules, startClientScheduler } from "./scheduler.js";
 import { createPipelineJobStore, startPipelineJobWorker } from "./jobs.js";
 import { DEMO_PREVIEW_STATS, DEMO_PREVIEW_CREATORS, DEMO_PREVIEW_RUNS, DEMO_PREVIEW_QUEUE } from "./demo-preview-data.js";
 import { type AuthedRequest } from "./auth-context.js";
-import { v1Router } from "./api-v1-routes.js";
+import { apiEnabledGate, v1Router } from "./api-v1-routes.js";
 import { pruneRetainedLogs } from "./retention.js";
 import { MODEL_CATALOG, groupModelsByResult } from "./models.js";
 import { resolveOrgId, roleHasPermission, type Account, type AccountPermission } from "@vvugc/shared-auth";
@@ -231,11 +231,47 @@ app.get("/readyz", async (_req, res) => {
   }
 });
 
-// Prometheus scrape target — aggregate operational data (request counts/timings,
-// process stats), not content, and unauthenticated to match the standard
-// Prometheus/Kubernetes convention (see @vvugc/shared-metrics). Registered
-// before the auth middleware below for the same reason /healthz is.
-app.get("/metrics", metricsHandler);
+// Prometheus scrape target — aggregate operational data (process stats plus
+// per-route request counts/timings), not customer content. Gated behind
+// VVUGC_METRICS_TOKEN, fail-closed: with the token unset, every request gets 401
+// rather than the registry — even aggregate route labels enumerate this
+// dashboard's authenticated endpoint inventory (traffic shape + attack surface),
+// which is more than the open /healthz//readyz probes disclose. Scrapers send
+// `Authorization: Bearer <token>` (constant-time compared). Read directly from
+// process.env rather than loadEnv() because the token is deliberately NOT part
+// of shared-config's Env schema (that package owns its own zod schema; this is
+// review-dashboard-local surface) — same reasoning api-v1-routes.ts uses for
+// VVUGC_API_ENABLED. Registered before the session/Basic-Auth gate below on
+// purpose: the scrape token is the only credential /metrics accepts, so a
+// Prometheus config never needs the dashboard password embedded in it.
+function metricsTokenMatches(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) {
+    // Same-cost comparison on length mismatch so it can't return faster than a
+    // same-length mismatch (see auth.ts's timingSafeStringEqual).
+    timingSafeEqual(a, a);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+app.get(
+  "/metrics",
+  (req: Request, res: Response, next: NextFunction) => {
+    const expected = process.env.VVUGC_METRICS_TOKEN;
+    if (!expected) {
+      return res.status(401).json({ error: "metrics scraping is disabled — set VVUGC_METRICS_TOKEN to enable it" });
+    }
+    const header = req.headers.authorization;
+    const provided = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+    if (!provided || !metricsTokenMatches(provided, expected)) {
+      return res.status(401).json({ error: "invalid metrics token" });
+    }
+    next();
+  },
+  metricsHandler
+);
 
 // Basic Auth's timing-safe comparison (auth.ts) stops a timing attack, but does nothing
 // to stop brute force at network speed — an attacker can still try thousands of passwords
@@ -273,8 +309,28 @@ registerBillingRoutes(app, requireSession, { pool: initializedIdentity.database?
 // is optional only for the InitializedIdentity DI type's other injection points.
 registerBatchRoutes(app, requireSession, { identity: initializedIdentity.identity, tenantProfiles: initializedIdentity.tenantProfiles!, billing: billingRepository });
 
+// The one authentication gate this server uses: a valid account session cookie
+// (control-panel SPA login) OR the operator's Basic Auth (DASHBOARD_USERNAME/
+// DASHBOARD_PASSWORD). Defined here — rather than inline at its app-wide
+// registration further down — so the /v1 mount below can reuse the exact same
+// middleware. One gate, two mounts; no second auth scheme exists anywhere.
+const sessionOrBasicAuth = (req: Request & { accountId?: string; auditActor?: string; account?: Account }, res: Response, next: NextFunction) => { void (async () => {
+  const session = await verifySessionRequest(req);
+  if (session) { req.accountId = session.accountId; req.account = session.account; req.auditActor = `account:${session.accountId}`; return next(); }
+  return createBasicAuthMiddleware(credentials)(req, res, next);
+})().catch(next);
+};
+
 // API v1 namespace — disabled by default (VVUGC_API_ENABLED=false), returns 404 when off.
-app.use("/v1", v1Router);
+// Fail-closed ordering on this mount: the feature-flag gate runs FIRST, so a flag-off
+// deployment (the common case) stays a plain existence-hiding 404 even for anonymous
+// callers — auth must never turn a dormant feature into a detectable 401. When the flag
+// IS on, the same failed-login rate limiter and session-or-Basic-Auth gate every other
+// authenticated route uses run before the router, so every handler behind this mount is
+// authenticated the moment it exists: the feature flag alone is never the only gate, and
+// a future real /v1 handler can't accidentally ship reachable to anonymous callers.
+// v1Router re-checks the flag itself (apiEnabledGate) as a second layer.
+app.use("/v1", apiEnabledGate, authRateLimiter, sessionOrBasicAuth, v1Router);
 
 // Soul ID: identity training and status endpoints. Previously wired to a fake
 // no-op store (`{ get: () => undefined, update: () => undefined } as any`),
@@ -412,18 +468,14 @@ app.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
 // Everything past this point approves/rejects content before it ships, or reveals
 // its details (scripts, video paths, run history) — not safe to leave open.
-// Two valid ways to get past this gate:
+// Two valid ways to get past this gate (the same sessionOrBasicAuth middleware the
+// /v1 mount above already applies):
 //   1. a valid account session cookie (the control-panel SPA logs in via /accounts/*)
 //   2. the operator's Basic Auth (DASHBOARD_USERNAME/DASHBOARD_PASSWORD)
 // A request that carries neither is rejected. This is what lets the control-panel
 // reach the data endpoints with a real user login rather than only operator creds.
 app.use(authRateLimiter);
-app.use((req: Request & { accountId?: string; auditActor?: string; account?: Account }, res: Response, next: NextFunction) => { void (async () => {
-  const session = await verifySessionRequest(req);
-  if (session) { req.accountId = session.accountId; req.account = session.account; req.auditActor = `account:${session.accountId}`; return next(); }
-  return createBasicAuthMiddleware(credentials)(req, res, next);
-})().catch(next);
-});
+app.use(sessionOrBasicAuth);
 
 // Reachable only past the gate above — a customer session was already
 // redirected to /app/review before reaching here, so this is exclusively the
