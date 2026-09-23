@@ -207,7 +207,7 @@ jobs:
 
   # Boots the two just-published web images for real and hits their /healthz —
   # this is the only way to catch a missing Dockerfile COPY manifest (this
-  # project's single most recurring bug class, per docs/audit.md) before it
+  # project's single most recurring bug class, per docs/archive/audit.md) before it
   # reaches production rather than after a push fails. Runs after the images
   # exist (needs: build-and-push-images) so it exercises the actual pushed
   # :<sha> artifact, not a locally rebuilt one. Uses `docker run --network host`
