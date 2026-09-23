@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import pino from "pino";
-import type { CandidateVideo, RawClip, ReviewItem, RunConfig, RunResult } from "@vvugc/shared-schema";
+import type { CandidateVideo, RawClip, ReviewItem, RewrittenScript, RunConfig, RunResult } from "@vvugc/shared-schema";
 import { RunResultSchema } from "@vvugc/shared-schema";
 import { loadEnv } from "@vvugc/shared-config";
 import { CostLedger, estimateCostUsd, type CostVendor } from "@vvugc/shared-cost";
@@ -138,11 +138,19 @@ export async function mapWithConcurrency<T, R>(items: T[], limit: number, work: 
 
 export function reserveVideoGenBudget(costCap: CostCap, vendorChain: VideoVendorId[], clipCount: number, dryRun: boolean): number {
   if (dryRun) return 0;
-  const perAttemptRate = vendorChain.reduce(
-    (sum, vendor) => sum + Math.max(1, estimateCostUsd(vendor as CostVendor, "clip", 1)),
+  // Reserve the chain's TRUE summed per-clip estimate — never a per-vendor $1 floor.
+  // Real clip rates run $0.10–$0.75, so flooring each vendor at ≥$1 made a 3-vendor
+  // chain reserve ≥$3/clip and pushed multi-variant runs over the default $25 cap
+  // spuriously. The $1 fallback applies once, to the whole chain, and only when no
+  // vendor in it is priced (summed estimate 0) so an unknown-price chain still
+  // reserves something. The reservation is reconciled against actual ledger spend
+  // after generation (see runCycle's reconcile step).
+  const summedEstimate = vendorChain.reduce(
+    (sum, vendor) => sum + estimateCostUsd(vendor as CostVendor, "clip", 1),
     0
   );
-  const reserve = Math.max(perAttemptRate, 1) * clipCount;
+  const perClipUsd = summedEstimate > 0 ? summedEstimate : 1;
+  const reserve = perClipUsd * clipCount;
   costCap.record(reserve);
   return reserve;
 }
@@ -182,7 +190,6 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
   });
   const flowLimiter = new FlowLimiter(capConfig.maxVideosPerFlow);
   const videoGenSemaphore = new Semaphore(capConfig.maxConcurrentVideoGen);
-  let reservedVideoUsd = 0;
   let accountedVideoUsd = 0;
   let accountedNonVideoUsd = 0;
 
@@ -286,31 +293,64 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           ? mockTranscript(candidate)
           : await transcribeCandidate(candidate, join(runDir, "audio")));
 
-      const scripts = await mapWithConcurrency(
+      const scriptResults = await mapWithConcurrency(
         Array.from({ length: config.outputVariants }, (_, variantIndex) => variantIndex),
         capConfig.maxConcurrentLlm,
         async (variantIndex) => {
-          const variantAngle = VARIANT_ANGLES[variantIndex];
-          onProgress(`${tag} Rewriting script variant ${variantIndex + 1}/${config.outputVariants}...`);
-          const rewritten = await rewriteScript(transcript, {
-            niche: config.niche,
-            brandVoice: config.brandVoice,
-            brandKit: config.brandKit,
-            durationSec: config.targetDurationSec,
-            platforms: config.platforms,
-            locale: config.locale,
-            dryRun: config.dryRun,
-            discoveryBrief: config.discoveryBrief,
-            angle: variantAngle,
-            productProfile: config.productProfile,
-            creatorProfile: config.creatorProfile,
-            template: config.template,
-            adaptivePromptInjection: adaptiveContext.fullInjection || undefined,
-            costLedger
-          });
-          return { variantIndex, script: { ...rewritten, videoId: `${candidate.id}-variant-${variantIndex + 1}` } };
+          try {
+            const variantAngle = VARIANT_ANGLES[variantIndex];
+            onProgress(`${tag} Rewriting script variant ${variantIndex + 1}/${config.outputVariants}...`);
+            const rewritten = await rewriteScript(transcript, {
+              niche: config.niche,
+              brandVoice: config.brandVoice,
+              brandKit: config.brandKit,
+              durationSec: config.targetDurationSec,
+              platforms: config.platforms,
+              locale: config.locale,
+              dryRun: config.dryRun,
+              discoveryBrief: config.discoveryBrief,
+              angle: variantAngle,
+              productProfile: config.productProfile,
+              creatorProfile: config.creatorProfile,
+              template: config.template,
+              adaptivePromptInjection: adaptiveContext.fullInjection || undefined,
+              costLedger
+            });
+            return { variantIndex, script: { ...rewritten, videoId: `${candidate.id}-variant-${variantIndex + 1}` } };
+          } catch (error) {
+            // Per-item isolation with the same semantics as the clip path below: one
+            // variant's rewrite failure must not reject the shared mapWithConcurrency
+            // promise (which would discard sibling variants' already-successful work
+            // and leave peer workers unhandled). Failures are reported, not swallowed.
+            return { variantIndex, error: String(error) };
+          }
         }
       );
+      const scripts: { variantIndex: number; script: RewrittenScript }[] = scriptResults.filter(
+        (result): result is { variantIndex: number; script: RewrittenScript } => !("error" in result)
+      );
+      const scriptErrors = scriptResults.filter(
+        (result): result is { variantIndex: number; error: string } => "error" in result
+      );
+      if (!scripts.length) {
+        // Every variant failed — candidate-level failure, reported by the outer catch
+        // exactly as before (candidatesFailed++, one aggregated failure entry).
+        throw new Error(
+          `script rewrite failure(s): ${scriptErrors.map((e) => `${e.variantIndex + 1}: ${e.error}`).join("; ")}`
+        );
+      }
+      for (const scriptError of scriptErrors) {
+        // Partial success: keep the sibling variants' already-successful work and
+        // report the failed one through the same channels the clip/platform failure
+        // paths use (structured log + onProgress line + manifest `failures`).
+        const reason = `variant ${scriptError.variantIndex + 1} script rewrite failed: ${scriptError.error}`;
+        logger.warn(
+          { candidateId: candidate.id, variantIndex: scriptError.variantIndex, err: scriptError.error },
+          "script rewrite failed for variant — continuing with successful sibling variants"
+        );
+        onProgress(`${tag} ✗ ${reason} — continuing with ${scripts.length} successful variant(s)`);
+        failures.push({ candidateId: candidate.id, reason });
+      }
 
       for (const { variantIndex, script } of scripts) {
         const hookAngle = `${candidate.id}::${variantIndex + 1}::${script.hook.toLowerCase().slice(0, 80)}`;
@@ -385,60 +425,68 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             config.videoVendor,
             config.videoVendorFallbacks as VideoVendorId[] | undefined
           );
-          // Fallbacks can charge for failed attempts too. Reserve the sum of each
-          // provider's per-clip estimate before generation, not just the most costly
-          // provider in the chain. The run cap remains conservative under fallback.
+          // Fallbacks can charge for failed attempts too. Reserve the summed per-clip
+          // estimate of every provider in the chain (a single $1/clip total floor only
+          // when the whole chain is unpriced) before generation — then reconcile it
+          // against actual ledger spend in the finally below, on both the success and
+          // failure paths, so unused reservation never leaks into the run cap and any
+          // real overage is still billed.
           const videoReserve = reserveVideoGenBudget(costCap, vendorChain, segments.length, config.dryRun);
-          reservedVideoUsd += videoReserve; // budget is reserved before launching any provider calls
-
-          const clipResults = await mapWithConcurrency(segments, capConfig.maxConcurrentVideoGen, async (segment, i) => {
-            onProgress(`${tag} Generating video variant ${variantIndex + 1} (${platform}) — clip ${i + 1}/${segments.length}...`);
-            try {
-              const attempts: VideoVendorId[] = [];
-              const clip = await generateClipWithFallback(
-                vendorChain,
-                {
-                  scriptSegmentIndex: i,
-                  prompt: (() => {
-                    let promptText = segment;
-                    if (config.template) {
-                      promptText += `\nShot Intention: Show visual representation of "${config.template.scriptStructure[i]}" beat.`;
-                      promptText += `\nVisual Direction: ${config.template.visualDirection}`;
-                      promptText += `\nCamera Direction: ${config.template.cameraDirection}`;
-                      promptText += `\nProduct Placement: ${config.template.productPlacementDirection}`;
-                      if (config.creatorProfile) promptText += `\nCreator Behavior: ${config.template.creatorDirection}`;
-                    }
-                    return promptText;
-                  })(),
-                  durationSec: Math.round(script.durationSec / segments.length),
-                  aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
-                },
-                { outDir: clipsDir, dryRun: config.dryRun, callMcpTool: opts.callMcpTool },
-                (vendor, failed) => {
-                  if (!attempts.includes(vendor)) attempts.push(vendor);
-                  recordVideoGenAttempt(costLedger, vendor, config.dryRun, failed);
-                  onProgress(failed
-                    ? `${tag}   variant ${variantIndex + 1} clip ${i + 1}: ${vendor} failed, trying fallback (${failed})`
-                    : `${tag}   variant ${variantIndex + 1} clip ${i + 1}: using ${vendor}`);
-                }
-              );
-              return { clip, attempts } as const;
-            } catch (error) {
-              return { error: String(error), index: i } as const;
-            }
-          }, videoGenSemaphore);
-          // Charge every completed clip immediately, even if a peer clip failed.
-          const completedClips = clipResults.map((result) => result.clip).filter((clip): clip is RawClip => clip !== undefined);
-          clips.push(...completedClips);
-          // Usage is recorded per vendor attempt above so failed billable fallbacks
-          // are represented too; don't charge successful clips a second time here.
-          const actualVideoUsd = costLedger.getEvents().filter((event) => event.stage === "video_gen").reduce((sum, event) => sum + event.estimatedCostUsd, 0);
-          if (actualVideoUsd > reservedVideoUsd) {
-            costCap.record(actualVideoUsd - Math.max(reservedVideoUsd, accountedVideoUsd));
+          try {
+            const clipResults = await mapWithConcurrency(segments, capConfig.maxConcurrentVideoGen, async (segment, i) => {
+              onProgress(`${tag} Generating video variant ${variantIndex + 1} (${platform}) — clip ${i + 1}/${segments.length}...`);
+              try {
+                const attempts: VideoVendorId[] = [];
+                const clip = await generateClipWithFallback(
+                  vendorChain,
+                  {
+                    scriptSegmentIndex: i,
+                    prompt: (() => {
+                      let promptText = segment;
+                      if (config.template) {
+                        promptText += `\nShot Intention: Show visual representation of "${config.template.scriptStructure[i]}" beat.`;
+                        promptText += `\nVisual Direction: ${config.template.visualDirection}`;
+                        promptText += `\nCamera Direction: ${config.template.cameraDirection}`;
+                        promptText += `\nProduct Placement: ${config.template.productPlacementDirection}`;
+                        if (config.creatorProfile) promptText += `\nCreator Behavior: ${config.template.creatorDirection}`;
+                      }
+                      return promptText;
+                    })(),
+                    durationSec: Math.round(script.durationSec / segments.length),
+                    aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
+                  },
+                  { outDir: clipsDir, dryRun: config.dryRun, callMcpTool: opts.callMcpTool },
+                  (vendor, failed) => {
+                    if (!attempts.includes(vendor)) attempts.push(vendor);
+                    recordVideoGenAttempt(costLedger, vendor, config.dryRun, failed);
+                    onProgress(failed
+                      ? `${tag}   variant ${variantIndex + 1} clip ${i + 1}: ${vendor} failed, trying fallback (${failed})`
+                      : `${tag}   variant ${variantIndex + 1} clip ${i + 1}: using ${vendor}`);
+                  }
+                );
+                return { clip, attempts } as const;
+              } catch (error) {
+                return { error: String(error), index: i } as const;
+              }
+            }, videoGenSemaphore);
+            // Charge every completed clip immediately, even if a peer clip failed.
+            const completedClips = clipResults.map((result) => result.clip).filter((clip): clip is RawClip => clip !== undefined);
+            clips.push(...completedClips);
+            const clipErrors = clipResults.filter((result): result is { error: string; index: number } => "error" in result);
+            if (clipErrors.length) throw new Error(`variant ${variantIndex + 1} clip failure(s): ${clipErrors.map((e) => `${e.index + 1}: ${e.error}`).join("; ")}`);
+          } finally {
+            // Reconcile this iteration's reservation against actual ledger video spend
+            // (recorded per vendor attempt above, so failed billable fallbacks are
+            // represented too — successful clips aren't charged a second time): refund
+            // the unused portion of the reservation (CostCap.refund clamps at ≥0), or
+            // bill the overage when actual exceeded it — the case the old
+            // `actualVideoUsd > reservedVideoUsd` branch was dead-by-construction for.
+            const actualVideoUsd = costLedger.getEvents().filter((event) => event.stage === "video_gen").reduce((sum, event) => sum + event.estimatedCostUsd, 0);
+            const deltaActualVsReserved = actualVideoUsd - accountedVideoUsd - videoReserve;
+            if (deltaActualVsReserved > 0) costCap.record(deltaActualVsReserved);
+            else if (deltaActualVsReserved < 0) costCap.refund(-deltaActualVsReserved);
             accountedVideoUsd = actualVideoUsd;
           }
-          const clipErrors = clipResults.filter((result): result is { error: string; index: number } => "error" in result);
-          if (clipErrors.length) throw new Error(`variant ${variantIndex + 1} clip failure(s): ${clipErrors.map((e) => `${e.index + 1}: ${e.error}`).join("; ")}`);
           onProgress(`${tag} Assembling video (${platform})...`);
           const platformScript = { ...script, videoId: `${script.videoId}-${platform}` };
           const assembled = await assembleVideo({

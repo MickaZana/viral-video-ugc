@@ -469,6 +469,21 @@ describe("concurrency-cap", () => {
       expect(cap.totalSpent).toBe(30);
     });
 
+    it("refund releases reserved spend, re-opens recording headroom, and clamps at ≥0", () => {
+      // Reservation model: a run reserves budget up front, then refunds the
+      // unused portion once actual spend is known (conductor's reconcile step).
+      const cap = new CostCap(10);
+      cap.record(9);
+      expect(() => cap.record(2)).toThrow(CostCapExceededError); // 11 > 10; thrown amount still counts
+      cap.refund(3); // release over-threshold reservation → $8
+      expect(cap.totalSpent).toBe(8);
+      expect(() => cap.record(1.5)).not.toThrow(); // refund re-opened headroom
+      expect(cap.totalSpent).toBeCloseTo(9.5, 6);
+      cap.refund(100); // over-refund clamps at 0, never negative
+      expect(cap.totalSpent).toBe(0);
+      expect(cap.remaining).toBe(10);
+    });
+
     it("doesn't see spend recorded on a different instance for the same org (Phase 7, Gap 2)", () => {
       // CostCap is in-memory and per-process by design. Two workers (or two
       // requests handled by two separate processes) each construct their own

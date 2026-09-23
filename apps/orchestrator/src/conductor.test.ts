@@ -3,13 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CreatorProfile, ProductProfile, RunConfig } from "@vvugc/shared-schema";
-import { mapWithConcurrency, recordCompletedClipUsage, reserveVideoGenBudget, runCycle } from "./conductor.js";
+import { mapWithConcurrency, recordCompletedClipUsage, reserveVideoGenBudget, runCycle, type VideoVendorId } from "./conductor.js";
 import { Semaphore, CostCap } from "@vvugc/shared-analytics";
 import { CostLedger } from "@vvugc/shared-cost";
 import { rewriteScript } from "./agents/script-agent.js";
 import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
 import { generateVoiceoverTrack } from "@vvugc/mcp-voiceover";
+import type { VideoGenRequest } from "@vvugc/mcp-video-gen";
 import { getUgcTemplate } from "./templates.js";
 
 vi.mock("./agents/script-agent.js", async () => {
@@ -27,6 +28,41 @@ vi.mock("./agents/caption-agent.js", async () => {
 vi.mock("@vvugc/mcp-voiceover", async () => {
   const actual = await vi.importActual<typeof import("@vvugc/mcp-voiceover")>("@vvugc/mcp-voiceover");
   return { ...actual, generateVoiceoverTrack: vi.fn(actual.generateVoiceoverTrack) };
+});
+vi.mock("@vvugc/mcp-video-gen", async () => {
+  const actual = await vi.importActual<typeof import("@vvugc/mcp-video-gen")>("@vvugc/mcp-video-gen");
+  return {
+    ...actual,
+    // Live-mode runs must never hit a real vendor API from tests; dry-run keeps the
+    // package's own mock adapter so existing dry-run behavior is byte-identical.
+    getVideoGenAdapter: (
+      vendor: Parameters<typeof actual.getVideoGenAdapter>[0],
+      opts: Parameters<typeof actual.getVideoGenAdapter>[1]
+    ) =>
+      opts.dryRun
+        ? actual.getVideoGenAdapter(vendor, opts)
+        : {
+            vendor,
+            generate: (request: VideoGenRequest) =>
+              Promise.resolve({
+                id: `live-mock-${vendor}-${request.scriptSegmentIndex}`,
+                scriptSegmentIndex: request.scriptSegmentIndex,
+                vendor,
+                filePath: `/tmp/live-mock-${vendor}-${request.scriptSegmentIndex}.mp4`,
+                durationSec: request.durationSec
+              })
+          }
+  };
+});
+vi.mock("@vvugc/mcp-assembly", async () => {
+  const actual = await vi.importActual<typeof import("@vvugc/mcp-assembly")>("@vvugc/mcp-assembly");
+  return {
+    ...actual,
+    // Never run real ffmpeg from tests: force the package's dry-run assembly even
+    // when the conductor is exercising live mode (mock clip files aren't real video).
+    assembleVideo: (opts: Parameters<typeof actual.assembleVideo>[0]) =>
+      actual.assembleVideo({ ...opts, dryRun: true })
+  };
 });
 
 let testRunsDir: string;
@@ -82,18 +118,37 @@ describe("bounded clip concurrency", () => {
     expect(peak).toBe(2);
   });
 
-  it("reserves conservative video cost before work and records completed clips even if peer clips fail", () => {
+  it("reserves the true summed video estimate before work and records completed clips even if peer clips fail", () => {
     const cap = new CostCap(20);
     const reserve = reserveVideoGenBudget(cap, ["alibaba"], 3, false);
-    expect(reserve).toBeGreaterThanOrEqual(3);
+    expect(reserve).toBeCloseTo(0.5 * 3, 6); // real $0.50/clip rate × 3 clips — no $1/clip floor
+    expect(cap.totalSpent).toBeCloseTo(1.5, 6);
     const singleVendorReserve = reserveVideoGenBudget(new CostCap(20), ["alibaba"], 1, false);
     expect(reserveVideoGenBudget(new CostCap(20), ["alibaba", "replicate"], 1, false)).toBeGreaterThanOrEqual(singleVendorReserve);
-    expect(() => reserveVideoGenBudget(new CostCap(2), ["alibaba"], 3, false)).toThrow(/Cost cap exceeded/);
+    expect(() => reserveVideoGenBudget(new CostCap(1), ["alibaba"], 3, false)).toThrow(/Cost cap exceeded/);
     const ledger = new CostLedger();
     recordCompletedClipUsage(ledger, [
       { id: "ok", scriptSegmentIndex: 0, vendor: "alibaba", filePath: "ok.mp4", durationSec: 5 }
     ], false);
     expect(ledger.getEvents()).toMatchObject([{ stage: "video_gen", vendor: "alibaba", unit: "clip", quantity: 1 }]);
+  });
+
+  it("a 3-vendor chain reserves the true summed estimate × clipCount — not a per-vendor $1 floor", () => {
+    const chain: VideoVendorId[] = ["kling", "higgsfield", "runway"]; // $0.35 + $0.40 + $0.50 per clip
+    const cap = new CostCap(100);
+    const reserve = reserveVideoGenBudget(cap, chain, 4, false);
+    expect(reserve).toBeCloseTo((0.35 + 0.4 + 0.5) * 4, 6); // $5.00 for 4 clips
+    expect(reserve).toBeLessThan(3 * 4); // the old per-vendor floor reserved ≥$12 for this chain
+    expect(cap.totalSpent).toBeCloseTo(reserve, 6);
+  });
+
+  it("an unknown-priced chain falls back to a single $1-per-clip floor (total, not per vendor)", () => {
+    // gemini is image-priced only — estimateCostUsd(gemini, "clip") is 0, so the
+    // chain's summed estimate is 0 and the $1 total floor applies × clipCount.
+    const reserve = reserveVideoGenBudget(new CostCap(20), ["gemini"], 3, false);
+    expect(reserve).toBeCloseTo(1 * 3, 6);
+    // An unpriced member of an otherwise-priced chain adds $0 — no per-vendor floor.
+    expect(reserveVideoGenBudget(new CostCap(20), ["gemini", "kling"], 1, false)).toBeCloseTo(0.35, 6);
   });
 });
 
@@ -345,6 +400,99 @@ describe("runCycle", () => {
     it("defaults to a silent no-op when onProgress isn't provided — existing callers are unaffected", async () => {
       await expect(runCycle(baseConfig({ maxCandidates: 1 }))).resolves.toBeDefined();
     });
+  });
+
+  it("live mode at the DEFAULT $25 cap × 2 platforms × 2 variants: no premature CostCapExceededError — reservations reconcile against actual spend", async () => {
+    // Pre-fix, reserveVideoGenBudget floored EVERY vendor in the chain at ≥$1/clip,
+    // so the default [kling, gemini, replicate] chain reserved ≥$3/clip × 4 clips =
+    // ≥$12 per platform iteration with no refund path (CostCap had no release), and
+    // the 3rd of 4 iterations breached the $25 cap — a spurious halt well under the
+    // real spend (~$5.60 of actual kling clips for the whole run).
+    vi.mocked(rewriteScript).mockImplementation(async (_transcript, opts) => ({
+      videoId: "placeholder", // conductor stamps the real per-variant videoId
+      hook: "[mock] Wait, nobody told you this about fitness?",
+      points: [
+        "[mock] the first point that changes everything.",
+        "[mock] and here's why that actually matters."
+      ],
+      cta: "[mock] Follow for part 2.",
+      durationSec: opts.durationSec,
+      brandVoice: opts.brandVoice,
+      locale: opts.locale ?? "en",
+      trendingPhrases: ["no cap", "wait for it"]
+    }));
+    vi.mocked(generateCaptions).mockResolvedValue([
+      { startSec: 0, endSec: 6.25, text: "[mock] hook" },
+      { startSec: 6.25, endSec: 12.5, text: "[mock] point 1" },
+      { startSec: 12.5, endSec: 18.75, text: "[mock] point 2" },
+      { startSec: 18.75, endSec: 25, text: "[mock] cta" }
+    ]);
+    vi.mocked(scoreVideo).mockResolvedValue({ score: 85, flags: [] });
+
+    const messages: string[] = [];
+    const config = baseConfig({
+      dryRun: false, // live mode: reservations, vendor attempts, and reconcile are real
+      platforms: ["tiktok", "youtube_shorts"],
+      maxCandidates: 1,
+      outputVariants: 2,
+      sourceUrl: "https://youtu.be/dQw4w9WgXcQ", // provenance only — transcript below pre-resolves it
+      sourceTranscript: {
+        videoId: "dQw4w9WgXcQ",
+        source: "platform_captions",
+        text: "Wait for this. The old way of onboarding is broken. You spend weeks on setup.",
+        segments: [
+          { startSec: 0, endSec: 2, text: "Wait for this." },
+          { startSec: 2, endSec: 8, text: "The old way of onboarding is broken." },
+          { startSec: 8, endSec: 15, text: "You spend weeks on setup." }
+        ]
+      }
+      // capConfig omitted entirely → DEFAULT maxCostPerRunUsd ($25)
+    });
+    const result = await runCycle(config, { onProgress: (m) => messages.push(m) });
+
+    expect(result.reviewItemsCreated).toBe(config.platforms.length * config.outputVariants);
+    expect(result.candidatesFailed ?? 0).toBe(0);
+    expect(result.platformsFailed ?? 0).toBe(0);
+    expect(messages.some((m) => m.includes("COST CAP HIT"))).toBe(false);
+    // Live mode really recorded billable clip usage (not silently $0 as in dry-run),
+    // and it still fits the default cap once reservations are reconciled to actuals.
+    expect(result.estimatedCostUsd).toBeGreaterThan(0);
+    expect(result.estimatedCostUsd!).toBeLessThanOrEqual(25);
+    const manifest = JSON.parse(readFileSync(result.manifestPath, "utf-8"));
+    expect(manifest.failures ?? []).toEqual([]);
+  });
+
+  it("one variant's script rewrite failure skips only that variant — the sibling variant's work still reaches review, with the failure reported (not swallowed)", async () => {
+    vi.mocked(rewriteScript).mockImplementation(async (_transcript, opts) => {
+      if (opts.angle?.startsWith("main angle")) throw new Error("simulated variant-1 rewrite failure");
+      return {
+        videoId: "placeholder",
+        hook: "[mock] Wait, nobody told you this about fitness?",
+        points: ["[mock] first point.", "[mock] second point."],
+        cta: "[mock] Follow for part 2.",
+        durationSec: opts.durationSec,
+        brandVoice: opts.brandVoice,
+        locale: opts.locale ?? "en",
+        trendingPhrases: ["no cap", "wait for it"]
+      };
+    });
+    const messages: string[] = [];
+    const config = baseConfig({ platforms: ["tiktok"], maxCandidates: 1, outputVariants: 2 });
+    const result = await runCycle(config, { onProgress: (m) => messages.push(m) });
+
+    // Sibling variant's already-successful work is kept, not discarded.
+    expect(result.reviewItemsCreated).toBe(1);
+    expect(result.candidatesFailed ?? 0).toBe(0);
+    expect(result.platformsFailed ?? 0).toBe(0);
+    // Failure is reported through the same channels the clip/platform paths use.
+    const manifest = JSON.parse(readFileSync(result.manifestPath, "utf-8"));
+    expect(manifest.failures).toHaveLength(1);
+    expect(manifest.failures[0]).toMatchObject({
+      reason: expect.stringContaining("variant 1 script rewrite failed")
+    });
+    expect(manifest.failures[0].reason).toContain("simulated variant-1 rewrite failure");
+    expect(messages.some((m) => m.includes("✗") && m.includes("variant 1"))).toBe(true);
+    expect(existsSync(result.manifestPath)).toBe(true);
   });
 
   describe("voiceover (opt-in, additive)", () => {

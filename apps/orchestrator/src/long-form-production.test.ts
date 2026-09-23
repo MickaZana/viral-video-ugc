@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planLongFormProduction } from "./long-form-production.js";
+import { planLongFormProduction, planTokenBudget } from "./long-form-production.js";
 
 const request = {
   idea: "Explain how a small team can build a repeatable creative workflow.",
@@ -117,5 +117,61 @@ describe("planLongFormProduction", () => {
     expect(plan.aspectRatio).toBe("16:9");
     expect(plan.scenes).toHaveLength(2);
     expect(plan.scenes.reduce((sum, scene) => sum + scene.durationSec, 0)).toBe(300);
+  });
+
+  it("propagates provider failures immediately with exactly one generateText call (no repair attempt)", async () => {
+    let calls = 0;
+    const outage = new Error("overloaded");
+    const outcome = await planLongFormProduction({ ...request, sourcePointer: undefined }, {
+      generateText: async () => {
+        calls += 1;
+        throw outage;
+      }
+    }).catch((error: unknown) => error);
+    expect(calls).toBe(1);
+    expect(outcome).toBe(outage);
+  });
+
+  it("spends exactly one repair when valid JSON fails Zod schema validation, then succeeds", async () => {
+    let calls = 0;
+    const plan = await planLongFormProduction({ ...request, sourcePointer: undefined }, {
+      generateText: async () => {
+        calls += 1;
+        if (calls === 1) return JSON.stringify({ title: "Missing scenes", durationSec: 300, aspectRatio: "16:9" });
+        return JSON.stringify({
+          title: "Schema-Repaired",
+          durationSec: 300,
+          aspectRatio: "16:9",
+          scenes: [
+            { id: "a", narration: "A", visualPrompt: "A", durationSec: 150, visualMode: "slide", proofStatus: "illustrative" },
+            { id: "b", narration: "B", visualPrompt: "B", durationSec: 150, visualMode: "slide", proofStatus: "illustrative" }
+          ]
+        });
+      }
+    });
+    expect(calls).toBe(2);
+    expect(plan.title).toBe("Schema-Repaired");
+  });
+});
+
+describe("planTokenBudget", () => {
+  it("budgets at least 16000 tokens for a 300s plan (old durationSec*5 formula gave 2048)", () => {
+    expect(planTokenBudget(300)).toBeGreaterThanOrEqual(16_000);
+  });
+
+  it("budgets at least 30000 tokens for a 600s plan (old durationSec*5 formula gave 3000)", () => {
+    expect(planTokenBudget(600)).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it("is non-decreasing across the 300–600s range and never exceeds 32000", () => {
+    let previous = 0;
+    for (let durationSec = 300; durationSec <= 600; durationSec += 10) {
+      const budget = planTokenBudget(durationSec);
+      expect(budget).toBeGreaterThanOrEqual(previous);
+      expect(budget).toBeLessThanOrEqual(32_000);
+      previous = budget;
+    }
+    expect(planTokenBudget(640)).toBe(32_000);
+    expect(planTokenBudget(10_000)).toBe(32_000);
   });
 });

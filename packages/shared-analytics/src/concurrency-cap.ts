@@ -98,6 +98,13 @@ export class CostCap {
     }
   }
 
+  /** Release previously recorded spend — e.g. a reservation reconciled down to the
+   *  actual amount once real usage is known. Clamped at ≥0: refunding more than was
+   *  recorded never drives spend negative. */
+  refund(usd: number): void {
+    this.spent = Math.max(0, this.spent - usd);
+  }
+
   get totalSpent(): number {
     return this.spent;
   }

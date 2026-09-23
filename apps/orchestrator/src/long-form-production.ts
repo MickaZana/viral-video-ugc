@@ -69,6 +69,28 @@ function extractJson(text: string): string {
   return text.slice(start, end + 1);
 }
 
+/**
+ * Output-token budget for the timed scene/narration/visual-plan JSON.
+ *
+ * The old `Math.min(16000, Math.max(2048, durationSec * 5))` granted only
+ * 2048 tokens at 300s / 3000 at 600s — room for a couple of scenes, not the
+ * dozens a full plan contains — so the JSON routinely truncated, failed to
+ * parse, and burned the single repair attempt on what was really a budget
+ * problem.
+ *
+ * Sizing: LongFormScenePlanSchema allows up to 200 scenes and real pacing runs
+ * roughly one scene per 5–15s, so 300–600s means ~20–60+ scenes at ~500 output
+ * tokens each (id + narration + visualPrompt + timing + mode/provider/proof/
+ * fallback fields). `durationSec * 50` = 500 tokens per scene at a 10s
+ * cadence; the 16_384 floor covers denser 300s plans (and ≥16k at the schema
+ * minimum), and the 32_000 cap matches curriculum-architect.ts's budget for a
+ * similar structured-plan artifact (its `maxTokens: 32_000`). durationSec is
+ * schema-bounded to 300–600 by LongFormProductionRequestSchema.
+ */
+export function planTokenBudget(durationSec: number): number {
+  return Math.min(32_000, Math.max(16_384, durationSec * 50));
+}
+
 function dryRunPlan(request: LongFormProductionRequest): LongFormScenePlan {
   const first = Math.floor(request.durationSec / 2);
   const second = request.durationSec - first;
@@ -140,6 +162,8 @@ function liveGenerator(costLedger?: CostLedger): LongFormPlanTextGenerator {
  * resolved through the existing strict transcript ingress, then reduced to a
  * bounded structural summary; arbitrary URLs are rejected before resolution.
  * Invalid structured output gets one bounded repair attempt, then fails closed.
+ * Provider/auth/network failures from the planner call propagate immediately
+ * without consuming the repair attempt.
  */
 export async function planLongFormProduction(
   input: unknown,
@@ -192,13 +216,25 @@ export async function planLongFormProduction(
     const prompt = attempt === 0
       ? userPrompt
       : `${userPrompt}\n\nYour previous response failed schema validation. Repair it and return ONLY valid JSON. Ensure scene durations sum exactly to ${request.durationSec}, use exactly 16:9, and do not add prose.`;
+    // generateText deliberately sits OUTSIDE the repair try/catch: the live
+    // generator routes through generateWithFailover (see liveGenerator above),
+    // which has already classified provider/auth/network/rate-limit failures
+    // as fail-over-vs-surface decisions (llm-failover.ts: isHardAnthropicFailure
+    // rethrows config errors, the chain rethrows when exhausted). Swallowing
+    // those here treated an outage as a parse failure, burned the one repair
+    // attempt, and surfaced a confusing "failed structured validation" instead
+    // of the real provider error — so provider errors now propagate immediately
+    // (one call, no repair), and only model-output defects are repairable.
+    const text = await generateText({
+      system: SYSTEM_PROMPT,
+      userPrompt: prompt,
+      maxTokens: planTokenBudget(request.durationSec),
+      stage: "long_form_scene_plan"
+    });
     try {
-      const text = await generateText({
-        system: SYSTEM_PROMPT,
-        userPrompt: prompt,
-        maxTokens: Math.min(16000, Math.max(2048, request.durationSec * 5)),
-        stage: "long_form_scene_plan"
-      });
+      // Repairable model-output defects only: extractJson/JSON.parse (missing
+      // or malformed JSON), LongFormScenePlanSchema.parse (Zod validation),
+      // and plan-vs-request validation of the already-parsed plan.
       return validatePlanAgainstRequest(LongFormScenePlanSchema.parse(JSON.parse(extractJson(text))), request);
     } catch (error) {
       lastError = error;

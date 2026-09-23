@@ -86,7 +86,13 @@ program
   .option("--brand-voice <voice>", "brand voice descriptor", "neutral, energetic, concise")
   .option("--locale <locale>", "BCP-47-ish language tag for the rewritten script, e.g. en, es, pt-BR", "en")
   .option("--duration <seconds>", "target output duration in seconds", (v) => Number(v), 25)
-  .option("--max-candidates <n>", "max source videos to process", (v) => Number(v), 5)
+  .option(
+    "--max-candidates <n>",
+    "how many discovery candidates to fetch per platform (widens the pool the top pick comes from — " +
+    "only the top-ranked source video is ultimately processed each run)",
+    (v) => Number(v),
+    5
+  )
   .option("--output-variants <n>", "distinct fact-preserving video angles per source (2-4)", (v) => Number(v), 2)
   .option(
     "--video-vendor <vendor>",
