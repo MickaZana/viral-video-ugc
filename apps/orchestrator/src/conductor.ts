@@ -6,7 +6,7 @@ import pino from "pino";
 import type { CandidateVideo, RawClip, ReviewItem, RunConfig, RunResult } from "@vvugc/shared-schema";
 import { RunResultSchema } from "@vvugc/shared-schema";
 import { loadEnv } from "@vvugc/shared-config";
-import { CostLedger } from "@vvugc/shared-cost";
+import { CostLedger, estimateCostUsd, type CostVendor } from "@vvugc/shared-cost";
 import { discoverPlatform, mockCandidates } from "@vvugc/mcp-discovery";
 import { transcribeCandidate, mockTranscript } from "@vvugc/mcp-transcript";
 import { getVideoGenAdapter, type McpToolCaller } from "@vvugc/mcp-video-gen";
@@ -15,17 +15,18 @@ import { generateVoiceoverTrack, getVoiceoverAdapter } from "@vvugc/mcp-voiceove
 import { insertReviewItem } from "@vvugc/review-queue";
 import { scoreOriginality } from "@vvugc/shared-originality";
 import { CostCap, CostCapExceededError, FlowLimiter, type ConcurrencyCapConfig, DEFAULT_CAP_CONFIG } from "@vvugc/shared-analytics";
-import { registerHook, type HookRegistry, HookRegistrySchema } from "@vvugc/shared-analytics";
+import { registerHook, type HookRegistry, HookRegistrySchema, Semaphore } from "@vvugc/shared-analytics";
 import { createGrowthMemory, learnFromJob, type GrowthMemory, GrowthMemorySchema } from "@vvugc/shared-analytics";
 import { buildAdaptivePrompt } from "@vvugc/shared-analytics";
 import { rewriteScript } from "./agents/script-agent.js";
 import { generateCaptions } from "./agents/caption-agent.js";
 import { scoreVideo } from "./agents/qa-agent.js";
+import { createImprovementProposals, type QaObservation } from "./agents/improvement-proposals.js";
 import { candidateFromSource, fetchRemixTranscript, parseSourceUrl } from "./remix-source.js";
 
 const logger = pino({ name: "vvugc-conductor" });
 
-export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "nvidia";
+export type VideoVendorId = "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "alibaba";
 
 /** Ordered chain (primary first, then fallbacks), deduplicated. */
 export function resolveVideoVendorChain(
@@ -109,6 +110,55 @@ export interface RunCycleOptions {
   onProgress?: (message: string) => void;
 }
 
+const VARIANT_ANGLES = [
+  "main angle: preserve the strongest proven framing from the viral source",
+  "practical takeaway angle: lead with the most useful actionable implication",
+  "curiosity angle: foreground a surprising but source-supported detail",
+  "skeptical perspective: address a reasonable hesitation using only source-supported facts"
+] as const;
+
+/** Bounded worker pool. Results keep input order; one failed item does not cancel peers. */
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, work: (item: T, index: number) => Promise<R>, sharedSemaphore?: Semaphore): Promise<R[]> {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error("concurrency limit must be a positive integer");
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      if (!sharedSemaphore) { results[index] = await work(items[index]!, index); continue; }
+      await sharedSemaphore.acquire();
+      try { results[index] = await work(items[index]!, index); }
+      finally { sharedSemaphore.release(); }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export function reserveVideoGenBudget(costCap: CostCap, vendorChain: VideoVendorId[], clipCount: number, dryRun: boolean): number {
+  if (dryRun) return 0;
+  const perAttemptRate = vendorChain.reduce(
+    (sum, vendor) => sum + Math.max(1, estimateCostUsd(vendor as CostVendor, "clip", 1)),
+    0
+  );
+  const reserve = Math.max(perAttemptRate, 1) * clipCount;
+  costCap.record(reserve);
+  return reserve;
+}
+
+export function recordCompletedClipUsage(costLedger: CostLedger, clips: RawClip[], dryRun: boolean): void {
+  if (dryRun) return;
+  for (const vendor of new Set(clips.map((clip) => clip.vendor))) {
+    costLedger.record("video_gen", vendor, "clip", clips.filter((clip) => clip.vendor === vendor).length);
+  }
+}
+
+/** Record one billable provider attempt (including failed calls before fallback). */
+export function recordVideoGenAttempt(costLedger: CostLedger, vendor: VideoVendorId, dryRun: boolean, failed?: string): void {
+  if (!dryRun && !failed) costLedger.record("video_gen", vendor as CostVendor, "clip", 1);
+}
+
 export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): Promise<RunResult> {
   const onProgress = opts.onProgress ?? (() => {});
   const { VVUGC_RUNS_DIR } = loadEnv();
@@ -131,6 +181,10 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     onProgress(`⚠ Cost warning: $${spent.toFixed(2)} spent of $${limit.toFixed(2)} limit (${Math.round(spent/limit*100)}%)`);
   });
   const flowLimiter = new FlowLimiter(capConfig.maxVideosPerFlow);
+  const videoGenSemaphore = new Semaphore(capConfig.maxConcurrentVideoGen);
+  let reservedVideoUsd = 0;
+  let accountedVideoUsd = 0;
+  let accountedNonVideoUsd = 0;
 
   onProgress(`Run caps: max ${capConfig.maxVideosPerFlow} videos, $${capConfig.maxCostPerRunUsd.toFixed(2)} cost limit, ${capConfig.maxConcurrentVideoGen} concurrent video-gen calls`);
 
@@ -198,7 +252,9 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
   const chosen = allCandidates
     .sort((a, b) => b.metrics.views - a.metrics.views)
-    .slice(0, config.maxCandidates);
+    // One flow yields 2–4 distinct cuts of the best viral source. Exporting those
+    // cuts to multiple platforms does not consume additional angle slots.
+    .slice(0, 1);
 
   logger.info({ candidatesFound: allCandidates.length, chosen: chosen.length }, "discovery complete");
   onProgress(`Found ${allCandidates.length} candidate(s), processing top ${chosen.length}...`);
@@ -206,13 +262,17 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
   let reviewItemsCreated = 0;
   let candidatesFailed = 0;
   let platformsFailed = 0;
+  let runCostCapHit = false;
   // Until now, the *reason* a candidate/platform failed only ever reached structured
   // pino logs and the CLI's onProgress console lines — never persisted anywhere the
   // dashboard (a non-engineer's only view into a run) could read it back. Collected
   // here and written into manifest.json below so `/runs` can expose it.
   const failures: { candidateId: string; platform?: string; reason: string }[] = [];
+  // Advisory observations for this run only; never fed back into prompts or system state.
+  const qaObservations: QaObservation[] = [];
 
-  // Stage 2-5: Transcript -> Script rewrite -> Video gen/assembly -> QA, per candidate x platform.
+  // Stage 2-5: Transcript -> Script rewrite -> Video gen/assembly -> QA, for the
+  // selected viral source. Its 2–4 outputs are varied angles, not extra sources.
   // Each candidate (and, within it, each platform) is wrapped independently — a bad
   // transcript, a vendor timeout, or a single video-gen failure should skip just that
   // candidate/platform, not abort the entire weekly run and lose every other item
@@ -226,23 +286,41 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           ? mockTranscript(candidate)
           : await transcribeCandidate(candidate, join(runDir, "audio")));
 
-      onProgress(`${tag} Rewriting script...`);
-      const script = await rewriteScript(transcript, {
-        niche: config.niche,
-        brandVoice: config.brandVoice,
-        brandKit: config.brandKit,
-        durationSec: config.targetDurationSec,
-        platforms: config.platforms,
-        locale: config.locale,
-        dryRun: config.dryRun,
-        discoveryBrief: config.discoveryBrief,
-        productProfile: config.productProfile,
-        creatorProfile: config.creatorProfile,
-        template: config.template,
-        adaptivePromptInjection: adaptiveContext.fullInjection || undefined,
-        costLedger
-      });
+      const scripts = await mapWithConcurrency(
+        Array.from({ length: config.outputVariants }, (_, variantIndex) => variantIndex),
+        capConfig.maxConcurrentLlm,
+        async (variantIndex) => {
+          const variantAngle = VARIANT_ANGLES[variantIndex];
+          onProgress(`${tag} Rewriting script variant ${variantIndex + 1}/${config.outputVariants}...`);
+          const rewritten = await rewriteScript(transcript, {
+            niche: config.niche,
+            brandVoice: config.brandVoice,
+            brandKit: config.brandKit,
+            durationSec: config.targetDurationSec,
+            platforms: config.platforms,
+            locale: config.locale,
+            dryRun: config.dryRun,
+            discoveryBrief: config.discoveryBrief,
+            angle: variantAngle,
+            productProfile: config.productProfile,
+            creatorProfile: config.creatorProfile,
+            template: config.template,
+            adaptivePromptInjection: adaptiveContext.fullInjection || undefined,
+            costLedger
+          });
+          return { variantIndex, script: { ...rewritten, videoId: `${candidate.id}-variant-${variantIndex + 1}` } };
+        }
+      );
 
+      for (const { variantIndex, script } of scripts) {
+        const hookAngle = `${candidate.id}::${variantIndex + 1}::${script.hook.toLowerCase().slice(0, 80)}`;
+        // Flow limits apply to distinct source angles, once per variant, not once
+        // per platform export of that same angle.
+        if (!flowLimiter.canGenerate(hookAngle)) {
+          onProgress(`${tag} ⊘ Skipping variant ${variantIndex + 1}: flow angle limit reached (${flowLimiter.totalVideos}/${capConfig.maxVideosPerFlow})`);
+          continue;
+        }
+        flowLimiter.record(hookAngle); // reserve angle slot before any provider work
       // Purely algorithmic (no LLM call, no cost) — runs once per candidate, comparing the
       // rewritten script against its own source transcript. Separate from qa-agent's Claude-
       // scored virality judgment: this is the "trend-informed but original" compliance check
@@ -255,13 +333,12 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         );
       }
 
-      // Caption timing/text is Claude's call, not a naive even-split — same script duration
-      // applies across every target platform, so this runs once per candidate, not per platform.
+      // Caption timing/text is generated independently for each variant, then shared across
+      // its target platforms.
       const captions = await generateCaptions(script, { dryRun: config.dryRun, costLedger, template: config.template });
 
-      // Voiceover is opt-in (config.voiceVendor unset = current silent/vendor-native-audio
-      // behavior, unchanged) and, when enabled, generated once per candidate — same captions
-      // are shared across every target platform, so the narration synced to them is too. Each
+      // Voiceover is opt-in and, when enabled, generated once per variant — its captions
+      // are shared across that variant's target platforms. Each
       // cue's audio is synthesized and time-conformed to that exact cue's window (see
       // mcp-voiceover's generateVoiceoverTrack) — that per-cue conforming is what guarantees
       // the narration can never drift out of sync with the burned-in captions.
@@ -270,7 +347,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
       if (voiceoverAdapter) {
         try {
           onProgress(`${tag} Generating voiceover (${voiceoverAdapter.vendor})...`);
-          const track = await generateVoiceoverTrack(captions, voiceoverAdapter, join(runDir, "voiceover"), candidate.id);
+          const track = await generateVoiceoverTrack(captions, voiceoverAdapter, join(runDir, "voiceover"), `${candidate.id}-variant-${variantIndex + 1}`);
           voiceoverPath = track.filePath;
           if (!config.dryRun) {
             const totalChars = captions.reduce((sum, c) => sum + c.text.length, 0);
@@ -290,19 +367,16 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
 
       for (const platform of config.platforms) {
         try {
-          // ─── Flow Limiter: max 8 videos with different angles per flow ────
-          const hookAngle = script.hook.toLowerCase().slice(0, 80);
-          if (!flowLimiter.canGenerate(hookAngle)) {
-            onProgress(`${tag} ⊘ Skipping (${platform}): flow limit reached (${flowLimiter.totalVideos}/${capConfig.maxVideosPerFlow} videos)`);
-            continue;
+          // ─── Cost Cap Check ─────────────────────────────────────────────────
+          const nonVideoUsd = costLedger.getEvents().filter((event) => event.stage !== "video_gen").reduce((sum, event) => sum + event.estimatedCostUsd, 0);
+          if (nonVideoUsd > accountedNonVideoUsd) {
+            costCap.record(nonVideoUsd - accountedNonVideoUsd);
+            accountedNonVideoUsd = nonVideoUsd;
           }
 
-          // ─── Cost Cap Check ─────────────────────────────────────────────────
-          const currentCostUsd = costLedger.totalUsd();
-          costCap.record(0); // Check without adding — actual cost recorded after gen
-
           const segments = [script.hook, ...script.points, script.cta];
-          const clipsDir = join(runDir, "clips");
+          const safeCandidateId = candidate.id.replace(/[^a-z0-9_-]/gi, "_");
+          const clipsDir = join(runDir, "clips", safeCandidateId, `variant-${variantIndex + 1}`, platform);
           const clips: RawClip[] = [];
           // Resolve the vendor chain once per candidate (primary + fallbacks) and
           // reuse it for every clip — a given candidate keeps a consistent vendor
@@ -311,54 +385,65 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             config.videoVendor,
             config.videoVendorFallbacks as VideoVendorId[] | undefined
           );
+          // Fallbacks can charge for failed attempts too. Reserve the sum of each
+          // provider's per-clip estimate before generation, not just the most costly
+          // provider in the chain. The run cap remains conservative under fallback.
+          const videoReserve = reserveVideoGenBudget(costCap, vendorChain, segments.length, config.dryRun);
+          reservedVideoUsd += videoReserve; // budget is reserved before launching any provider calls
 
-          for (let i = 0; i < segments.length; i++) {
-            // Each clip is its own vendor API call and can take real wall-clock time
-            // (video generation, not a cheap text call) — a line per clip, not just
-            // once per platform, so a multi-point script's progress stays visible
-            // instead of going quiet again for however long clip 2 of 5 takes.
-            onProgress(`${tag} Generating video (${platform}) — clip ${i + 1}/${segments.length}...`);
-            const clip = await generateClipWithFallback(
-              vendorChain,
-              {
-                scriptSegmentIndex: i,
-                prompt: (() => {
-                  let promptText = segments[i];
-                  if (config.template) {
-                    promptText += `\nShot Intention: Show visual representation of "${config.template.scriptStructure[i]}" beat.`;
-                    promptText += `\nVisual Direction: ${config.template.visualDirection}`;
-                    promptText += `\nCamera Direction: ${config.template.cameraDirection}`;
-                    promptText += `\nProduct Placement: ${config.template.productPlacementDirection}`;
-                    if (config.creatorProfile) {
-                      promptText += `\nCreator Behavior: ${config.template.creatorDirection}`;
+          const clipResults = await mapWithConcurrency(segments, capConfig.maxConcurrentVideoGen, async (segment, i) => {
+            onProgress(`${tag} Generating video variant ${variantIndex + 1} (${platform}) — clip ${i + 1}/${segments.length}...`);
+            try {
+              const attempts: VideoVendorId[] = [];
+              const clip = await generateClipWithFallback(
+                vendorChain,
+                {
+                  scriptSegmentIndex: i,
+                  prompt: (() => {
+                    let promptText = segment;
+                    if (config.template) {
+                      promptText += `\nShot Intention: Show visual representation of "${config.template.scriptStructure[i]}" beat.`;
+                      promptText += `\nVisual Direction: ${config.template.visualDirection}`;
+                      promptText += `\nCamera Direction: ${config.template.cameraDirection}`;
+                      promptText += `\nProduct Placement: ${config.template.productPlacementDirection}`;
+                      if (config.creatorProfile) promptText += `\nCreator Behavior: ${config.template.creatorDirection}`;
                     }
-                  }
-                  return promptText;
-                })(),
-                durationSec: Math.round(script.durationSec / segments.length),
-                aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
-              },
-              { outDir: clipsDir, dryRun: config.dryRun, callMcpTool: opts.callMcpTool },
-              (vendor, failed) =>
-                onProgress(
-                  failed
-                    ? `${tag}   clip ${i + 1}: ${vendor} failed, trying fallback (${failed})`
-                    : `${tag}   clip ${i + 1}: using ${vendor}`
-                )
-            );
-            clips.push(clip);
+                    return promptText;
+                  })(),
+                  durationSec: Math.round(script.durationSec / segments.length),
+                  aspectRatio: ASPECT_RATIO_BY_PLATFORM[platform]
+                },
+                { outDir: clipsDir, dryRun: config.dryRun, callMcpTool: opts.callMcpTool },
+                (vendor, failed) => {
+                  if (!attempts.includes(vendor)) attempts.push(vendor);
+                  recordVideoGenAttempt(costLedger, vendor, config.dryRun, failed);
+                  onProgress(failed
+                    ? `${tag}   variant ${variantIndex + 1} clip ${i + 1}: ${vendor} failed, trying fallback (${failed})`
+                    : `${tag}   variant ${variantIndex + 1} clip ${i + 1}: using ${vendor}`);
+                }
+              );
+              return { clip, attempts } as const;
+            } catch (error) {
+              return { error: String(error), index: i } as const;
+            }
+          }, videoGenSemaphore);
+          // Charge every completed clip immediately, even if a peer clip failed.
+          const completedClips = clipResults.map((result) => result.clip).filter((clip): clip is RawClip => clip !== undefined);
+          clips.push(...completedClips);
+          // Usage is recorded per vendor attempt above so failed billable fallbacks
+          // are represented too; don't charge successful clips a second time here.
+          const actualVideoUsd = costLedger.getEvents().filter((event) => event.stage === "video_gen").reduce((sum, event) => sum + event.estimatedCostUsd, 0);
+          if (actualVideoUsd > reservedVideoUsd) {
+            costCap.record(actualVideoUsd - Math.max(reservedVideoUsd, accountedVideoUsd));
+            accountedVideoUsd = actualVideoUsd;
           }
-          // Meter the vendor that actually produced each clip, not just the primary.
-          const producedVendors = new Set(clips.map((c) => c.vendor));
-          for (const v of producedVendors) {
-            const count = clips.filter((c) => c.vendor === v).length;
-            if (!config.dryRun) costLedger.record("video_gen", v, "clip", count);
-          }
-
+          const clipErrors = clipResults.filter((result): result is { error: string; index: number } => "error" in result);
+          if (clipErrors.length) throw new Error(`variant ${variantIndex + 1} clip failure(s): ${clipErrors.map((e) => `${e.index + 1}: ${e.error}`).join("; ")}`);
           onProgress(`${tag} Assembling video (${platform})...`);
+          const platformScript = { ...script, videoId: `${script.videoId}-${platform}` };
           const assembled = await assembleVideo({
             clips,
-            script,
+            script: platformScript,
             captions,
             platform,
             outDir: join(runDir, "assembled"),
@@ -374,6 +459,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             creatorProfile: config.creatorProfile,
             template: config.template
           });
+          qaObservations.push({ candidateId: candidate.id, platform, score: qa.score, flags: qa.flags });
           onProgress(`${tag} ✓ Queued for review (${platform}, score ${qa.score}/100)`);
 
           const reviewItem: ReviewItem = {
@@ -407,7 +493,6 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           reviewItemsCreated++;
 
           // ─── Analytics: Record to flow limiter and hook registry ──────────
-          flowLimiter.record(hookAngle);
           // Register hook in the self-expanding registry (only 80+ QA hooks persist)
           hookRegistry = registerHook(hookRegistry, {
             text: script.hook,
@@ -417,8 +502,6 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             source: "pipeline_qa",
           });
           // Sync cost cap with actual ledger spend
-          const newCostUsd = costLedger.totalUsd();
-          if (newCostUsd > currentCostUsd) costCap.record(newCostUsd - currentCostUsd);
 
         } catch (err) {
           if (err instanceof CostCapExceededError) {
@@ -427,6 +510,7 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
             failures.push({ candidateId: candidate.id, platform, reason: err.message });
             // Break out of both loops
             candidatesFailed = chosen.length; // Signal early stop
+            runCostCapHit = true;
             break;
           }
           platformsFailed++;
@@ -437,6 +521,8 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
           onProgress(`${tag} ✗ Failed (${platform}): ${String(err)}`);
           failures.push({ candidateId: candidate.id, platform, reason: String(err) });
         }
+      }
+      if (runCostCapHit) break;
       }
     } catch (err) {
       candidatesFailed++;
@@ -449,6 +535,16 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
     }
   }
 
+  // Improvement proposals are fixed, bounded, run-local QA summaries. They are
+  // advisory only and require explicit human approval; this write cannot mutate
+  // prompts, code, settings, credentials, tools, schedules, deployments, or runs.
+  const improvementProposals = createImprovementProposals(qaObservations);
+  const improvementProposalsPath = join(runDir, "improvement-proposals.json");
+  writeFileSync(improvementProposalsPath, JSON.stringify(improvementProposals, null, 2));
+  onProgress(improvementProposals.proposals.length
+    ? `Improvement proposals ready for human review: ${improvementProposals.proposals.length}`
+    : "Improvement proposals: none (no recognized QA issues in this run)");
+
   const manifestPath = join(runDir, "manifest.json");
   writeFileSync(
     manifestPath,
@@ -460,7 +556,9 @@ export async function runCycle(config: RunConfig, opts: RunCycleOptions = {}): P
         reviewItemsCreated,
         candidatesFailed,
         platformsFailed,
-        failures
+        failures,
+        improvementProposalsPath,
+        improvementProposals
       },
       null,
       2

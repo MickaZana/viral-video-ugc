@@ -80,7 +80,7 @@ describe.skipIf(!ffmpegAvailable())("assembleLongFormTutorial — live ffmpeg", 
             source: "Test fixture", proofStatus: "verified"
           }
         ]
-      } as LongFormTutorial;
+      } as unknown as LongFormTutorial;
       const oldThreadLimit = process.env.VVUGC_FFMPEG_THREADS;
       process.env.VVUGC_FFMPEG_THREADS = "1";
       let result;
@@ -98,6 +98,42 @@ describe.skipIf(!ffmpegAvailable())("assembleLongFormTutorial — live ffmpeg", 
       expect(video.width).toBe(1920);
       expect(video.height).toBe(1080);
       expect(Math.round(Number(probe.format.duration))).toBe(2);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("animates an animated still while preserving 16:9 dimensions and duration", async () => {
+    const workDir = mkdtempSync(join(tmpdir(), "vvugc-long-form-animated-test-"));
+    const imagePath = join(workDir, "illustration.jpg");
+    const outDir = join(workDir, "out");
+    try {
+      execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "testsrc2=s=640x360", "-frames:v", "1", imagePath], {
+        stdio: "ignore"
+      });
+      const animatedTutorial = {
+        platform: "youtube_long",
+        title: "Animated Still Test",
+        durationSec: 2,
+        aspectRatio: "16:9",
+        scenes: [{
+          narration: "Illustrative animated fallback.", durationSec: 2, assetType: "animated_image", assetPath: imagePath,
+          source: "Test fixture", proofStatus: "illustrative"
+        }]
+      } as unknown as LongFormTutorial;
+      const result = await assembleLongFormTutorial({ tutorial: animatedTutorial, outDir });
+      const probe = JSON.parse(execFileSync("ffprobe", [
+        "-v", "error", "-show_entries", "stream=width,height", "-show_entries", "format=duration", "-of", "json", result.filePath
+      ]).toString());
+      const video = probe.streams.find((stream: { width?: number }) => stream.width);
+      expect(video.width).toBe(1920);
+      expect(video.height).toBe(1080);
+      expect(Math.round(Number(probe.format.duration))).toBe(2);
+
+      const frameDigest = (time: string) => execFileSync("ffmpeg", [
+        "-v", "error", "-ss", time, "-i", result.filePath, "-frames:v", "1", "-f", "framemd5", "-"
+      ]).toString().trim();
+      expect(frameDigest("0")).not.toBe(frameDigest("1"));
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

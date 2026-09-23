@@ -11,11 +11,13 @@ const outDir = `${process.cwd()}/.test-out-wan`;
 describe("createWanAdapter", () => {
   beforeEach(() => {
     process.env.REPLICATE_API_TOKEN = "test-token";
+    delete process.env.REPLICATE_API_KEY;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.REPLICATE_API_TOKEN;
+    delete process.env.REPLICATE_API_KEY;
     if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
   });
 
@@ -44,6 +46,22 @@ describe("createWanAdapter", () => {
     expect(clip.id).toBe("pred-1");
     expect(clip.vendor).toBe("wan");
     expect(clip.filePath).toContain("wan-0-pred-1.mp4");
+  });
+
+  it("accepts REPLICATE_API_KEY as an alias when REPLICATE_API_TOKEN is absent", async () => {
+    process.env.REPLICATE_API_TOKEN = "";
+    process.env.REPLICATE_API_KEY = "test-alias-token";
+    let authorization = "";
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (url.toString().endsWith("/predictions")) {
+        authorization = (init?.headers as Record<string, string>).Authorization;
+        return jsonResponse({ id: "alias-pred", status: "succeeded", output: "https://example.com/alias.mp4" });
+      }
+      return { arrayBuffer: async () => new ArrayBuffer(8) } as Response;
+    }));
+    const clip = await createWanAdapter(outDir).generate({ scriptSegmentIndex: 0, prompt: "x", durationSec: 5, aspectRatio: "9:16" });
+    expect(authorization).toBe("Bearer test-alias-token");
+    expect(clip.vendor).toBe("wan");
   });
 
   it("polls until succeeded when the prediction isn't done inline", async () => {

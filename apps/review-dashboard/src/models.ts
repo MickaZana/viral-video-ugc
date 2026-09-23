@@ -137,6 +137,18 @@ export const MODEL_CATALOG: ModelOption[] = [
     note: "Overridable: REPLICATE_MODEL."
   },
 
+  {
+    id: "alibaba:wan3.0-video",
+    kind: "video",
+    result: "Short viral clip",
+    vendor: "Alibaba Model Studio",
+    model: "wan3.0-video",
+    description: "Hosted Wan 3.0 video generation; model and regional endpoint are configurable.",
+    unit: "clip",
+    priceUsdPerUnit: 0.5,
+    note: "Wan 2.7 and HappyHorse 1.1 are available by setting ALIBABA_VIDEO_MODEL."
+  },
+
   // --- Voiceover (TTS) ---
   {
     id: "grok:tts",

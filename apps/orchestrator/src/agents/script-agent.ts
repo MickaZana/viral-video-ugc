@@ -63,12 +63,15 @@ export async function rewriteScript(
      *  the output rather than being cosmetic. Typed loosely (unknown) on purpose: the
      *  brief shape lives in the discovery analyzer, not in shared-schema. */
     discoveryBrief?: unknown;
+    /** Bounded creative perspective for a variant; all factual claims remain source-grounded. */
+    angle?: string;
   }
 ): Promise<RewrittenScript> {
   const locale = opts.locale ?? "en";
   if (opts.dryRun) return mockRewrittenScript(transcript, { ...opts, locale });
 
   const discoveryBriefBlock = opts.discoveryBrief ? buildBriefBlock(opts.discoveryBrief) : "";
+  const angleBlock = opts.angle ? `\n\nVariant angle (keep the source core thesis and every factual constraint intact): ${opts.angle}. Change the framing and hook, not the underlying facts or conclusion.` : "";
 
   // Adaptive intelligence — learned from pipeline performance history
   const adaptiveBlock = opts.adaptivePromptInjection ? `\n\n${opts.adaptivePromptInjection}` : "";
@@ -94,7 +97,7 @@ Target duration: ${opts.durationSec} seconds
 Target platforms: ${opts.platforms.join(", ")}
 Write the script in this language (BCP-47 tag): ${locale}. Trending phrases should be
 native to that language/platform culture, not translated English slang.${templateInstructions}
-${discoveryBriefBlock}${adaptiveBlock}
+${discoveryBriefBlock}${angleBlock}${adaptiveBlock}
 Source transcript:
 """
 ${transcript.text}
@@ -206,15 +209,15 @@ function validateProductForbiddenClaims(product: ProductProfile | undefined, scr
 
 function mockRewrittenScript(
   transcript: Transcript,
-  opts: { niche: string; brandVoice: string; durationSec: number; locale: string; template?: UGCTemplate }
+  opts: { niche: string; brandVoice: string; durationSec: number; locale: string; template?: UGCTemplate; angle?: string }
 ): RewrittenScript {
   const beatNames = opts.template?.scriptStructure.slice(1, -1) ?? [];
   return RewrittenScriptSchema.parse({
     videoId: transcript.videoId,
-    hook: `[mock] ${transcript.videoId ? `(${transcript.videoId}) ` : ""}Wait, nobody told you this about ${opts.niche}?`,
-    points: beatNames.length ? beatNames.map((beat, i) => `[mock] ${beat} — the specific detail that makes this useful (${i + 1}).`) : [
-      "[mock] Here's the first thing that changes everything.",
-      "[mock] And here's why that actually matters."
+    hook: `[mock] ${opts.angle ? `${opts.angle.split(":")[0]}: ` : ""}${transcript.videoId ? `(${transcript.videoId}) ` : ""}Wait, nobody told you this about ${opts.niche}?`,
+    points: beatNames.length ? beatNames.map((beat, i) => `[mock] ${beat} — ${opts.angle ?? "the main angle"}: the specific detail that makes this useful (${i + 1}).`) : [
+      `[mock] ${opts.angle ?? "main angle"}: here's the first thing that changes everything.`,
+      `[mock] ${opts.angle ?? "main angle"}: and here's why that actually matters.`
     ],
     cta: "[mock] Follow for part 2.",
     durationSec: opts.durationSec,

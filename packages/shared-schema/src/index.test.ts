@@ -3,6 +3,9 @@ import {
   AssembledVideoSchema,
   CandidateVideoSchema,
   CaptionCueSchema,
+  LongFormProductionJobSchema,
+  LongFormProductionRequestSchema,
+  LongFormScenePlanSchema,
   LongFormTutorialSchema,
   PlatformSchema,
   RawClipSchema,
@@ -24,9 +27,15 @@ describe("RunConfigSchema", () => {
     expect(parsed.brandVoice).toBe("neutral, energetic, concise");
     expect(parsed.targetDurationSec).toBe(25);
     expect(parsed.maxCandidates).toBe(10);
+    expect(parsed.outputVariants).toBe(2);
     expect(parsed.videoVendor).toBe("kling");
     expect(parsed.dryRun).toBe(false);
     expect(parsed.autoPost).toBe(false);
+  });
+
+  it("bounds outputVariants to 2 through 4", () => {
+    for (const count of [2, 3, 4]) expect(RunConfigSchema.parse({ ...base, outputVariants: count }).outputVariants).toBe(count);
+    for (const count of [1, 5]) expect(() => RunConfigSchema.parse({ ...base, outputVariants: count })).toThrow();
   });
 
   it("rejects an empty niche", () => {
@@ -170,6 +179,10 @@ describe("LongFormTutorialSchema", () => {
 
   it("parses a sourced 16:9 YouTube tutorial", () => {
     expect(LongFormTutorialSchema.parse(base)).toEqual(base);
+    expect(LongFormTutorialSchema.parse({
+      ...base,
+      scenes: [{ ...base.scenes[0], assetType: "animated_image", proofStatus: "illustrative" }]
+    }).scenes[0].assetType).toBe("animated_image");
     expect(PlatformSchema.parse("youtube_long")).toBe("youtube_long");
   });
 
@@ -182,6 +195,112 @@ describe("LongFormTutorialSchema", () => {
     expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], proofStatus: "unverified" }] })).toThrow();
     expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], durationSec: 0 }] })).toThrow();
     expect(() => LongFormTutorialSchema.parse({ ...base, scenes: [{ ...base.scenes[0], durationSec: 719 }] })).toThrow();
+  });
+});
+
+describe("idea-to-long-form production schemas", () => {
+  const request = {
+    idea: "Explain a repeatable way to plan a short campaign",
+    sourcePointer: "https://video.example.test/reference",
+    durationSec: 300,
+    aspectRatio: "16:9",
+    videoProviderChain: ["wan", "replicate"]
+  };
+
+  const scene = {
+    id: "scene-1",
+    narration: "Start by identifying the audience and the problem.",
+    visualPrompt: "A clean animated diagram of a creator planning a campaign.",
+    durationSec: 150,
+    visualMode: "animated_image",
+    proofStatus: "illustrative"
+  };
+
+  const plan = {
+    title: "A practical campaign plan",
+    durationSec: 300,
+    aspectRatio: "16:9",
+    scenes: [scene, { ...scene, id: "scene-2", durationSec: 150 }]
+  };
+
+  it("defaults to five minutes, 16:9 and the Wan-to-Replicate provider chain", () => {
+    expect(LongFormProductionRequestSchema.parse({ idea: request.idea })).toMatchObject({
+      durationSec: 300,
+      aspectRatio: "16:9",
+      videoProviderChain: ["wan", "replicate"],
+      useHiggsfield: false
+    });
+  });
+
+  it("accepts a source pointer, ten-minute request, and explicitly selected Higgsfield node", () => {
+    const parsed = LongFormProductionRequestSchema.parse({
+      ...request,
+      durationSec: 600,
+      videoProviderChain: ["wan", "higgsfield", "replicate"],
+      useHiggsfield: true
+    });
+    expect(parsed.durationSec).toBe(600);
+    expect(parsed.videoProviderChain).toContain("higgsfield");
+  });
+
+  it("rejects out-of-range durations, duplicate providers, and implicit Higgsfield selection", () => {
+    expect(() => LongFormProductionRequestSchema.parse({ ...request, durationSec: 299 })).toThrow();
+    expect(() => LongFormProductionRequestSchema.parse({ ...request, durationSec: 601 })).toThrow();
+    expect(() => LongFormProductionRequestSchema.parse({ ...request, videoProviderChain: ["wan", "wan"] })).toThrow();
+    expect(() => LongFormProductionRequestSchema.parse({
+      ...request,
+      videoProviderChain: ["wan", "higgsfield"]
+    })).toThrow();
+  });
+
+  it("validates a timed scene plan and labels animated imagery as illustrative", () => {
+    expect(LongFormScenePlanSchema.parse(plan)).toEqual(plan);
+    expect(() => LongFormScenePlanSchema.parse({ ...plan, durationSec: 600 })).toThrow();
+    expect(() => LongFormScenePlanSchema.parse({ ...plan, scenes: [{ ...scene, proofStatus: "verified" }, plan.scenes[1]] })).toThrow();
+  });
+
+  it("requires a user-recording asset and labels screen-recording substitution honestly", () => {
+    expect(() => LongFormScenePlanSchema.parse({
+      ...plan,
+      scenes: [
+        { ...scene, visualMode: "user_recording", proofStatus: "verified" },
+        plan.scenes[1]
+      ]
+    })).toThrow();
+
+    const fallbackScene = {
+      ...scene,
+      illustrativeFallback: {
+        substitutedFor: "screen_recording",
+        reason: "No screen recording was supplied; use an animated illustrative sequence.",
+        proofStatus: "illustrative"
+      }
+    };
+    expect(LongFormScenePlanSchema.parse({ ...plan, scenes: [fallbackScene, plan.scenes[1]] }).scenes[0])
+      .toMatchObject({ visualMode: "animated_image", proofStatus: "illustrative" });
+    expect(() => LongFormScenePlanSchema.parse({
+      ...plan,
+      scenes: [{ ...fallbackScene, proofStatus: "verified" }, plan.scenes[1]]
+    })).toThrow();
+  });
+
+  it("validates a durable job envelope without changing the Shorts duration bound", () => {
+    const job = LongFormProductionJobSchema.parse({
+      id: "lf-job-1",
+      orgId: "org-1",
+      request,
+      createdAt: "2026-09-23T00:00:00.000Z",
+      updatedAt: "2026-09-23T00:00:00.000Z"
+    });
+    expect(job.status).toBe("queued");
+    expect(job.progress).toBe(0);
+    expect(() => RunConfigSchema.parse({
+      runId: "shorts-1",
+      niche: "education",
+      platforms: ["youtube_long"],
+      targetDurationSec: 300,
+      createdAt: "2026-09-23T00:00:00.000Z"
+    })).toThrow();
   });
 });
 

@@ -60,6 +60,16 @@ describe("rewriteScript", () => {
     expect(result.locale).toBe("en"); // defaults when not specified
   });
 
+  it("dry-run: creates visibly distinct but source-grounded angle scripts", async () => {
+    const transcript = makeTranscript();
+    const main = await rewriteScript(transcript, baseOpts({ dryRun: true, angle: "main angle: preserve source framing" }));
+    const practical = await rewriteScript(transcript, baseOpts({ dryRun: true, angle: "practical takeaway angle: lead with utility" }));
+    expect(main.hook).not.toBe(practical.hook);
+    expect(main.points.join(" ")).not.toBe(practical.points.join(" "));
+    expect(main.points.join(" ")).toContain("main angle");
+    expect(practical.points.join(" ")).toContain("practical takeaway angle");
+  });
+
   it("dry-run: honors an explicit locale, both live and mocked", async () => {
     const result = await rewriteScript(makeTranscript(), baseOpts({ dryRun: true, locale: "es" }));
     expect(result.locale).toBe("es");
@@ -72,6 +82,15 @@ describe("rewriteScript", () => {
     const userPrompt = mockCreate.mock.calls[0][0].messages[0].content;
     expect(userPrompt).toContain("es");
     expect(result.locale).toBe("es");
+  });
+
+  it("live: variant angle prompt changes framing while preserving source facts and thesis", async () => {
+    mockCreate.mockResolvedValue(textMessage({ hook: "The practical takeaway", points: ["source point"], cta: "Try it" }));
+    await rewriteScript(makeTranscript(), baseOpts({ angle: "practical takeaway angle" }));
+    const prompt = mockCreate.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain("practical takeaway angle");
+    expect(prompt).toContain("every factual constraint intact");
+    expect(prompt).toContain("underlying facts or conclusion");
   });
 
   it("live: calls claude-fable-5 (the model-mix policy's creative-bottleneck assignment) and parses a valid response into a RewrittenScript", async () => {

@@ -43,7 +43,7 @@ const VIDEO_VENDOR_ENUM = z.enum([
   "seedance",
   "grok_video",
   "wan",
-  "nvidia"
+  "alibaba"
 ]);
 
 server.tool(
@@ -77,18 +77,19 @@ server.tool(
     "get_run_status/get_run_result — a live run can take many minutes (real vendor video-gen calls), so " +
     "this tool never blocks waiting for it to finish. THIS SPENDS REAL VENDOR MONEY unless dryRun stays " +
     "true (the default): a live call additionally requires confirmLiveSpend: true or it is refused. Live " +
-    "runs are still capped at $25 total spend / 8 video clips by the pipeline itself.",
+    "runs are still capped at $25 total spend / 8 distinct source angles by the pipeline itself.",
   {
     niche: z.string().min(1),
     platforms: z.array(PlatformSchema).min(1).default(["youtube_shorts"]),
     duration: z.number().int().min(15).max(60).default(25),
     maxCandidates: z.number().int().min(1).max(50).default(5),
+    outputVariants: z.number().int().min(2).max(4).default(2),
     videoVendor: VIDEO_VENDOR_ENUM.default("kling"),
     voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
     dryRun: z.boolean().default(true),
     confirmLiveSpend: z.boolean().default(false)
   },
-  async ({ niche, platforms, duration, maxCandidates, videoVendor, voiceVendor, dryRun, confirmLiveSpend }) => {
+  async ({ niche, platforms, duration, maxCandidates, outputVariants, videoVendor, voiceVendor, dryRun, confirmLiveSpend }) => {
     if (!dryRun && !confirmLiveSpend) {
       return {
         content: [
@@ -97,7 +98,7 @@ server.tool(
             text:
               "Refusing: dryRun=false requires confirmLiveSpend=true. This would call real, billed vendor " +
               "APIs (an LLM provider for the script, and the chosen videoVendor for clips) up to this run's " +
-              "$25 cost cap / 8-clip flow limit. Re-call with confirmLiveSpend: true to actually spend money, " +
+              "$25 cost cap / 8-angle flow limit. Re-call with confirmLiveSpend: true to actually spend money, " +
               "or leave dryRun: true to exercise the whole pipeline with mocked stages at no cost."
           }
         ],
@@ -112,6 +113,7 @@ server.tool(
       locale: "en",
       duration,
       maxCandidates,
+      outputVariants,
       videoVendor,
       voiceVendor,
       dryRun,

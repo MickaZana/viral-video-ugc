@@ -50,7 +50,11 @@ vi.mock("@vvugc/shared-http", () => ({
 
 vi.mock("@vvugc/shared-config", () => ({
   requireEnvVar: (key: string) => `mock-${key}`,
-  loadEnv: () => ({ REPLICATE_MODEL: "minimax/video-01", SEEDANCE_MODEL: "fal-ai/seedance-2" }),
+  loadEnv: () => ({
+    REPLICATE_API_TOKEN: "mock-REPLICATE_API_TOKEN",
+    REPLICATE_MODEL: "minimax/video-01",
+    SEEDANCE_MODEL: "fal-ai/seedance-2",
+  }),
 }));
 
 // ---------------------------------------------------------------------------

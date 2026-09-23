@@ -22,6 +22,7 @@ function baseOptions(overrides: Partial<Parameters<typeof parseRunOptions>[0]> =
     locale: "en",
     duration: 25,
     maxCandidates: 5,
+    outputVariants: 2,
     videoVendor: "kling",
     dryRun: false,
     autoPost: false,
@@ -37,6 +38,7 @@ describe("parseRunOptions", () => {
     expect(config.platforms).toEqual(["tiktok", "youtube_shorts"]);
     expect(config.targetDurationSec).toBe(25);
     expect(config.maxCandidates).toBe(5);
+    expect(config.outputVariants).toBe(2);
     expect(config.createdAt).toBeTruthy();
   });
 
@@ -44,6 +46,11 @@ describe("parseRunOptions", () => {
     const a = parseRunOptions(baseOptions());
     const b = parseRunOptions(baseOptions());
     expect(a.runId).not.toBe(b.runId);
+  });
+
+  it("accepts and bounds output variants", () => {
+    for (const outputVariants of [2, 3, 4]) expect(parseRunOptions(baseOptions({ outputVariants })).outputVariants).toBe(outputVariants);
+    for (const outputVariants of [1, 5]) expect(() => parseRunOptions(baseOptions({ outputVariants }))).toThrow();
   });
 
   it("rejects an empty niche (mirrors what commander would pass through unchanged)", () => {

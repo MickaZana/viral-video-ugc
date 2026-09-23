@@ -24,7 +24,7 @@ const REAL_VENDORS: RawClip["vendor"][] = [
   "seedance",
   "grok_video",
   "wan",
-  "nvidia"
+  "alibaba"
 ];
 
 afterEach(() => {
@@ -32,30 +32,28 @@ afterEach(() => {
   if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
 });
 
-describe("getVideoGenAdapter — NVIDIA wiring", () => {
-  it("returns the real NVIDIA adapter (vendor 'nvidia') when dryRun is false", () => {
-    const adapter = getVideoGenAdapter("nvidia", { outDir, dryRun: false });
-    expect(adapter.vendor).toBe("nvidia");
+describe("getVideoGenAdapter — Alibaba wiring", () => {
+  it("returns the real Alibaba adapter (vendor 'alibaba') when dryRun is false", () => {
+    const adapter = getVideoGenAdapter("alibaba", { outDir, dryRun: false });
+    expect(adapter.vendor).toBe("alibaba");
   });
 
-  it("returns the mock adapter for nvidia when dryRun is true — no network call, mock-nvidia file name", async () => {
-    const fetchMock = vi.fn(() => {
-      throw new Error("fetch must not be called for a dry-run adapter");
-    });
+  it("returns the mock adapter for alibaba when dryRun is true — no network call, mock-alibaba file name", async () => {
+    const fetchMock = vi.fn(() => { throw new Error("fetch must not be called for dry-run"); });
     vi.stubGlobal("fetch", fetchMock);
 
-    const adapter = getVideoGenAdapter("nvidia", { outDir, dryRun: true });
-    expect(adapter.vendor).toBe("nvidia");
+    const adapter = getVideoGenAdapter("alibaba", { outDir, dryRun: true });
+    expect(adapter.vendor).toBe("alibaba");
 
     const clip = await adapter.generate({ ...REQ });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(clip.vendor).toBe("nvidia");
-    expect(clip.filePath).toContain("mock-nvidia");
+    expect(clip.vendor).toBe("alibaba");
+    expect(clip.filePath).toContain("mock-alibaba");
     expect(existsSync(clip.filePath)).toBe(true);
     // The written file's own name carries createMockAdapter's `mock-<vendor>` marker.
     const written = readdirSync(outDir);
-    expect(written.some((f) => f.includes("mock-nvidia"))).toBe(true);
+    expect(written.some((f) => f.includes("mock-alibaba"))).toBe(true);
   });
 });
 
@@ -68,9 +66,7 @@ describe("getVideoGenAdapter — regression guard over the real vendor union", (
   });
 
   it("higgsfield with dryRun:true returns the mock without needing a callMcpTool callback", async () => {
-    const fetchMock = vi.fn(() => {
-      throw new Error("fetch must not be called for a dry-run adapter");
-    });
+    const fetchMock = vi.fn(() => { throw new Error("fetch must not be called for dry-run"); });
     vi.stubGlobal("fetch", fetchMock);
 
     const adapter = getVideoGenAdapter("higgsfield", { outDir, dryRun: true });

@@ -6,7 +6,7 @@ import ffmpegPath from "ffmpeg-static";
 import type { CaptionCue, LongFormTutorial } from "@vvugc/shared-schema";
 
 const VIDEO_ASSET_TYPES = new Set(["screen_recording", "video"]);
-const STATIC_ASSET_TYPES = new Set(["slide", "screenshot", "image"]);
+const STATIC_ASSET_TYPES = new Set(["slide", "screenshot", "image", "animated_image"]);
 const LONG_FORM_DIMENSIONS = { w: 1920, h: 1080 };
 
 function configureFfmpeg(): void {
@@ -112,20 +112,27 @@ export async function assembleLongFormTutorial(
   for (const [index, scene] of tutorial.scenes.entries()) {
     const normalizedPath = join(outDir, `${videoId}-scene-${String(index).padStart(3, "0")}.mp4`);
     normalizedPaths.push(normalizedPath);
-    const isVideo = VIDEO_ASSET_TYPES.has(scene.assetType);
-    if (!isVideo && !STATIC_ASSET_TYPES.has(scene.assetType)) {
+    // Keep the renderer forward-compatible while the shared schema rolls out
+    // the animated_image discriminant.
+    const assetType = scene.assetType as string;
+    const isVideo = VIDEO_ASSET_TYPES.has(assetType);
+    if (!isVideo && !STATIC_ASSET_TYPES.has(assetType)) {
       throw new Error(`Unsupported long-form asset type: ${scene.assetType}`);
     }
 
     await run((command) => {
       command.input(scene.assetPath);
       command.inputOptions(isVideo ? ["-stream_loop -1"] : ["-loop 1"]);
-      return command
-        .videoFilters([
+      const isAnimatedStill = assetType === "animated_image";
+      const filters = isAnimatedStill
+        ? [`zoompan=z='min(zoom+0.0015,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.max(1, Math.ceil(scene.durationSec * 30))}:s=${LONG_FORM_DIMENSIONS.w}x${LONG_FORM_DIMENSIONS.h}:fps=30`, "setsar=1"]
+        : [
           `scale=${LONG_FORM_DIMENSIONS.w}:${LONG_FORM_DIMENSIONS.h}:force_original_aspect_ratio=increase`,
           `crop=${LONG_FORM_DIMENSIONS.w}:${LONG_FORM_DIMENSIONS.h}`,
           "setsar=1"
-        ])
+        ];
+      return command
+        .videoFilters(filters)
         .outputOptions(["-t", String(scene.durationSec), ...encoderOptions]);
     }, normalizedPath);
   }

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { xaiGrokKeyCandidates } from "@vvugc/shared-config";
 import type { CostLedger } from "@vvugc/shared-cost";
 
-export type LlmProvider = "anthropic" | "gemini" | "grok" | "kimi";
+export type LlmProvider = "anthropic" | "openai" | "gemini" | "grok" | "kimi";
 
 export interface LlmFailoverResult {
   /** Raw text from whichever provider succeeded. The CALLER parses it through its
@@ -56,6 +56,8 @@ export interface LlmFailoverOptions {
 }
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const OPENAI_API_BASE = "https://api.openai.com/v1";
+const OPENAI_TEXT_MODEL = "gpt-4.1-mini";
 // "gemini-2.5-pro" is dead (404 "no longer available to new users", verified live
 // 2026-08-31). Google's own error names "gemini-3.1-pro-preview" as the direct
 // replacement, but that id currently returns 429 (quota exceeded) on this
@@ -112,6 +114,10 @@ function resolveGeminiModel(explicit?: string): string {
   return explicit || process.env.GEMINI_MODEL || GEMINI_TEXT_MODEL;
 }
 
+function resolveOpenAIModel(): string {
+  return process.env.OPENAI_MODEL || OPENAI_TEXT_MODEL;
+}
+
 /** Resolves the Kimi chat model: an explicit caller value wins, then
  *  KIMI_MODEL, then the doc-sourced default. Mirrors resolveGrokModel exactly. */
 function resolveKimiModel(explicit?: string): string {
@@ -136,17 +142,72 @@ function resolveKimiApiKey(): string | undefined {
  *      would otherwise silently route the whole pipeline onto a fallback provider and
  *      hide a deployment error;
  *    - our own response-shape errors (e.g. "no text block", thrown as a plain `Error`)
- *      — an unexpected-but-received response is a data problem, not an outage. */
+ *      — an unexpected-but-received response is a data problem, not an outage;
+ *    - except Anthropic's explicit insufficient-credit message, which is an account
+ *      availability condition and is safe to route through the configured fallbacks. */
 function isHardAnthropicFailure(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const name = err.name;
   // Plain `Error`s are thrown by our own code (response-shape problems) — surface.
-  if (name === "Error" || name === "TypeError") return false;
+  if ((name === "Error" || name === "TypeError") && !/credit balance is too low|insufficient credits/i.test(err.message)) return false;
   // Config/auth problems on Anthropic — surface loudly when key was configured.
   if (name === "AuthenticationError" || name === "PermissionDeniedError") return false;
+  // Anthropic reports exhausted prepaid API credits as a 400 BadRequestError. This
+  // is an account availability issue, so use the configured alternate providers.
+  if (/credit balance is too low|insufficient credits/i.test(err.message)) return true;
   // Everything else the Anthropic SDK raises after its internal retries is a genuine
   // provider failure (connection, timeout, 5xx, 429) — fail over.
   return true;
+}
+
+async function callOpenAI(opts: LlmFailoverOptions): Promise<LlmFailoverResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('Missing required env var "OPENAI_API_KEY"');
+  const model = resolveOpenAIModel();
+  const userContent = opts.images?.length
+    ? [
+        ...opts.images.map((img) => ({
+          type: "image_url",
+          image_url: { url: `data:${img.mediaType};base64,${img.base64}` }
+        })),
+        { type: "text", text: opts.userPrompt }
+      ]
+    : opts.userPrompt;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: opts.system },
+          { role: "user", content: userContent }
+        ],
+        max_tokens: opts.maxTokens
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`OpenAI text generation failed: ${res.status} ${await res.text()}`);
+    const body = await res.json() as {
+      choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    const content = body.choices?.[0]?.message?.content;
+    const text = typeof content === "string" ? content : content?.map((part) => part.text ?? "").join("");
+    if (!text) throw new Error("OpenAI text generation returned no text");
+    opts.costLedger?.recordOpenAIUsage(opts.stage, {
+      input_tokens: body.usage?.prompt_tokens ?? 0,
+      output_tokens: body.usage?.completion_tokens ?? 0
+    }, model);
+    return { text, provider: "openai", model };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw new Error("OpenAI text generation timed out after 60s");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function recordKimiUsage(
@@ -393,8 +454,8 @@ async function callKimi(opts: LlmFailoverOptions): Promise<LlmFailoverResult> {
  *    to step 1 exactly as if Kimi had never been tried; it never blocks or replaces the
  *    standard chain below, which every other caller still runs unchanged.
  * 1. Anthropic (primary if ANTHROPIC_API_KEY configured)
- * 2. Gemini (fallback or secondary key; or primary if Anthropic unconfigured)
- * 3. Grok (fallback to Gemini, and becomes the main key if Gemini is unfunded or unconfigured)
+ * 2. OpenAI (fallback or primary if Anthropic is unfunded/unconfigured)
+ * 3. Gemini, then Grok (remaining fallbacks)
  */
 export async function generateWithFailover(opts: LlmFailoverOptions): Promise<LlmFailoverResult> {
   if (opts.preferredProvider === "kimi" && resolveKimiApiKey()) {
@@ -409,14 +470,64 @@ export async function generateWithFailover(opts: LlmFailoverOptions): Promise<Ll
   }
 
   const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
   const hasGemini = Boolean(process.env.GEMINI_API_KEY);
   const hasGrok = xaiGrokKeyCandidates().length > 0;
 
-  if (!hasAnthropic && !hasGemini && !hasGrok) {
+  if (!hasAnthropic && !hasOpenAI && !hasGemini && !hasGrok) {
     throw new Error(
-      'No LLM provider key configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GROK_API_KEY/XAI_API_KEY in .env.'
+      'No LLM provider key configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or GROK_API_KEY/XAI_API_KEY in .env.'
     );
   }
+
+  const openaiThenGemini = async (cause: unknown): Promise<LlmFailoverResult> => {
+    if (hasOpenAI) {
+      try {
+        opts.onFallback?.("openai", resolveOpenAIModel(), cause);
+        return await callOpenAI(opts);
+      } catch (openaiErr) {
+        // A received response with an invalid/missing shape is a data/contract
+        // failure, not provider unavailability; preserve the original fail-fast rule.
+        if (openaiErr instanceof Error && /OpenAI text generation returned no text/.test(openaiErr.message)) {
+          throw openaiErr;
+        }
+        if (hasGemini) {
+          try {
+            opts.onFallback?.("gemini", resolveGeminiModel(opts.geminiModel), openaiErr);
+            return await callGemini(opts);
+          } catch (geminiErr) {
+            if (hasGrok) {
+              opts.onFallback?.("grok", resolveGrokModel(opts.grokModel), geminiErr);
+              return await callGrok(opts);
+            }
+            throw geminiErr;
+          }
+        }
+        if (hasGrok) {
+          opts.onFallback?.("grok", resolveGrokModel(opts.grokModel), openaiErr);
+          return await callGrok(opts);
+        }
+        throw openaiErr;
+      }
+    }
+    if (hasGemini) {
+      try {
+        opts.onFallback?.("gemini", resolveGeminiModel(opts.geminiModel), cause);
+        return await callGemini(opts);
+      } catch (geminiErr) {
+        if (hasGrok) {
+          opts.onFallback?.("grok", resolveGrokModel(opts.grokModel), geminiErr);
+          return await callGrok(opts);
+        }
+        throw geminiErr;
+      }
+    }
+    if (hasGrok) {
+      opts.onFallback?.("grok", resolveGrokModel(opts.grokModel), cause);
+      return await callGrok(opts);
+    }
+    throw cause;
+  };
 
   // 1. If Anthropic is configured, try it first
   if (hasAnthropic) {
@@ -425,29 +536,14 @@ export async function generateWithFailover(opts: LlmFailoverOptions): Promise<Ll
     } catch (err) {
       if (!isHardAnthropicFailure(err)) throw err;
 
-      // Failover from Anthropic to Gemini or Grok
-      if (hasGemini) {
-        try {
-          opts.onFallback?.("gemini", resolveGeminiModel(opts.geminiModel), err);
-          return await callGemini(opts);
-        } catch (geminiErr) {
-          if (hasGrok) {
-            const grokModel = resolveGrokModel(opts.grokModel);
-            opts.onFallback?.("grok", grokModel, geminiErr);
-            return await callGrok(opts);
-          }
-          throw geminiErr;
-        }
-      } else if (hasGrok) {
-        const grokModel = resolveGrokModel(opts.grokModel);
-        opts.onFallback?.("grok", grokModel, err);
-        return await callGrok(opts);
-      }
-      throw err;
+      return await openaiThenGemini(err);
     }
   }
 
-  // 2. If Anthropic is not configured, try Gemini next
+  // 2. If Anthropic is not configured, try OpenAI, then Gemini/Grok.
+  if (hasOpenAI) return await openaiThenGemini(new Error("Anthropic is not configured"));
+
+  // 3. If Anthropic and OpenAI are not configured, try Gemini next
   if (hasGemini) {
     try {
       return await callGemini(opts);
@@ -466,4 +562,4 @@ export async function generateWithFailover(opts: LlmFailoverOptions): Promise<Ll
   return await callGrok(opts);
 }
 
-export { GEMINI_TEXT_MODEL, GROK_TEXT_MODEL, KIMI_TEXT_MODEL };
+export { GEMINI_TEXT_MODEL, GROK_TEXT_MODEL, KIMI_TEXT_MODEL, OPENAI_TEXT_MODEL };

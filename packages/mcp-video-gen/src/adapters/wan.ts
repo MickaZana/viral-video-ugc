@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { requireEnvVar } from "@vvugc/shared-config";
+import { loadEnv } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
@@ -80,7 +80,9 @@ export function createWanAdapter(outDir: string): VideoGenAdapter {
   return {
     vendor: "wan",
     async generate(req: VideoGenRequest): Promise<RawClip> {
-      const apiToken = requireEnvVar("REPLICATE_API_TOKEN");
+      const env = loadEnv();
+      const apiToken = env.REPLICATE_API_TOKEN || env.REPLICATE_API_KEY;
+      if (!apiToken) throw new Error('Missing required env var "REPLICATE_API_TOKEN" (or alias "REPLICATE_API_KEY")');
       const headers = { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" };
 
       // Cinema Controls: enrich prompt with visual direction (same convention

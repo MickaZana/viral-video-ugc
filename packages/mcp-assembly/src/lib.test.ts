@@ -130,14 +130,14 @@ describe("assembleVideo --dry-run", () => {
     expect(result.hashtags).toEqual(["#waitforit"]);
   });
 
-  it("accepts nvidia-labelled clips and returns the same well-formed AssembledVideo shape", async () => {
-    // Nothing downstream of generation branches on clip.vendor — an "nvidia" clip
+  it("accepts alibaba-labelled clips and returns the same well-formed AssembledVideo shape", async () => {
+    // Nothing downstream of generation branches on clip.vendor — an "alibaba" clip
     // must assemble identically to a "kling" one. Mirrors the sibling assertion above.
-    const nvidiaClips = [
-      { id: "c1", scriptSegmentIndex: 0, vendor: "nvidia" as const, filePath: "/tmp/c1.mp4", durationSec: 5 }
+    const alibabaClips = [
+      { id: "c1", scriptSegmentIndex: 0, vendor: "alibaba" as const, filePath: "/tmp/c1.mp4", durationSec: 5 }
     ];
-    const outDir = `${process.cwd()}/.test-out-nvidia-${Date.now()}`;
-    const result = await assembleVideo({ clips: nvidiaClips, script, captions, platform: "tiktok", outDir, dryRun: true });
+    const outDir = `${process.cwd()}/.test-out-alibaba-${Date.now()}`;
+    const result = await assembleVideo({ clips: alibabaClips, script, captions, platform: "tiktok", outDir, dryRun: true });
     expect(result.videoId).toBe("test-video");
     expect(result.platform).toBe("tiktok");
     expect(result.aspectRatio).toBe("9:16");
@@ -242,11 +242,11 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
     }
   }, 30_000);
 
-  it("assembles nvidia-labelled clips into a real 9:16 mp4 — vendor label doesn't change the ffmpeg path", async () => {
+  it("assembles alibaba-labelled clips into a real 9:16 mp4 — vendor label doesn't change the ffmpeg path", async () => {
     // Same two-clip live concat + caption burn + 9:16 crop as the test above, but
-    // the RawClips are labelled vendor: "nvidia". Proves an nvidia clip coexists
+    // the RawClips are labelled vendor: "alibaba". Proves an alibaba clip coexists
     // with captions + platform aspect ratio + real ffmpeg concat end to end.
-    const workDir = mkdtempSync(join(tmpdir(), "vvugc-assembly-nvidia-live-test-"));
+    const workDir = mkdtempSync(join(tmpdir(), "vvugc-assembly-alibaba-live-test-"));
     const clipsDir = join(workDir, "clips");
     const outDir = join(workDir, "assembled");
 
@@ -263,7 +263,7 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
       }
 
       const script = {
-        videoId: "nvidia-live-verify",
+        videoId: "alibaba-live-verify",
         hook: "hook",
         points: ["point"],
         cta: "cta",
@@ -273,8 +273,8 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
         trendingPhrases: ["realtest"]
       };
       const clips = [
-        { id: "clip-0", scriptSegmentIndex: 0, filePath: join(clipsDir, "clip0.mp4"), durationSec: 1, vendor: "nvidia" as const },
-        { id: "clip-1", scriptSegmentIndex: 1, filePath: join(clipsDir, "clip1.mp4"), durationSec: 1, vendor: "nvidia" as const }
+        { id: "clip-0", scriptSegmentIndex: 0, filePath: join(clipsDir, "clip0.mp4"), durationSec: 1, vendor: "alibaba" as const },
+        { id: "clip-1", scriptSegmentIndex: 1, filePath: join(clipsDir, "clip1.mp4"), durationSec: 1, vendor: "alibaba" as const }
       ];
       const captions = [
         { startSec: 0, endSec: 1, text: "hook" },
@@ -388,4 +388,29 @@ describe.skipIf(!ffmpegAvailable())("assembleVideo — live ffmpeg", () => {
     },
     30_000
   );
+
+  it("loops and fades a music bed beneath the assembled video to its exact duration", async () => {
+    const workDir = mkdtempSync(join(tmpdir(), "vvugc-assembly-music-test-"));
+    const clipsDir = join(workDir, "clips");
+    const outDir = join(workDir, "assembled");
+    try {
+      mkdirSync(clipsDir, { recursive: true });
+      const clipPath = join(clipsDir, "clip.mp4");
+      const musicPath = join(workDir, "music.wav");
+      execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2", "-c:v", "libx264", clipPath], { stdio: "ignore" });
+      execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5", musicPath], { stdio: "ignore" });
+      const script = { videoId: "music-verify", hook: "hook", points: ["point"], cta: "cta", durationSec: 2, brandVoice: "energetic", locale: "en", trendingPhrases: [] };
+      const result = await assembleVideo({
+        clips: [{ id: "clip", scriptSegmentIndex: 0, filePath: clipPath, durationSec: 2, vendor: "kling" }],
+        script, captions: [{ startSec: 0, endSec: 2, text: "hook" }], platform: "tiktok", outDir,
+        dryRun: false, musicPath
+      });
+      const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", result.filePath]).toString());
+      expect(probe.streams.some((stream: { codec_type: string }) => stream.codec_type === "audio")).toBe(true);
+      expect(Number(probe.format.duration)).toBeGreaterThanOrEqual(1.95);
+      expect(Number(probe.format.duration)).toBeLessThanOrEqual(2.1);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

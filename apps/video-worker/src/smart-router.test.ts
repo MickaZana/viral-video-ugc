@@ -230,18 +230,18 @@ describe("detectAvailableVendors", () => {
     expect(available).not.toContain("grok_video");
   });
 
-  it("detects nvidia when NVIDIA_API_KEY is configured", () => {
-    const available = detectAvailableVendors({ NVIDIA_API_KEY: "nvapi-xxxx" });
-    expect(available).toContain("nvidia");
+  it("detects alibaba when Alibaba_API_KEY is configured", () => {
+    const available = detectAvailableVendors({ Alibaba_API_KEY: "nvapi-xxxx" });
+    expect(available).toContain("alibaba");
   });
 
-  it("does not detect nvidia for a whitespace-only NVIDIA_API_KEY", () => {
-    const available = detectAvailableVendors({ NVIDIA_API_KEY: "  " });
-    expect(available).not.toContain("nvidia");
+  it("does not detect alibaba for a whitespace-only Alibaba_API_KEY", () => {
+    const available = detectAvailableVendors({ Alibaba_API_KEY: "  " });
+    expect(available).not.toContain("alibaba");
   });
 
-  it("does not detect nvidia when no credentials are configured", () => {
+  it("does not detect alibaba when no credentials are configured", () => {
     const available = detectAvailableVendors({});
-    expect(available).not.toContain("nvidia");
+    expect(available).not.toContain("alibaba");
   });
 });

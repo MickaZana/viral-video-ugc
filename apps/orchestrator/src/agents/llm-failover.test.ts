@@ -45,7 +45,9 @@ const grokTextResponse = (json: unknown) => ({
 describe("generateWithFailover / multi-provider failover chain", () => {
   beforeEach(() => {
     mockCreate.mockReset();
+    delete process.env.OPENAI_API_KEY;
     process.env.ANTHROPIC_API_KEY = "test-key";
+
     process.env.GEMINI_API_KEY = "gemini-key";
     process.env.GROK_API_KEY = "xai-test-key";
     vi.stubGlobal("fetch", vi.fn());
@@ -53,6 +55,8 @@ describe("generateWithFailover / multi-provider failover chain", () => {
 
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
     delete process.env.GEMINI_API_KEY;
     delete process.env.GROK_API_KEY;
     delete process.env.XAI_API_KEY;
@@ -74,6 +78,30 @@ describe("generateWithFailover / multi-provider failover chain", () => {
     expect(result.model).toBe("gemini-2.5-pro");
     expect(onFallback).toHaveBeenCalledTimes(1);
     expect(onFallback).toHaveBeenCalledWith("gemini", "gemini-2.5-pro", expect.anything());
+  });
+
+  it("uses OpenAI after Anthropic reports exhausted account credits", async () => {
+    process.env.OPENAI_API_KEY = "openai-key";
+    const err = sdkError("BadRequestError");
+    err.message = "Your credit balance is too low to access the Anthropic API";
+    mockCreate.mockRejectedValue(err);
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "OpenAI response" } }],
+        usage: { prompt_tokens: 120, completion_tokens: 45 }
+      })
+    });
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    const ledger = new CostLedger();
+    const result = await generateWithFailover({
+      system: "s", userPrompt: "u", maxTokens: 100, anthropicModel: "claude-fable-5",
+      stage: "script_rewrite", costLedger: ledger
+    });
+    expect(result.provider).toBe("openai");
+    expect(result.model).toBe("gpt-4.1-mini");
+    expect(ledger.totalsByVendor().openai).toBeGreaterThan(0);
   });
 
   it("falls back to Grok if Gemini is not funded / fails, without replacing primary when working", async () => {

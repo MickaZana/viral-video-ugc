@@ -552,10 +552,10 @@ describe("idempotency key stability", () => {
 
 // ─── Sub-schema enums ───────────────────────────────────────────────────────
 describe("sub-schemas", () => {
-  it("VideoVendorSchema includes seedance and grok_video and nvidia", () => {
+  it("VideoVendorSchema includes seedance, grok_video, and Alibaba Model Studio", () => {
     expect(VideoVendorSchema.parse("seedance")).toBe("seedance");
     expect(VideoVendorSchema.parse("grok_video")).toBe("grok_video");
-    expect(VideoVendorSchema.parse("nvidia")).toBe("nvidia");
+    expect(VideoVendorSchema.parse("alibaba")).toBe("alibaba");
   });
 
   it("CaptionStyleSchema validates correctly", () => {

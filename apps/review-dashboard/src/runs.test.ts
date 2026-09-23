@@ -143,4 +143,20 @@ describe("listRuns", () => {
     // Non-existent org returns nothing
     expect(listRuns("org-doesnt-exist")).toHaveLength(0);
   });
+
+  it("surfaces only validated proposal status/count within the already tenant-filtered run summary", () => {
+    writeRun("org-a-proposals", {
+      config: { niche: "fitness", accountId: "org-a", createdAt: "2026-01-03T00:00:00.000Z" },
+      improvementProposals: { status: "proposals", advisoryOnly: true, requiresHumanApproval: true,
+        proposals: [{ id: "qa-weak_hook", suggestion: "Private proposal text", evidence: "QA flag observed." }] }
+    });
+    writeRun("org-b-none", {
+      config: { niche: "beauty", accountId: "org-b", createdAt: "2026-01-02T00:00:00.000Z" },
+      improvementProposals: { status: "none", advisoryOnly: true, requiresHumanApproval: true, proposals: [] }
+    });
+
+    expect(listRuns("org-a")).toMatchObject([{ runId: "org-a-proposals", improvementProposalStatus: "proposals", improvementProposalCount: 1 }]);
+    expect(JSON.stringify(listRuns("org-a"))).not.toContain("Private proposal text");
+    expect(listRuns("org-b")).toMatchObject([{ runId: "org-b-none", improvementProposalStatus: "none", improvementProposalCount: 0 }]);
+  });
 });

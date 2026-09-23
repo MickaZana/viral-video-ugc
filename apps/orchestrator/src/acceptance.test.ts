@@ -34,6 +34,7 @@ function baseConfig(overrides: Partial<RunConfig> = {}): RunConfig {
     locale: "en",
     targetDurationSec: 25,
     maxCandidates: 5,
+    outputVariants: 2,
     videoVendor: "kling",
     lipSyncVendor: "none",
     dryRun: true,

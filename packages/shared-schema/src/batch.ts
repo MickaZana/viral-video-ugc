@@ -9,7 +9,7 @@ import { PlatformSchema } from "./platform.js";
 
 // ─── Video Vendor enum (mirrors RawClip["vendor"]) ─────────────────────────
 export const VideoVendorSchema = z.enum([
-  "higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "nvidia"
+  "higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"
 ]);
 export type VideoVendor = z.infer<typeof VideoVendorSchema>;
 

@@ -88,29 +88,24 @@ const EnvSchema = z.object({
    *  gives access to many interchangeable text-to-video models. Select it with
    *  --video-vendor replicate; see packages/mcp-video-gen/src/adapters/replicate.ts. */
   REPLICATE_API_TOKEN: z.string().optional(),
+  /** Alias accepted for providers/tools that label the Replicate credential as an API key. */
+  REPLICATE_API_KEY: z.string().optional(),
   /** Model slug to run, e.g. "minimax/video-01" or "luma/ray-3.2" — defaults to
    *  replicate.ts's own DEFAULT_MODEL if unset. Per-model input schemas vary; an
    *  incompatible override surfaces as a clear error from Replicate's own API, not
    *  a silent misparse. */
   REPLICATE_MODEL: z.string().optional(),
-  /** NVIDIA NIM Visual GenAI (Wan2.2) video generation (--video-vendor nvidia).
-   *  Server-side only; a Bearer key that starts `nvapi-` from build.nvidia.com.
-   *  See packages/mcp-video-gen/src/adapters/nvidia.ts. */
-  NVIDIA_API_KEY: z.string().optional(),
-  /** OpenAI-compatible base URL for NVIDIA video generation. Defaults to
-   *  `https://integrate.api.nvidia.com/v1` if unset (nvidia.ts's own default);
-   *  override to a self-hosted NIM endpoint e.g. `http://localhost:8000/v1`. */
-  NVIDIA_VIDEO_BASE_URL: z.string().optional(),
-  /** NVIDIA video model id — defaults to `wan-ai/wan2.2` if unset. Lets the model
-   *  evolve without VUGC changes; vendor stays `nvidia`. */
-  NVIDIA_VIDEO_MODEL: z.string().optional(),
-  /** `auto` | `t2v` | `i2v` — defaults to `auto` (adapter picks image-to-video when
-   *  a reference image is present, else text-to-video). Set explicitly to pin a
-   *  self-hosted NIM whose NIM_MODEL_VARIANT is fixed. */
-  NVIDIA_VIDEO_VARIANT: z.string().optional(),
-  /** Per-request timeout (ms) for the (synchronous) NVIDIA generation call.
-   *  Defaults to 300000 in nvidia.ts if unset. */
-  NVIDIA_VIDEO_TIMEOUT_MS: z.string().optional(),
+  /** Alibaba Model Studio (Wan 2.7/3.0, HappyHorse 1.1) hosted video generation. */
+  DASHSCOPE_API_KEY: z.string().optional(),
+  /** Alias for users who store the Alibaba Wan 3.0 credential under its model name. */
+  "WAN3.0_API_KEY": z.string().optional(),
+  /** Full regional Model Studio video-synthesis endpoint, including workspace id when required. */
+  ALIBABA_VIDEO_ENDPOINT: z.string().optional(),
+  /** Model Studio model id, e.g. wan3.0-video or happyhorse-1.1-t2v. */
+  ALIBABA_VIDEO_MODEL: z.string().optional(),
+  /** Poll interval and maximum wait for hosted Model Studio async video jobs. */
+  ALIBABA_VIDEO_POLL_INTERVAL_MS: z.string().optional(),
+  ALIBABA_VIDEO_MAX_WAIT_MS: z.string().optional(),
   /** Publishing (packages/mcp-publish) — never called automatically by the pipeline, only
    *  from an explicit post-approval action (review-dashboard's POST /queue/:id/publish).
    *  A TikTok user access token with the video.publish scope, from a completed 3-legged

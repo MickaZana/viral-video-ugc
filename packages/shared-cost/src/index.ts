@@ -9,6 +9,7 @@
  */
 export type CostVendor =
   | "anthropic"
+  | "openai"
   | "higgsfield"
   | "kling"
   | "runway"
@@ -23,7 +24,7 @@ export type CostVendor =
   | "sync_labs"
   | "heygen"
   | "wan"
-  | "nvidia"
+  | "alibaba"
   | "kimi";
 
 export interface CostEvent {
@@ -49,6 +50,11 @@ const ANTHROPIC_RATE_TABLE: Record<string, Record<string, number>> = {
   "claude-haiku-4-5": { input_tokens: 1 / 1_000_000, output_tokens: 5 / 1_000_000 },
   // Estimate — confirm against current Anthropic pricing before relying on it.
   "claude-fable-5": { input_tokens: 10 / 1_000_000, output_tokens: 50 / 1_000_000 }
+};
+
+// OpenAI text fallback pricing; sourced from the official GPT-4.1 mini model page.
+const OPENAI_RATE_TABLE: Record<string, Record<string, number>> = {
+  "gpt-4.1-mini": { input_tokens: 0.4 / 1_000_000, output_tokens: 1.6 / 1_000_000 }
 };
 
 // Per-token list pricing for Gemini text models, used by the orchestrator's LLM
@@ -105,7 +111,7 @@ const KIMI_RATE_TABLE: Record<string, Record<string, number>> = {
   "kimi-k3": { input_tokens: 0.95 / 1_000_000, output_tokens: 4.0 / 1_000_000 }
 };
 
-const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number>> = {
+const RATE_TABLE: Record<Exclude<CostVendor, "anthropic" | "openai">, Record<string, number>> = {
   higgsfield: { clip: 0.4 },
   kling: { clip: 0.35 },
   runway: { clip: 0.5 },
@@ -144,13 +150,8 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // for a typical short segment clip, same convention as seedance/grok_video above.
   // Confirm against actual usage once live generation is run through this adapter.
   wan: { clip: 0.5 },
-  // NVIDIA NIM Visual GenAI (Wan2.2) has no single per-clip list price — hosted
-  // on build.nvidia.com it's credit/quota-metered (a free developer tier exists
-  // but must NOT be modeled as a permanent $0 production cost); self-hosted NIM
-  // cost is your own GPU compute, not a per-call charge. This ~$0.40/clip figure
-  // is a deliberate non-zero placeholder in the same range as the other vendors;
-  // confirm/override against real usage for your deployment mode.
-  nvidia: { clip: 0.4 },
+  // Placeholder until a concrete Model Studio model and region are priced.
+  alibaba: { clip: 0.5 },
   // Kimi is purely per-model + per-token (see KIMI_RATE_TABLE below and its branch
   // in estimateCostUsd) — no flat-unit use case, unlike grok/gemini which also
   // have a real TTS/image rate here. Empty only to satisfy this Record's
@@ -164,6 +165,8 @@ export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: numb
   // the table is flat per-unit (per clip/image/character).
   if (vendor === "anthropic") {
     rate = model ? ANTHROPIC_RATE_TABLE[model]?.[unit] : undefined;
+  } else if (vendor === "openai") {
+    rate = model ? OPENAI_RATE_TABLE[model]?.[unit] : undefined;
   } else if (vendor === "gemini") {
     // Gemini is flat-priced for images, but per-model + per-token for text.
     rate = model ? GEMINI_RATE_TABLE[model]?.[unit] : undefined;
@@ -208,6 +211,11 @@ export class CostLedger {
   recordAnthropicUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
     this.record(stage, "anthropic", "input_tokens", usage.input_tokens, undefined, model);
     this.record(stage, "anthropic", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
+  recordOpenAIUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "openai", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "openai", "output_tokens", usage.output_tokens, undefined, model);
   }
 
   /** Same shape as recordAnthropicUsage but attributed to Gemini (LLM failover). */

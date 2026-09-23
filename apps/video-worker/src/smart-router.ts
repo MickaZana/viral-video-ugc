@@ -228,12 +228,12 @@ const VENDOR_CREDENTIAL_KEYS: Record<VideoVendor, string[]> = {
   grok_video: ["XAI_API_KEY"],
   kling: ["KLING_ACCESS_KEY"],
   higgsfield: ["MCP_SERVER_URL"],
-  replicate: ["REPLICATE_API_TOKEN"],
+  replicate: ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY"],
   gemini: ["GEMINI_API_KEY"],
   runway: ["RUNWAY_API_KEY"],
   pika: ["FAL_KEY"], // Pika is served through fal.ai
-  wan: ["REPLICATE_API_TOKEN"], // Wan 3.0 is served through Replicate, same as the replicate vendor
-  nvidia: ["NVIDIA_API_KEY"],
+  wan: ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY"], // Hosted Wan is available via Replicate
+  alibaba: ["DASHSCOPE_API_KEY", "ALIBABA_API_KEY", "Alibaba_API_KEY", "WAN3.0_API_KEY"],
 };
 
 /**

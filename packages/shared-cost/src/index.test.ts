@@ -75,6 +75,13 @@ describe("CostLedger", () => {
     expect(ledger.totalUsd()).toBeCloseTo(1000 * (3 / 1_000_000) + 500 * (15 / 1_000_000), 6);
   });
 
+  it("records OpenAI failover usage at the model-specific rate", () => {
+    const ledger = new CostLedger();
+    ledger.recordOpenAIUsage("script_rewrite", { input_tokens: 1_000_000, output_tokens: 500_000 }, "gpt-4.1-mini");
+    expect(ledger.totalUsd()).toBe(1.2);
+    expect(ledger.totalsByVendor().openai).toBe(1.2);
+  });
+
   it("recordGeminiUsage attributes text tokens to the gemini vendor, priced per model", () => {
     const ledger = new CostLedger();
     ledger.recordGeminiUsage("script_rewrite", { input_tokens: 1_000_000, output_tokens: 500_000 }, "gemini-2.5-pro");

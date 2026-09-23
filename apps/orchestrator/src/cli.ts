@@ -13,6 +13,7 @@ interface RunOptions {
   locale: string;
   duration: number;
   maxCandidates: number;
+  outputVariants?: number;
   videoVendor: string;
   voiceVendor?: string;
   dryRun: boolean;
@@ -44,6 +45,7 @@ export function parseRunOptions(options: RunOptions): RunConfig {
     locale: options.locale,
     targetDurationSec: options.duration,
     maxCandidates: options.maxCandidates,
+    outputVariants: options.outputVariants,
     videoVendor: options.videoVendor,
     voiceVendor: options.voiceVendor,
     dryRun: options.dryRun,
@@ -85,6 +87,7 @@ program
   .option("--locale <locale>", "BCP-47-ish language tag for the rewritten script, e.g. en, es, pt-BR", "en")
   .option("--duration <seconds>", "target output duration in seconds", (v) => Number(v), 25)
   .option("--max-candidates <n>", "max source videos to process", (v) => Number(v), 5)
+  .option("--output-variants <n>", "distinct fact-preserving video angles per source (2-4)", (v) => Number(v), 2)
   .option(
     "--video-vendor <vendor>",
     "higgsfield | kling | runway | pika | gemini | replicate — gemini generates a still image per " +

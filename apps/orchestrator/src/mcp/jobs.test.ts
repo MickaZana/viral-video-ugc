@@ -29,6 +29,7 @@ function baseConfig(overrides: Partial<RunConfig> = {}): RunConfig {
     locale: "en",
     targetDurationSec: 25,
     maxCandidates: 5,
+    outputVariants: 2,
     videoVendor: "kling",
     lipSyncVendor: "none",
     dryRun: true,
@@ -123,6 +124,56 @@ describe("jobs", () => {
 
     const job = getRunJob(config.runId);
     expect(job?.progress).toEqual(["discovering...", "scripting..."]);
+  });
+
+  it("injects a connected Higgsfield caller into live background jobs and closes it afterward", async () => {
+    const config = baseConfig({ videoVendor: "higgsfield", dryRun: false });
+    const callMcpTool = vi.fn(async () => ({}));
+    const close = vi.fn(async () => undefined);
+    runCycleMock.mockResolvedValue(baseResult(config));
+
+    startRunJob(config, { connectHiggsfield: async () => ({ callMcpTool, close }) });
+    await flushJobs();
+
+    expect(runCycleMock).toHaveBeenCalledWith(config, expect.objectContaining({ callMcpTool: expect.any(Function) }));
+    expect(getRunJob(config.runId)?.status).toBe("completed");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("connects Higgsfield for an explicitly configured live fallback on another primary vendor", async () => {
+    const config = baseConfig({ videoVendor: "wan", videoVendorFallbacks: ["replicate", "higgsfield"], dryRun: false });
+    const callMcpTool = vi.fn(async () => ({ ok: true }));
+    const close = vi.fn(async () => undefined);
+    runCycleMock.mockImplementation(async (receivedConfig, opts) => {
+      expect(receivedConfig.videoVendor).toBe("wan");
+      expect(receivedConfig.videoVendorFallbacks).toEqual(["replicate", "higgsfield"]);
+      const caller = (opts as { callMcpTool?: (tool: string, args: Record<string, unknown>) => Promise<unknown> }).callMcpTool;
+      expect(caller).toBeDefined();
+      await caller!("generate_video", { prompt: "test" });
+      return baseResult(receivedConfig);
+    });
+
+    startRunJob(config, { connectHiggsfield: async () => ({ callMcpTool, close }) });
+    await flushJobs();
+
+    expect(callMcpTool).toHaveBeenCalledWith("generate_video", { prompt: "test" });
+    expect(getRunJob(config.runId)?.status).toBe("completed");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("does not fail a live job when Higgsfield MCP is not configured", async () => {
+    const config = baseConfig({ videoVendor: "higgsfield", dryRun: false });
+    runCycleMock.mockImplementation(async (receivedConfig, opts) => {
+      expect((opts as { callMcpTool?: unknown }).callMcpTool).toBeUndefined();
+      return baseResult(receivedConfig);
+    });
+
+    startRunJob(config, { connectHiggsfield: async () => undefined });
+    await flushJobs();
+
+    const job = getRunJob(config.runId);
+    expect(job?.status).toBe("completed");
+    expect(job?.progress.join(" ")).toContain("credentials are not configured");
   });
 
   it("returns undefined for a runId nobody has ever seen, in-memory or on disk", () => {

@@ -86,7 +86,7 @@ export function createGrokVideoAdapter(outDir: string): VideoGenAdapter {
         throw new Error(
           `grok_video is not available: xAI's API returned 404 for POST ${XAI_API_BASE}/video/generations` +
             ` — xAI has no generally-available video-generation endpoint. Pick a different --video-vendor` +
-            ` (higgsfield / replicate / seedance / kling / nvidia), or only keep grok_video in an explicit` +
+            ` (higgsfield / replicate / seedance / kling / alibaba), or only keep grok_video in an explicit` +
             ` fallback list as a last resort.`
         );
       }

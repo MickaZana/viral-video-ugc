@@ -71,7 +71,8 @@ const isTrue = (key) => String(get(key) ?? "").toLowerCase() === "true";
 /** Video vendors and what each one needs to produce clips for real. */
 const VENDORS = {
   gemini: { keys: ["GEMINI_API_KEY"], note: "stills + Ken Burns pan; cheapest live path, plain REST" },
-  replicate: { keys: ["REPLICATE_API_TOKEN"], note: "many hosted text-to-video models behind one token" },
+  replicate: { keys: ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY"], note: "many hosted text-to-video models behind one token" },
+  alibaba: { keys: ["DASHSCOPE_API_KEY", "WAN3.0_API_KEY"], note: "hosted Wan 2.7/3.0 and HappyHorse 1.1 via Model Studio" },
   kling: { keys: ["KLING_ACCESS_KEY", "KLING_SECRET_KEY"], note: "signed JWT from an access/secret pair" },
   runway: { keys: ["RUNWAY_API_KEY"], note: "" },
   pika: { keys: ["FAL_KEY"], note: "served through fal.ai, not a Pika-specific key" },

@@ -25,6 +25,9 @@ export interface RunSummary {
    *  Spy panel's "Start a run from this brief". Surfaced so the Studio run page can
    *  show "your brief" even after a hard refresh (it lives on the run manifest). */
   discoveryBrief?: unknown;
+  /** Validated, tenant-scoped count/status only; proposal text is not exposed in run history. */
+  improvementProposalStatus?: "none" | "proposals";
+  improvementProposalCount?: number;
 }
 
 /**
@@ -69,6 +72,14 @@ export function listRuns(orgId?: string): RunSummary[] {
       estimatedCostUsd = undefined;
     }
 
+    const improvementSet = manifest.improvementProposals as { status?: unknown; proposals?: unknown; advisoryOnly?: unknown; requiresHumanApproval?: unknown } | undefined;
+    const proposalStatus = improvementSet?.advisoryOnly === true && improvementSet.requiresHumanApproval === true
+      && (improvementSet.status === "none" || improvementSet.status === "proposals")
+      && Array.isArray(improvementSet.proposals) && improvementSet.proposals.length <= 3
+      && ((improvementSet.status === "none") === (improvementSet.proposals.length === 0))
+      ? improvementSet.status
+      : undefined;
+
     runs.push({
       runId: entry.name,
       niche: (config?.niche as string) ?? "unknown",
@@ -80,7 +91,11 @@ export function listRuns(orgId?: string): RunSummary[] {
       candidatesFailed: manifest.candidatesFailed as number | undefined,
       platformsFailed: manifest.platformsFailed as number | undefined,
       failures: manifest.failures as RunFailure[] | undefined,
-      discoveryBrief: config?.discoveryBrief ?? null
+      discoveryBrief: config?.discoveryBrief ?? null,
+      ...(proposalStatus ? {
+        improvementProposalStatus: proposalStatus,
+        improvementProposalCount: (improvementSet!.proposals as unknown[]).length
+      } : {})
     });
   }
 

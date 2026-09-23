@@ -7,7 +7,9 @@ import {
   type PipelineJob,
   type PipelineJobStore
 } from "@vvugc/review-queue";
-import { runCycle } from "@vvugc/orchestrator";
+import { connectHiggsfieldMcp, runCycle, type ConnectedHiggsfieldMcp } from "@vvugc/orchestrator";
+import type { RunConfig } from "@vvugc/shared-schema";
+import type { RunCycleOptions } from "@vvugc/orchestrator";
 import { aggregateUsage } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import { LocalBillingRepository, type BillingRepository } from "./billing-postgres.js";
@@ -212,12 +214,17 @@ export async function processNextPipelineJob(
   store: PipelineJobStore,
   workerId = `worker-${randomUUID()}`,
   leaseMs = 60_000,
-  billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR)
+  billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR),
+  dependencies: {
+    connectHiggsfield?: () => Promise<ConnectedHiggsfieldMcp | undefined>;
+    runCycle?: (config: RunConfig, opts?: RunCycleOptions) => ReturnType<typeof runCycle>;
+  } = {}
 ): Promise<PipelineJob | undefined> {
   const job = await store.claim(workerId, leaseMs);
   if (!job) return undefined;
   const heartbeat = setInterval(() => void store.heartbeat(job.id, workerId, leaseMs), Math.max(1_000, Math.floor(leaseMs / 3)));
   heartbeat.unref();
+  let higgsfield: ConnectedHiggsfieldMcp | undefined;
   try {
     const { VVUGC_RUNS_DIR } = loadEnv();
     // Hybrid billing: a run past the tier's included allowance is allowed and
@@ -225,7 +232,16 @@ export async function processNextPipelineJob(
     const reservation = await billing.reserveRun({ orgId: job.orgId, runId: job.config.runId, clientId: job.config.clientId, durationSec: job.config.targetDurationSec, usageRunCount: aggregateUsage(job.orgId, VVUGC_RUNS_DIR).runs.length });
     const isOverage = reservation.kind === "overage";
     const onProgress = createProgressCallback(job.config.runId);
-    const result = await runCycle(job.config, { onProgress });
+    const higgsfieldRequested = job.config.videoVendor === "higgsfield" || job.config.videoVendorFallbacks?.includes("higgsfield");
+    if (!job.config.dryRun && higgsfieldRequested) {
+      try {
+        higgsfield = await (dependencies.connectHiggsfield ?? connectHiggsfieldMcp)();
+        if (!higgsfield) onProgress("Higgsfield MCP credentials are not configured; using the configured fallback chain.");
+      } catch {
+        onProgress("Higgsfield MCP is unavailable; using the configured fallback chain.");
+      }
+    }
+    const result = await (dependencies.runCycle ?? runCycle)(job.config, { onProgress, callMcpTool: higgsfield?.callMcpTool });
     completeRun(job.config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
     const current = await store.get(job.orgId, job.id);
     if (current?.cancelRequested) { await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId, estimatedVendorCostUsd: result.estimatedCostUsd }); await store.acknowledgeCancelled(job.id, workerId); }
@@ -235,6 +251,7 @@ export async function processNextPipelineJob(
     await store.fail(job.id, workerId, String(error));
   } finally {
     clearInterval(heartbeat);
+    await higgsfield?.close().catch(() => undefined);
   }
   return store.get(job.orgId, job.id);
 }

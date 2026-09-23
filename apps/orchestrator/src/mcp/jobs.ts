@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { RunConfig, RunResult } from "@vvugc/shared-schema";
 import { loadEnv } from "@vvugc/shared-config";
 import { runCycle } from "../conductor.js";
+import { connectHiggsfieldMcp, type ConnectedHiggsfieldMcp } from "./higgsfield-client.js";
 
 /**
  * Transport-agnostic run-job tracking, shared by every way this pipeline gets
@@ -43,7 +44,10 @@ const MAX_PROGRESS_LINES = 500;
 const jobs = new Map<string, RunJob>();
 
 /** Starts `runCycle` in the background and returns immediately with a running job. */
-export function startRunJob(config: RunConfig): RunJob {
+export function startRunJob(
+  config: RunConfig,
+  dependencies: { connectHiggsfield?: () => Promise<ConnectedHiggsfieldMcp | undefined> } = {}
+): RunJob {
   const job: RunJob = {
     runId: config.runId,
     status: "running",
@@ -54,22 +58,35 @@ export function startRunJob(config: RunConfig): RunJob {
   };
   jobs.set(config.runId, job);
 
-  runCycle(config, {
-    onProgress: (message) => {
-      job.progress.push(message);
-      if (job.progress.length > MAX_PROGRESS_LINES) job.progress.shift();
-    }
-  })
-    .then((result) => {
+  const onProgress = (message: string) => {
+    job.progress.push(message);
+    if (job.progress.length > MAX_PROGRESS_LINES) job.progress.shift();
+  };
+
+  void (async () => {
+    let higgsfield: ConnectedHiggsfieldMcp | undefined;
+    try {
+      const higgsfieldRequested = config.videoVendor === "higgsfield" || config.videoVendorFallbacks?.includes("higgsfield");
+      if (!config.dryRun && higgsfieldRequested) {
+        try {
+          higgsfield = await (dependencies.connectHiggsfield ?? connectHiggsfieldMcp)();
+          if (!higgsfield) onProgress("Higgsfield MCP credentials are not configured; using the configured fallback chain.");
+        } catch (error) {
+          onProgress(`Higgsfield MCP is unavailable; using the configured fallback chain (${error instanceof Error ? error.message : String(error)}).`);
+        }
+      }
+      const result = await runCycle(config, { onProgress, callMcpTool: higgsfield?.callMcpTool });
       job.status = "completed";
       job.result = result;
       job.finishedAt = new Date().toISOString();
-    })
-    .catch((err) => {
+    } catch (err) {
       job.status = "failed";
       job.error = err instanceof Error ? err.message : String(err);
       job.finishedAt = new Date().toISOString();
-    });
+    } finally {
+      await higgsfield?.close().catch(() => undefined);
+    }
+  })();
 
   return job;
 }

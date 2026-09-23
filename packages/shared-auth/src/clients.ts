@@ -13,7 +13,7 @@ export interface AgencyClient {
   locale: string;
   platforms: Platform[];
   targetDurationSec: number;
-  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "nvidia";
+  videoVendor: "higgsfield" | "kling" | "runway" | "pika" | "gemini" | "replicate" | "seedance" | "grok_video" | "wan" | "alibaba";
   voiceVendor?: "elevenlabs" | "grok";
   cadence: "weekly" | "manual";
   active: boolean;
