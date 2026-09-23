@@ -15,6 +15,7 @@ YAML_FILES = (
     ".github/workflows/ci.yml",
     ".github/workflows/deploy-fly.yml",
     ".github/workflows/rollback.yml",
+    ".github/workflows/weekly-run.yml",
     "docker-compose.yml",
 )
 TOML_FILES = ("fly.review-dashboard.toml", "fly.marketing-site.toml")

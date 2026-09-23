@@ -26,7 +26,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createInMemoryProviderJobStore, type ProviderJobStore, type ProviderJobEnqueueInput } from "@vvugc/review-queue";
 import { createMcpSession } from "./mcp-session.js";
 import { classifyProviderError } from "./retry-policy.js";
-import { resolveChain, buildFallbackList, DEFAULT_FALLBACK_CHAIN } from "./fallback-chain.js";
+import { resolveChain, buildFallbackList } from "./fallback-chain.js";
 import { createVideoWorker } from "./worker.js";
 import { createWorkerMetrics } from "./metrics.js";
 

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { requireEnvVar, loadEnv } from "@vvugc/shared-config";
+import { loadEnv } from "@vvugc/shared-config";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";

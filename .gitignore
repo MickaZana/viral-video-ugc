@@ -36,4 +36,12 @@ transcript-*/
 opencode.jsonc
 .opencode/
 
+# Repo junk / never-commit: pnpm content-addressable store (stays on disk,
+# leaves the index), stale diff patch, 0-byte stray file, and the (currently
+# empty) video-review working dir.
+.pnpm-store/
+video-review/
+server.ts.patch
+nulclear
+
 
