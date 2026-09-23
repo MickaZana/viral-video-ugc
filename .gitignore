@@ -24,3 +24,16 @@ apps/review-dashboard/runs/*
 apps/orchestrator/runs/*
 !apps/orchestrator/runs/.gitkeep
 
+# Local render outputs, run artifacts, and test dumps
+artifacts/
+deliverables/
+output/*
+!output/rocky-anti-anxiety-vest-2k/
+transcript-*/
+*-test.mp4
+
+# Local developer tooling configuration
+opencode.jsonc
+.opencode/
+
+
