@@ -1,10 +1,10 @@
 # Go-Live Plan — the complete, current picture
 
 **Written 2026-09-14.** This supersedes the scattered state across
-`docs/audit.md`, `docs/audit-2026-07-20.md`, `docs/race-to-100-execution-plan.md`,
-`docs/plan-to-100.md`, `docs/remaining-p0-execution-plan.md`,
-`docs/engineering-100-handoff.md`, and `docs/external-setup-checklist.md` — those
-are kept for history, but several of them contradict each other (e.g. the P0
+`docs/archive/audit.md`, `docs/archive/audit-2026-07-20.md`, `docs/archive/race-to-100-execution-plan.md`,
+`docs/archive/plan-to-100.md`, `docs/archive/remaining-p0-execution-plan.md`,
+`docs/archive/engineering-100-handoff.md`, and `docs/archive/external-setup-checklist.md` — those
+are archived under `docs/archive/` for history, but several of them contradict each other (e.g. the P0
 plan lists CSRF/MFA/audit-trail as open; the later handoff doc and the code
 itself confirm they're actually done). Everything below was checked against
 the real code today, not copied from an older doc.
@@ -115,9 +115,9 @@ In recommended order:
    wrong credential type entirely. Add credits at
    console.anthropic.com/settings/billing, fix the Gemini key at
    aistudio.google.com/apikey, then run one candidate live and keep the
-   evidence (`docs/external-setup-checklist.md` has the exact steps).
+   evidence (`docs/archive/external-setup-checklist.md` has the exact steps).
 2. **YouTube OAuth for real publishing** (not just discovery) — engineering
-   is described as done in `docs/engineering-100-handoff.md`; the remaining
+   is described as done in `docs/archive/engineering-100-handoff.md`; the remaining
    steps are yours: register the deployed callback URL, add test users,
    complete Google verification if required, do one real private/unlisted
    upload.

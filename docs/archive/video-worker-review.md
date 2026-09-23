@@ -136,7 +136,7 @@ enable with a real provider credential.
 - `apps/video-worker/src/worker.test.ts` — Comprehensive test suite
 - `Dockerfile.video-worker` — Container build
 - `docs/video-worker.md` — Operations documentation
-- `docs/video-worker-review.md` — This review document
+- `docs/archive/video-worker-review.md` — This review document
 
 ### Modified Files
 - `docker-compose.yml` — Added video-worker service (additive only)

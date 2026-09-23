@@ -2,7 +2,7 @@
 
 Claude-powered, cloud-orchestrated pipeline that discovers viral short-form video content, rewrites it into new scripts, generates and assembles finished platform-ready videos, and queues them for human review — on a weekly cadence, from one command.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design and [`docs/cost-table.md`](docs/cost-table.md) for the vendor cost template.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the canonical architecture reference (module layout, models, feature flags), [`docs/architecture.md`](docs/architecture.md) for the full pipeline design, and [`docs/cost-table.md`](docs/cost-table.md) for the vendor cost template. Current go-live status lives in [`docs/go-live-plan.md`](docs/go-live-plan.md); superseded audits/plan docs are archived under [`docs/archive/`](docs/archive/).
 
 ## Quickstart
 
@@ -110,7 +110,7 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 **The review-dashboard requires `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD`** in any real deployment — it approves/rejects content before it ships, so it's never served unauthenticated (see `apps/review-dashboard/src/auth.ts`). Leave both unset only for local dev/testing; the dashboard then generates a random one-time password and prints it in a plain-text startup banner. Production fails closed when explicit credentials are missing. Set real env vars for a login that survives restarts; never treat generated local credentials as a deployment secret.
 
-**All three containers run as a non-root user (uid 1000)**, not root. The `./runs` bind-mount keeps whatever ownership it already has on the host — if your host account isn't also uid 1000, the container won't be able to write to it. Run `chmod -R a+rwX runs` once before `docker compose up` (see the comment atop `docker-compose.yml` for the alternative: override each service's `user:` to match your own uid/gid instead).
+**Every container image (all four, including the one-off `orchestrator` CLI) runs as a non-root user (uid 1000)**, not root. The `./runs` bind-mount keeps whatever ownership it already has on the host — if your host account isn't also uid 1000, the container won't be able to write to it. Run `chmod -R a+rwX runs` once before `docker compose up` (see the comment atop `docker-compose.yml` for the alternative: override each service's `user:` to match your own uid/gid instead).
 
 **The marketing-site should have `PUBLIC_BASE_URL` set** in any real deployment — og:image/twitter:image meta tags must be absolute URLs per spec, and the server has no other way to know its own public origin (a proxy/CDN in front of it may present a different host than what it binds to). Leave it unset for local dev; the server then falls back to deriving the origin from each incoming request.
 
@@ -118,15 +118,22 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 ```
 apps/orchestrator/       conductor + CLI (`vvugc run ...`)
-apps/review-dashboard/   human-in-the-loop approve/reject UI
+apps/review-dashboard/   human-in-the-loop approve/reject UI (serves the control-panel SPA at /app)
 apps/marketing-site/     public landing page — video gallery + UGC-review wall, manifest-driven
+apps/control-panel/      React SPA workspace (built into review-dashboard)
+apps/video-worker/       background video-generation worker
 packages/mcp-discovery/  YouTube/TikTok/Meta discovery adapters
 packages/mcp-transcript/ caption/ASR transcription
+packages/mcp-voiceover/  ElevenLabs/Grok narration synced to caption cues
 packages/mcp-video-gen/  video adapters — Higgsfield/Kling/Runway/Pika/Replicate/Seedance/Grok/Wan/Alibaba Model Studio, + Gemini stills
 packages/mcp-assembly/   ffmpeg stitching, captions, aspect-ratio, thumbnails
-packages/review-queue/   HITL queue — JSON file by default, Postgres via DATABASE_URL (see its README)
+packages/mcp-publish/    YouTube/TikTok/Facebook/Instagram publishing adapters (approve-gated dashboard route only)
+packages/mcp-lipsync/    lip-sync adapters (SyncLabs/HeyGen)
+packages/review-queue/   HITL queue — JSON file locally, Postgres via DATABASE_URL in production (see its README)
 packages/shared-schema/  Zod data contracts shared by every stage
 packages/shared-config/  env/secrets loader
++ shared-platform/auth/billing/cost/metrics/http/analytics/product-analytics/originality/persistence,
+  curriculum-engine, design-tokens — see ARCHITECTURE.md for the complete verified tree
 infra/cron/              documented (not deployed) weekly-cadence Lambda shape
-docs/                     architecture + cost table
+docs/                    architecture + cost table (superseded audits in docs/archive/)
 ```

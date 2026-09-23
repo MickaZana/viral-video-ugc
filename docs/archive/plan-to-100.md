@@ -1,6 +1,6 @@
 # Race to 100% — Fix Plan
 
-Baseline for this plan is the independently re-verified audit (not `docs/audit.md`'s
+Baseline for this plan is the independently re-verified audit (not `docs/archive/audit.md`'s
 self-reported numbers): **Engineering ~90%, UX ~86%**, corrected down from 93%/86%
 because the prior audit misfiled a real, buildable gap (unpatched CVEs failing CI)
 as an external/business blocker. See "Verification results" recap below.
@@ -45,7 +45,7 @@ and found two real product bugs neither of the prior audits caught:
   1. **The multi-seat invite link was completely broken.** `account-page.ts`
      sends the owner a link to `/account/join?token=...`, but that route was
      never registered — it fell through to the operator's Basic Auth gate and
-     401'd for the exact teammate it was meant for. `docs/audit.md` had marked
+     401'd for the exact teammate it was meant for. `docs/archive/audit.md` had marked
      multi-seat/teams "✅ verified end-to-end" — it wasn't; the invite-creation
      API was tested, the link itself never was. Fixed in `server.ts`.
   2. **Approving/rejecting the last pending item in a filtered niche silently
@@ -134,7 +134,7 @@ automatically) remains unbuilt.
 ### P1 — Real engineering work, buildable without the owner
 
 4. ~~Alerting on `runCycle` producing zero review items~~ **Already real — verified, not a gap.** `weekly-run.yml` already runs the CLI with `--fail-on-zero-results` (`apps/orchestrator/src/cli.ts`'s `determineExitCode`), so a silent empty run fails the job loudly instead of exiting 0, and GitHub's own scheduled-workflow-failure notification (automatic, no extra config) catches it. What's still genuinely missing is alerting on `/metrics`-level *trends* (e.g. a slow rise in per-run failure rate that never actually hits zero) — lower priority, not a "nothing pages anyone" gap as originally stated here.
-5. **Document the quota-enforcement scope boundary explicitly** in code comments and `docs/audit.md` — CLI/cron runs are intentionally unmetered today. Not a bug, but worth a one-line note near `checkRunQuota` so a future change that exposes CLI access to customers doesn't silently reintroduce the exact "display vs. enforce" gap the last commit (c9317a4) just closed for the HTTP path.
+5. **Document the quota-enforcement scope boundary explicitly** in code comments and `docs/archive/audit.md` — CLI/cron runs are intentionally unmetered today. Not a bug, but worth a one-line note near `checkRunQuota` so a future change that exposes CLI access to customers doesn't silently reintroduce the exact "display vs. enforce" gap the last commit (c9317a4) just closed for the HTTP path.
 6. **A/B testing UI** — audit.md correctly marks this 🔴 unstarted. Real, unblocked build whenever prioritized; not on this plan's critical path to 100% since it's a stated nice-to-have, not a claimed-done item that's actually broken.
 
 ### P2 — Blocked on the product owner (unchanged from audit.md, still accurate)
@@ -149,7 +149,7 @@ automatically) remains unbuilt.
 
 ## Section A — Automated End-to-End Test Plan
 
-Goal: every claim in this plan and in `docs/audit.md` should be re-verifiable by running a command, not by re-reading a commit message. This section is what CI should run (or already runs) on every push to `main`; gaps below are what's missing from that guarantee today.
+Goal: every claim in this plan and in `docs/archive/audit.md` should be re-verifiable by running a command, not by re-reading a commit message. This section is what CI should run (or already runs) on every push to `main`; gaps below are what's missing from that guarantee today.
 
 **A1. Unit + integration suites (exists, keep green)**
 - All 20 workspace packages' `vitest` suites (`turbo run test`). In this sandbox, memory-constrained runs must use `node --max-old-space-size=2048 <vitest> run --pool=forks --poolOptions.forks.singleFork=true` per-package rather than a single recursive run — document this in `CONTRIBUTING`/`docs/` so it isn't rediscovered every session.

@@ -6,7 +6,7 @@ Snapshot as of this audit. Ratings are honest, not aspirational — "built" mean
 
 | Dimension | Estimate | Read |
 |---|---|---|
-| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **100% of repository-controlled YouTube launch scope** | The 93→100 pass closed browser/request hardening, nonce-based dashboard CSP, bounded bulk input, non-predictable development encryption, production cookie hardening, worker retry/quota failure modes, durable structured error reporting, missing client-store coverage, CI timeouts, database-file container exclusions, and image SBOM/provenance. Google OAuth configuration is present locally and Meta is excluded from this release. What remains is provider/owner execution—not missing repository engineering—and is listed in `docs/engineering-100-handoff.md`. |
+| **Engineering** (pipeline correctness, integration coverage, production-readiness) | **100% of repository-controlled YouTube launch scope** | The 93→100 pass closed browser/request hardening, nonce-based dashboard CSP, bounded bulk input, non-predictable development encryption, production cookie hardening, worker retry/quota failure modes, durable structured error reporting, missing client-store coverage, CI timeouts, database-file container exclusions, and image SBOM/provenance. Google OAuth configuration is present locally and Meta is excluded from this release. What remains is provider/owner execution—not missing repository engineering—and is listed in `docs/archive/engineering-100-handoff.md`. |
 | **UX** (what a user/customer actually touches) | **~90%** (unchanged) | Added OAuth-facing privacy policy and terms of service pages (required for Google/YouTube OAuth compliance — covers both `youtube.upload` and `youtube.readonly` scopes, GDPR data-subject rights, 7-day deletion window). No change to the rating — the "content labs" public-metrics concept still needs real published content, and nobody has used the product against a live, funded vendor account for video generation. |
 
 ---
@@ -63,7 +63,7 @@ Snapshot as of this audit. Ratings are honest, not aspirational — "built" mean
 - "Content labs" public counter needs 30-60 days of real published data.
 
 ### Current gap count:
-- **0 items** that are buildable today and still unplanned — all are scoped in `docs/race-to-100-execution-plan.md`
+- **0 items** that are buildable today and still unplanned — all are scoped in `docs/archive/race-to-100-execution-plan.md`
 - **4 items** blocked on product owner (vendor credentials, Stripe Price IDs, platform approvals, GHAS)
 - **1 item** gated on time (content labs: 30-60 days of real data)
 
@@ -238,7 +238,7 @@ Per the earlier scoping decision, that pass targeted foundational engineering hy
 
 ## What I'd do first
 
-Everything that was buildable without you — every item across all prior passes that didn't require a business decision, external approval, or spending real vendor money — is now scoped in `docs/race-to-100-execution-plan.md` with exact files to touch and test strategies. The plan has 4 phases:
+Everything that was buildable without you — every item across all prior passes that didn't require a business decision, external approval, or spending real vendor money — is now scoped in `docs/archive/race-to-100-execution-plan.md` with exact files to touch and test strategies. The plan has 4 phases:
 
 **Phase 0 — Security Hardening (~4 PRs, ~3 hours total):**
 Security headers on marketing site, CSP hardening on dashboard, request body limits, bulk-endpoint input validation, dev encryption key fix, cookie prefix. These are the highest-leverage items because they close real vulnerability surfaces.
