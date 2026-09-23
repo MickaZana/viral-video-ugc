@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   // Feedback loop
   computeViralityScore,
@@ -10,6 +10,7 @@ import {
   classifyHook,
   registerHook,
   recordDecision,
+  recordPerformance,
   importFromDiscovery,
   getTopHooks,
   suggestCategories,
@@ -27,6 +28,7 @@ import {
   CostCap,
   CostCapExceededError,
   FlowLimiter,
+  throttledExec,
   executeCapped,
   DEFAULT_CAP_CONFIG,
 } from "./index.js";
@@ -250,6 +252,66 @@ describe("hook-registry", () => {
       const suggestions = suggestCategories(reg, [], 4);
       expect(suggestions.length).toBeGreaterThan(0);
       expect(suggestions.length).toBeLessThanOrEqual(4);
+    });
+  });
+
+  describe("recordDecision (rejected path)", () => {
+    it("counts a rejection and recomputes confidence without changing approval counts", () => {
+      let reg = baseRegistry();
+      reg = registerHook(reg, { text: "Why nobody talks about this at all", qaScore: 90, platform: "tiktok", niche: "tech", source: "pipeline_qa" });
+      reg = recordDecision(reg, "Why nobody talks about this at all", "rejected");
+      expect(reg.entries[0].timesRejected).toBe(1);
+      expect(reg.entries[0].timesApproved).toBe(0);
+    });
+
+    it("is a no-op for hook text that is not in the registry (returns the same object)", () => {
+      const reg = baseRegistry();
+      const result = recordDecision(reg, "Never registered hook", "rejected");
+      expect(result).toBe(reg);
+      expect(reg.entries).toHaveLength(0);
+    });
+  });
+
+  describe("recordPerformance", () => {
+    it("tracks running-average virality, recomputes confidence, and stamps sync times", () => {
+      let reg = baseRegistry();
+      reg = registerHook(reg, { text: "Stop doing crunches right now", qaScore: 90, platform: "tiktok", niche: "fitness", source: "pipeline_qa" });
+      const initialConfidence = reg.entries[0].confidenceScore;
+      expect(reg.lastPerformanceSync).toBeUndefined();
+
+      reg = recordPerformance(reg, "Stop doing crunches right now", 80);
+      expect(reg.entries[0].performanceDataPoints).toBe(1);
+      expect(reg.entries[0].avgViralityScore).toBeCloseTo(80, 6);
+      expect(reg.lastPerformanceSync).toBeDefined();
+      expect(reg.entries[0].confidenceScore).not.toBe(initialConfidence);
+
+      reg = recordPerformance(reg, "Stop doing crunches right now", 60);
+      expect(reg.entries[0].performanceDataPoints).toBe(2);
+      expect(reg.entries[0].avgViralityScore).toBeCloseTo(70, 6);
+      // Confidence now blends real performance (70 avg), so it drops from the first point's 71.
+      expect(reg.entries[0].confidenceScore).toBeLessThan(71);
+    });
+
+    it("flips trend to rising once usage and performance data accumulate", () => {
+      let reg = baseRegistry();
+      const text = "Stop doing cardio right now";
+      for (let i = 0; i < 3; i++) {
+        reg = registerHook(reg, { text, qaScore: 90, platform: "tiktok", niche: "fitness", source: "pipeline_qa" });
+      }
+      expect(reg.entries[0].timesUsed).toBe(3);
+      reg = recordPerformance(reg, text, 80);
+      expect(reg.entries[0].trend).toBe("stable"); // only 1 data point yet
+      reg = recordPerformance(reg, text, 75);
+      expect(reg.entries[0].avgViralityScore).toBeCloseTo(77.5, 6);
+      expect(reg.entries[0].trend).toBe("rising");
+    });
+
+    it("is a no-op for hook text that is not in the registry (returns the same object)", () => {
+      const reg = baseRegistry();
+      const result = recordPerformance(reg, "Never registered hook", 95);
+      expect(result).toBe(reg);
+      expect(reg.entries).toHaveLength(0);
+      expect(reg.lastPerformanceSync).toBeUndefined();
     });
   });
 });
@@ -555,6 +617,105 @@ describe("concurrency-cap", () => {
       const skipped = results.filter((r) => r.skipped);
       expect(errors).toHaveLength(1);
       expect(skipped).toHaveLength(2); // Remaining after cost cap
+    });
+
+    it("captures generic worker errors as strings and keeps processing the remaining items", async () => {
+      const items = Array.from({ length: 4 }, (_, i) => ({ id: i }));
+      const results = await executeCapped(
+        items,
+        async (item) => {
+          if (item.id === 1) throw new Error("vendor exploded");
+          return item.id;
+        },
+        { ...DEFAULT_CAP_CONFIG, maxVideosPerFlow: 8, vendorThrottleMs: 0 }
+      );
+      expect(results).toHaveLength(4);
+      expect(results[0].result).toBe(0);
+      expect(results[1].error).toBe("Error: vendor exploded");
+      expect(results[1].skipped).toBeUndefined();
+      expect(results[2].result).toBe(2); // non-cost errors do NOT hard-stop the run
+      expect(results[3].result).toBe(3);
+    });
+  });
+
+  describe("throttledExec", () => {
+    it("returns the fn result without waiting when delayMs is 0", async () => {
+      vi.useFakeTimers();
+      try {
+        const promise = throttledExec(async () => 42, 0);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(await promise).toBe(42);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("resolves only after delayMs has elapsed, carrying the fn result through", async () => {
+      vi.useFakeTimers();
+      try {
+        let resolved = false;
+        const promise = throttledExec(async () => "ok", 500).then((value) => {
+          resolved = true;
+          return value;
+        });
+        await vi.advanceTimersByTimeAsync(0); // fn settles; throttle timer still pending
+        expect(resolved).toBe(false);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(resolved).toBe(true);
+        expect(await promise).toBe("ok");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("Semaphore queue accounting", () => {
+    it("queueLength tracks waiters and drains when permits are released", async () => {
+      const sem = new Semaphore(1);
+      expect(sem.queueLength).toBe(0);
+      await sem.acquire();
+      const waiter = sem.acquire();
+      expect(sem.queueLength).toBe(1);
+      sem.release(); // hands the permit to the waiter
+      await waiter;
+      expect(sem.queueLength).toBe(0);
+      expect(sem.available).toBe(0);
+      sem.release();
+      expect(sem.available).toBe(1);
+    });
+  });
+
+  describe("CostCap percentUsed", () => {
+    it("clamps at 100% even after spend overshoots the limit", () => {
+      const cap = new CostCap(25);
+      cap.record(10);
+      expect(cap.percentUsed).toBe(40);
+      try {
+        cap.record(20); // 30/25 → throws, but spent stays at 30
+      } catch (err) {
+        expect(err).toBeInstanceOf(CostCapExceededError);
+      }
+      expect(cap.percentUsed).toBe(100);
+    });
+  });
+
+  describe("FlowLimiter remaining budget", () => {
+    it("videosRemaining counts down and clamps at 0 even if record() overshoots", () => {
+      const limiter = new FlowLimiter(8);
+      expect(limiter.videosRemaining).toBe(8);
+      limiter.record();
+      limiter.record();
+      expect(limiter.videosRemaining).toBe(6);
+      for (let i = 0; i < 10; i++) limiter.record(); // callers may record past the cap
+      expect(limiter.videosRemaining).toBe(0);
+    });
+
+    it("canGenerate() with no angle still enforces the total cap (executeCapped path)", () => {
+      const limiter = new FlowLimiter(2);
+      expect(limiter.canGenerate()).toBe(true);
+      limiter.record();
+      limiter.record();
+      expect(limiter.canGenerate()).toBe(false);
     });
   });
 });

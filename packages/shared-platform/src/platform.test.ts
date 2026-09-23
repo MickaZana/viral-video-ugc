@@ -18,13 +18,18 @@ import { join } from "node:path";
 import {
   toOrgId,
   resolveOrganizationFromAccount,
+  isValidOrgIdFormat,
   createWorkspaceStore,
   authorizeOrganizationAccess,
+  authorizeWorkspaceAccess,
+  authorizeClientAccess,
   authorizePermission,
   authorizeResource,
   isPlatformAdmin,
   authorizePlatformAdmin,
   isFeatureEnabled,
+  assertFeatureEnabled,
+  getAllFlagStates,
   requireFeature,
   createAgencyClientExtStore,
   platformRoleHasPermission,
@@ -553,5 +558,162 @@ describe("organization resolution", () => {
   it("resolveOrganizationFromAccount returns branded OrgId", () => {
     const result = resolveOrganizationFromAccount({ orgId: "test-org-uuid-000000000" });
     expect(result).toBe("test-org-uuid-000000000");
+  });
+
+  it("isValidOrgIdFormat accepts strings of length 20-50 only", () => {
+    expect(isValidOrgIdFormat("a".repeat(19))).toBe(false);
+    expect(isValidOrgIdFormat("a".repeat(20))).toBe(true);
+    expect(isValidOrgIdFormat("a".repeat(50))).toBe(true);
+    expect(isValidOrgIdFormat("a".repeat(51))).toBe(false);
+    expect(isValidOrgIdFormat(12345)).toBe(false);
+    expect(isValidOrgIdFormat(null)).toBe(false);
+  });
+});
+
+// ==========================================================================
+// WORKSPACE / CLIENT AUTHORIZATION (currently org-scoped passthrough)
+// ==========================================================================
+
+describe("workspace and client access mirror org membership", () => {
+  const ORG_A = toOrgId("org-a-uuid-000000000000000");
+  const ORG_B = toOrgId("org-b-uuid-000000000000000");
+  const userA: SessionActor = { kind: "session", accountId: "user-a", orgId: ORG_A, role: "owner" };
+
+  it("authorizeWorkspaceAccess denies cross-org even for the owning role", () => {
+    expect(authorizeWorkspaceAccess(userA, ORG_B, "ws-1").allowed).toBe(false);
+    expect(authorizeWorkspaceAccess(userA, ORG_A, "ws-1").allowed).toBe(true);
+  });
+
+  it("authorizeClientAccess denies cross-org (future client-level checks sit behind this)", () => {
+    expect(authorizeClientAccess(userA, ORG_B, "client-1").allowed).toBe(false);
+    expect(authorizeClientAccess(userA, ORG_A, "client-1").allowed).toBe(true);
+  });
+
+  it("authorizeResource without a permission checks only the org boundary", () => {
+    expect(authorizeResource(userA, "org-a-uuid-000000000000000").allowed).toBe(true);
+    expect(authorizeResource(userA, "org-b-uuid-000000000000000").allowed).toBe(false);
+  });
+});
+
+// ==========================================================================
+// FEATURE FLAG DIAGNOSTICS
+// ==========================================================================
+
+describe("feature flag diagnostics", () => {
+  it("getAllFlagStates reports every flag id as a boolean", () => {
+    const states = getAllFlagStates();
+    expect(Object.keys(states).sort()).toEqual(["agency_clients", "api_platform", "platform_admin", "webhooks"]);
+    for (const value of Object.values(states)) expect(typeof value).toBe("boolean");
+  });
+
+  it("getAllFlagStates reflects live env evaluation", () => {
+    process.env.VVUGC_API_ENABLED = "true";
+    try {
+      expect(getAllFlagStates().api_platform).toBe(true);
+      expect(assertFeatureEnabled("API_PLATFORM")).toBe(true);
+    } finally {
+      delete process.env.VVUGC_API_ENABLED;
+    }
+    expect(getAllFlagStates().api_platform).toBe(false);
+    expect(assertFeatureEnabled("API_PLATFORM")).toBe(false);
+  });
+});
+
+// ==========================================================================
+// WEBHOOK STORE LIFECYCLE (beyond create/list/org-isolation above)
+// ==========================================================================
+
+describe("webhook endpoint store — lifecycle", () => {
+  it("getForOrg only returns endpoints owned by the requesting org", () => {
+    const store = createWebhookEndpointStore(join(testDir, "webhooks-get.json"));
+    const ep = store.create("org-a", "https://a.com/hook", ["run.completed"]);
+    expect(store.getForOrg("org-a", ep.id)?.url).toBe("https://a.com/hook");
+    expect(store.getForOrg("org-b", ep.id)).toBeUndefined();
+    expect(store.getForOrg("org-a", "nonexistent")).toBeUndefined();
+  });
+
+  it("update only mutates the owning org's endpoint", () => {
+    const store = createWebhookEndpointStore(join(testDir, "webhooks-update.json"));
+    const ep = store.create("org-a", "https://old.example/hook", ["run.completed"]);
+    const before = ep.updatedAt;
+
+    expect(store.update("org-b", ep.id, "https://evil.example/hook")).toBeUndefined();
+    expect(store.getForOrg("org-a", ep.id)?.url).toBe("https://old.example/hook");
+
+    const updated = store.update("org-a", ep.id, "https://new.example/hook", ["run.failed"]);
+    expect(updated?.url).toBe("https://new.example/hook");
+    expect(updated?.events).toEqual(["run.failed"]);
+    expect(updated!.updatedAt >= before).toBe(true);
+  });
+
+  it("disable flips status to disabled and returns false for wrong org/unknown id", () => {
+    const store = createWebhookEndpointStore(join(testDir, "webhooks-disable.json"));
+    const ep = store.create("org-a", "https://a.com/hook", ["run.completed"]);
+    expect(store.disable("org-b", ep.id)).toBe(false);
+    expect(store.disable("org-a", "nope")).toBe(false);
+    expect(store.disable("org-a", ep.id)).toBe(true);
+    expect(store.listByOrg("org-a")[0].status).toBe("disabled");
+    expect(store.getForOrg("org-a", ep.id)?.status).toBe("disabled");
+  });
+
+  it("records deliveries and returns them newest-first, honoring the limit", () => {
+    const store = createWebhookEndpointStore(join(testDir, "webhooks-deliv.json"));
+    const ep = store.create("org-a", "https://a.com/hook", ["run.completed"]);
+    store.recordDelivery(ep.id, "org-a", "run.completed", "evt-1", 1, 200, "success");
+    store.recordDelivery(ep.id, "org-a", "run.completed", "evt-2", 1, 500, "failed");
+    store.recordDelivery(ep.id, "org-a", "run.completed", "evt-3", 2, null, "failed");
+
+    const all = store.getDeliveries("org-a", ep.id);
+    expect(all).toHaveLength(3);
+    expect(all.map((d) => d.eventId)).toEqual(["evt-3", "evt-2", "evt-1"]);
+    expect(all[0].responseStatus).toBeNull();
+
+    expect(store.getDeliveries("org-a", ep.id, 2)).toHaveLength(2);
+    expect(store.getDeliveries("org-b", ep.id)).toHaveLength(0);
+    expect(store.getDeliveries("org-a", "other-endpoint")).toHaveLength(0);
+  });
+
+  it("deleteOrg removes that org's endpoints and deliveries but leaves other orgs intact", () => {
+    const store = createWebhookEndpointStore(join(testDir, "webhooks-del.json"));
+    const a1 = store.create("org-a", "https://a1.com/hook", ["run.completed"]);
+    store.create("org-a", "https://a2.com/hook", ["run.failed"]);
+    const b1 = store.create("org-b", "https://b1.com/hook", ["run.completed"]);
+    store.recordDelivery(a1.id, "org-a", "run.completed", "evt-a", 1, 200, "success");
+    store.recordDelivery(b1.id, "org-b", "run.completed", "evt-b", 1, 200, "success");
+
+    const removed = store.deleteOrg("org-a");
+    expect(removed).toBe(2);
+    expect(store.listByOrg("org-a")).toHaveLength(0);
+    expect(store.getDeliveries("org-a", a1.id)).toHaveLength(0);
+    expect(store.listByOrg("org-b")).toHaveLength(1);
+    expect(store.getDeliveries("org-b", b1.id)).toHaveLength(1);
+    expect(store.deleteOrg("org-a")).toBe(0); // idempotent
+  });
+});
+
+// ==========================================================================
+// IDEMPOTENCY — endpoint scoping and garbage collection
+// ==========================================================================
+
+describe("idempotency store — endpoint scoping and pruning", () => {
+  it("the same key on a different endpoint is a fresh operation", () => {
+    const store = createIdempotencyStore(join(testDir, "idempotency-endpoint.json"));
+    store.record("org-a", "POST /v1/runs", "key-1", 201, '{"run":1}');
+    expect(store.check("org-a", "POST /v1/runs", "key-1")).toBeDefined();
+    expect(store.check("org-a", "POST /v1/publish", "key-1")).toBeUndefined();
+  });
+
+  it("prune garbage-collects only expired records and reports the count", () => {
+    const store = createIdempotencyStore(join(testDir, "idempotency-prune.json"));
+    store.record("org-a", "POST /v1/runs", "long-lived", 201, "{}");        // default 24h TTL
+    store.record("org-a", "POST /v1/runs", "soon-expiring", 201, "{}", 1); // 1ms TTL — created last so no later record() write prunes it first
+
+    const start = Date.now();
+    while (Date.now() - start < 5) { /* spin */ }
+
+    expect(store.prune()).toBe(1);
+    expect(store.check("org-a", "POST /v1/runs", "soon-expiring")).toBeUndefined();
+    expect(store.check("org-a", "POST /v1/runs", "long-lived")).toBeDefined();
+    expect(store.prune()).toBe(0); // nothing left to collect
   });
 });
