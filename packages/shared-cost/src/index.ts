@@ -52,6 +52,23 @@ const ANTHROPIC_RATE_TABLE: Record<string, Record<string, number>> = {
   "claude-fable-5": { input_tokens: 10 / 1_000_000, output_tokens: 50 / 1_000_000 }
 };
 
+// One-time-per-model warning for Anthropic model strings absent from
+// ANTHROPIC_RATE_TABLE (the ledger would otherwise silently price them at $0).
+// Module-level Set so repeated recordAnthropicUsage calls with the same unknown
+// model (input_tokens + output_tokens, then every subsequent cycle) warn once.
+const warnedUnknownAnthropicModels = new Set<string>();
+
+function warnUnknownAnthropicModel(model: string): void {
+  if (warnedUnknownAnthropicModels.has(model)) return;
+  warnedUnknownAnthropicModels.add(model);
+  console.warn(
+    `[shared-cost] Unknown Anthropic model "${model}" is not in ANTHROPIC_RATE_TABLE ` +
+      `(packages/shared-cost/src/index.ts); usage is recorded but the cost estimate for it ` +
+      `is $0. Add the model's rates to ANTHROPIC_RATE_TABLE and docs/cost-table.md in the ` +
+      `same change (see AGENTS.md).`
+  );
+}
+
 // OpenAI text fallback pricing; sourced from the official GPT-4.1 mini model page.
 const OPENAI_RATE_TABLE: Record<string, Record<string, number>> = {
   "gpt-4.1-mini": { input_tokens: 0.4 / 1_000_000, output_tokens: 1.6 / 1_000_000 }
@@ -165,6 +182,7 @@ export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: numb
   // the table is flat per-unit (per clip/image/character).
   if (vendor === "anthropic") {
     rate = model ? ANTHROPIC_RATE_TABLE[model]?.[unit] : undefined;
+    if (model && !(model in ANTHROPIC_RATE_TABLE)) warnUnknownAnthropicModel(model);
   } else if (vendor === "openai") {
     rate = model ? OPENAI_RATE_TABLE[model]?.[unit] : undefined;
   } else if (vendor === "gemini") {
