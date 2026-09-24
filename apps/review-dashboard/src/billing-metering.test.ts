@@ -142,7 +142,7 @@ async function signUpAndGetCookie(email: string): Promise<string> {
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 const VALID_BODY = {
@@ -182,7 +182,7 @@ async function courseWithScriptedLessons(email: string, count: number) {
     ).json()
   ).lessons as Array<{ id: string }>;
   for (let i = 0; i < count; i++) {
-    const scriptRes = await fetch(`${baseUrl}/accounts/curricula/${course.id}/lessons/${moduleDetail[i].id}/script`, {
+    const scriptRes = await fetch(`${baseUrl}/accounts/curricula/${course.id}/lessons/${moduleDetail[i]!.id}/script`, {
       method: "POST",
       headers: { Cookie: cookie, "Content-Type": "application/json" },
       body: JSON.stringify({})
@@ -274,8 +274,8 @@ describe("A6 — curriculum produce/queue billing metering", () => {
       durationSec: 60,
       usageRunCount: 0
     });
-    expect(typeof h.reserveInputs[0].orgId).toBe("string");
-    expect(h.reserveInputs[0].orgId.length).toBeGreaterThan(0);
+    expect(typeof h.reserveInputs[0]!.orgId).toBe("string");
+    expect(h.reserveInputs[0]!.orgId.length).toBeGreaterThan(0);
     expect(h.settleInputs).toHaveLength(1);
     expect(h.settleInputs[0]).toMatchObject({ runId: run.runId, estimatedVendorCostUsd: 1.25 });
   });
@@ -373,7 +373,7 @@ describe("A6 — regenerate route billing metering", () => {
       usageRunCount: 0
     });
     expect(h.settleInputs[0]).toMatchObject({ orgId: ORG_ID, runId: "run-1" });
-    expect(h.settleInputs[0].estimatedVendorCostUsd).toBeUndefined();
+    expect(h.settleInputs[0]!.estimatedVendorCostUsd).toBeUndefined();
   });
 
   it("a failed reservation blocks a live regenerate-scene with 402 and never calls the vendor", async () => {

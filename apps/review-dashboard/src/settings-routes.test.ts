@@ -30,7 +30,7 @@ async function signUpAndGetCookie(email: string): Promise<string> {
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 describe("account settings and self-service run routes", () => {

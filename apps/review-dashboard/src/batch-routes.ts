@@ -377,7 +377,7 @@ export function registerBatchRoutes(
       const enqueuePromises: Promise<unknown>[] = [];
 
       for (let i = 0; i < batchPlan.variations.length; i++) {
-        const variation = batchPlan.variations[i];
+        const variation = batchPlan.variations[i]!;
         const input: ProviderJobEnqueueInput = {
           orgId,
           clientId,

@@ -93,7 +93,7 @@ export function createPasswordResetStore(dbPath: string): PasswordResetStore {
       try {
         const tokens = readAllUnlocked<PasswordResetToken>(dbPath);
         const index = tokens.findIndex((t) => t.token === token);
-        if (index !== -1 && new Date(tokens[index].expiresAt).getTime() > Date.now()) {
+        if (index !== -1 && new Date(tokens[index]!.expiresAt).getTime() > Date.now()) {
           consumed = tokens[index];
           tokens.splice(index, 1);
           writeAllUnlocked(dbPath, tokens);

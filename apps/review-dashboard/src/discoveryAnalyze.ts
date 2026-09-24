@@ -51,7 +51,7 @@ function deriveAuthor(url: string, platform: string): string {
       const at = segs.find((s) => s.startsWith("@"));
       if (at) return at;
     }
-    if (segs.length > 0) return segs[segs.length - 1];
+    if (segs.length > 0) return segs[segs.length - 1]!;
     return u.hostname;
   } catch {
     return platform;

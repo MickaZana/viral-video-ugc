@@ -96,7 +96,7 @@ export function registerSoulIdRoutes(
         }
 
         // Select primary image (first image by default — user can override via PUT later)
-        const primaryImage = images[0];
+        const primaryImage = images[0]!;
         const primaryUrl = creatorImageUrl(req, creatorId, primaryImage.id); // Served via the media route
 
         // Update the creator profile

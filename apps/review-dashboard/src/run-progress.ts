@@ -132,7 +132,7 @@ class RunProgressEmitter {
     // ETA: sum remaining stage estimates, using actuals where available
     let etaMs = 0;
     for (let i = state.currentStageIndex; i < totalStages; i++) {
-      const s = PIPELINE_STAGES[i];
+      const s = PIPELINE_STAGES[i]!;
       etaMs += state.actualDurations.get(s) ?? STAGE_DURATIONS_MS[s];
     }
 
@@ -257,7 +257,7 @@ export function completeRun(runId: string, success: boolean, detail?: Record<str
  * Express SSE handler for GET /accounts/run-progress/:runId
  */
 export function sseProgressHandler(req: Request, res: Response): void {
-  const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId;
+  const runId = Array.isArray(req.params.runId) ? req.params.runId[0]! : req.params.runId!;
 
   // SSE headers
   res.setHeader("Content-Type", "text/event-stream");

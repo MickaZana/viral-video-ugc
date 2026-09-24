@@ -62,7 +62,7 @@ describe("public video asset URLs", () => {
     writeFileSync(videoPath, "these are the real video bytes");
 
     const { url } = createPublicAssetUrl(videoPath);
-    const token = url.split("/public/assets/")[1];
+    const token = url.split("/public/assets/")[1]!;
 
     const res = await fetch(`${baseUrl}/public/assets/${token}`);
     expect(res.status).toBe(200);
@@ -75,7 +75,7 @@ describe("public video asset URLs", () => {
     const videoPath = join(runsDir, "final.mp4");
     writeFileSync(videoPath, "bytes");
     const { url } = createPublicAssetUrl(videoPath);
-    const token = url.split("/public/assets/")[1];
+    const token = url.split("/public/assets/")[1]!;
     const tampered = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
 
     const res = await fetch(`${baseUrl}/public/assets/${tampered}`);
@@ -88,7 +88,7 @@ describe("public video asset URLs", () => {
     writeFileSync(videoPath, "bytes");
 
     const { url } = createPublicAssetUrl(videoPath, 10);
-    const token = url.split("/public/assets/")[1];
+    const token = url.split("/public/assets/")[1]!;
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     const res = await fetch(`${baseUrl}/public/assets/${token}`);

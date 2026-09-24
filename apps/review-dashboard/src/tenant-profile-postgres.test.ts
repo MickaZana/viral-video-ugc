@@ -58,7 +58,7 @@ describe.skipIf(!TEST_DATABASE_URL)("Postgres tenant profile repository", () => 
     expect(await profiles.curriculumProjectList("curr-org-plan", course.id)).toHaveLength(2);
     const lessons = await profiles.curriculumLessonList("curr-org-plan", course.id);
     expect(lessons.map((l) => l.globalOrder)).toEqual([1, 2, 3, 4]);
-    const [firstModule] = await profiles.curriculumModuleList("curr-org-plan", course.id);
+    const firstModule = (await profiles.curriculumModuleList("curr-org-plan", course.id))[0]!;
     const scoped = await profiles.curriculumLessonList("curr-org-plan", course.id, firstModule.id);
     expect(scoped).toHaveLength(2);
     expect(scoped.every((l) => l.moduleId === firstModule.id)).toBe(true);
@@ -147,7 +147,7 @@ describe("LocalTenantProfileRepository — curriculum", () => {
   it("filters curriculumLessonList by module through the boundary", async () => {
     const course = await repo.curriculumCourseCreate("orgA", courseInput());
     await repo.curriculumSaveApprovedPlan("orgA", course.id, buildPlan());
-    const [first] = await repo.curriculumModuleList("orgA", course.id);
+    const first = (await repo.curriculumModuleList("orgA", course.id))[0]!;
     const lessons = await repo.curriculumLessonList("orgA", course.id, first.id);
     expect(lessons).toHaveLength(2);
     expect(lessons.every((l) => l.moduleId === first.id)).toBe(true);

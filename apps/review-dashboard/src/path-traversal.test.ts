@@ -20,7 +20,7 @@ let app: import("express").Express;
 function sessionCookieFrom(res: Response): string {
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no Set-Cookie header on response");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {

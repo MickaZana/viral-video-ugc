@@ -67,7 +67,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId };
 }
 
 async function saveSettings(cookie: string) {

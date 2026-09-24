@@ -72,7 +72,7 @@ describe("client scheduler enqueue-time quota", () => {
     const result = await runDueClientSchedules(profiles());
     expect(result.failed).toHaveLength(0);
     expect(result.enqueued).toHaveLength(1);
-    expect(result.enqueued[0].status).toBe("queued");
+    expect(result.enqueued[0]!.status).toBe("queued");
   });
 
   it("enqueues a due weekly client when its plan is under the limit", async () => {
@@ -83,7 +83,7 @@ describe("client scheduler enqueue-time quota", () => {
     const result = await runDueClientSchedules(profiles());
     expect(result.failed).toHaveLength(0);
     expect(result.enqueued).toHaveLength(1);
-    expect(result.enqueued[0].status).toBe("queued");
+    expect(result.enqueued[0]!.status).toBe("queued");
   });
 
   it("enqueues a due weekly client with no plan on file regardless of usage — billing hasn't been asked to gate", async () => {

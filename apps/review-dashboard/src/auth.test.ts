@@ -72,8 +72,8 @@ describe("resolveCredentials", () => {
     expect(creds.username).toBe("admin");
     expect(creds.password.length).toBeGreaterThanOrEqual(20); // 18 random bytes, base64url-encoded
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatchObject({ username: "admin", generated: true });
-    expect(warn.mock.calls[0][0]).not.toHaveProperty("password");
+    expect(warn.mock.calls[0]![0]).toMatchObject({ username: "admin", generated: true });
+    expect(warn.mock.calls[0]![0]).not.toHaveProperty("password");
   });
 
   it("fails closed in production when explicit credentials are missing", () => {

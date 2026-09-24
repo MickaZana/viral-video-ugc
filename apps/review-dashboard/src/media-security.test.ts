@@ -30,7 +30,7 @@ const VALID_WEBP_BASE64 = Buffer.from(
 function sessionCookieFrom(res: Response): string {
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no Set-Cookie header on response");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 async function startServer() {

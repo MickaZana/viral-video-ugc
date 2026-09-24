@@ -26,16 +26,16 @@ async function startServer() {
 async function signup(email: string) {
   const res = await fetch(`${baseUrl}/accounts/signup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "hunter22" }) });
   const body = await res.json();
-  return { cookie: res.headers.get("set-cookie")!.split(";")[0], csrf: body.csrfToken as string, orgId: body.account.orgId as string };
+  return { cookie: res.headers.get("set-cookie")!.split(";")[0]!, csrf: body.csrfToken as string, orgId: body.account.orgId as string };
 }
 
 async function invite(owner: Awaited<ReturnType<typeof signup>>, email: string, role: "reviewer" | "viewer") {
   const created = await fetch(`${baseUrl}/accounts/invite`, { method: "POST", headers: { Cookie: owner.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ email, role }) });
   const { inviteToken } = await created.json();
   const accepted = await fetch(`${baseUrl}/accounts/invite/accept`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: inviteToken, password: "hunter22" }) });
-  const me = await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: accepted.headers.get("set-cookie")!.split(";")[0] } });
+  const me = await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: accepted.headers.get("set-cookie")!.split(";")[0]! } });
   const data = await me.json();
-  return { cookie: accepted.headers.get("set-cookie")!.split(";")[0], csrf: data.csrfToken as string };
+  return { cookie: accepted.headers.get("set-cookie")!.split(";")[0]!, csrf: data.csrfToken as string };
 }
 
 describe("legacy queue session security", () => {

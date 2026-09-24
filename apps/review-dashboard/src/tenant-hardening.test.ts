@@ -34,7 +34,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId, accountId: account.id };
 }
 
 /** Creates a teammate via the invite flow and returns their session cookie + account id. */
@@ -54,7 +54,7 @@ async function inviteMember(ownerCookie: string, email: string, role?: string): 
   const setCookie = acceptRes.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from invite accept");
   const { account } = await acceptRes.json();
-  return { cookie: setCookie.split(";")[0], accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, accountId: account.id };
 }
 
 async function saveSettings(cookie: string) {
@@ -240,7 +240,7 @@ describe("tenant hardening: fine-grained roles, enqueue-time quota, session revo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: "admin@agency.com", password: "hunter22" })
       });
-      const adminCookie = relogin.headers.get("set-cookie")!.split(";")[0];
+      const adminCookie = relogin.headers.get("set-cookie")!.split(";")[0]!;
 
       // The promoted admin can now invite with an explicit role.
       const inviteRes = await fetch(`${baseUrl}/accounts/invite`, {
@@ -420,7 +420,7 @@ describe("tenant hardening: fine-grained roles, enqueue-time quota, session revo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: "audit@agency.com", password: "hunter23" })
       });
-      const cookie = relogin.headers.get("set-cookie")!.split(";")[0];
+      const cookie = relogin.headers.get("set-cookie")!.split(";")[0]!;
       const teammate = await inviteMember(cookie, "auditee@agency.com", "reviewer");
 
       const eventsRes = await fetch(`${baseUrl}/accounts/security-events`, { headers: { Cookie: cookie } });

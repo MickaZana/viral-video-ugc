@@ -32,7 +32,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId, accountId: account.id };
 }
 
 async function inviteMember(ownerCookie: string, email: string): Promise<{ cookie: string; accountId: string }> {
@@ -49,7 +49,7 @@ async function inviteMember(ownerCookie: string, email: string): Promise<{ cooki
   });
   const setCookie = acceptRes.headers.get("set-cookie")!;
   const { account } = await acceptRes.json();
-  return { cookie: setCookie.split(";")[0], accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, accountId: account.id };
 }
 
 const CLIENT_BODY = {

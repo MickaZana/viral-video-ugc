@@ -37,7 +37,7 @@ async function signUpAndGetCookie(email: string): Promise<string> {
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 const VALID_BODY = {
@@ -245,7 +245,7 @@ describe("curriculum course CRUD routes", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   const SEEDED_COURSE = { topic: "Agentic AI", moduleCount: 20, lessonsPerModule: 10 };
@@ -459,7 +459,7 @@ describe("curriculum course CRUD routes", () => {
     expect(unknown.status).toBe(404);
 
     const crossOrg = await fetch(
-      `${baseUrl}/accounts/curricula/${courseId}/modules/${other.modules[0].id}`,
+      `${baseUrl}/accounts/curricula/${courseId}/modules/${other.modules[0]!.id}`,
       { headers: { Cookie: cookie } }
     );
     expect(crossOrg.status).toBe(404);
@@ -468,8 +468,8 @@ describe("curriculum course CRUD routes", () => {
   it("GET .../lessons/:lessonId returns the lesson; 404 for an unknown id and another org's lesson", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d3-lesson-get@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const ok = await getLesson(cookie, courseId, lessonId);
     expect(ok.status).toBe(200);
@@ -479,16 +479,16 @@ describe("curriculum course CRUD routes", () => {
     expect(unknown.status).toBe(404);
 
     const other = await courseWithPlan("d3-lesson-get-other@example.com");
-    const otherDetail = await getModule(other.cookie, other.courseId, other.modules[0].id);
-    const crossOrg = await getLesson(cookie, courseId, otherDetail.lessons[0].id);
+    const otherDetail = await getModule(other.cookie, other.courseId, other.modules[0]!.id);
+    const crossOrg = await getLesson(cookie, courseId, otherDetail.lessons[0]!.id);
     expect(crossOrg.status).toBe(404);
   });
 
   it("PUT .../lessons/:lessonId merges fields — a later patch never clears an earlier one", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d3-lesson-merge@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
     const siblingId = detail.lessons[1].id;
 
     expect((await putLesson(cookie, courseId, lessonId, { explanation: "E1" })).status).toBe(200);
@@ -506,8 +506,8 @@ describe("curriculum course CRUD routes", () => {
   it("PUT .../lessons/:lessonId rejects a bad status and accepts a knowledgeCheck array", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d3-lesson-kc@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     expect((await putLesson(cookie, courseId, lessonId, { status: "not_a_status" })).status).toBe(400);
 
@@ -522,8 +522,8 @@ describe("curriculum course CRUD routes", () => {
   it("PUT .../lessons/:lessonId on another org's lesson is a 404 and leaves the lesson unchanged", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d3-lesson-iso@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
     expect((await putLesson(cookie, courseId, lessonId, { explanation: "OWNER" })).status).toBe(200);
 
     const strangerCookie = await signUpAndGetCookie("d3-lesson-iso-stranger@example.com");
@@ -559,8 +559,8 @@ describe("curriculum course CRUD routes", () => {
     const locked = await (await getCourse(cookie, courseId)).json();
     expect(locked.course.activeVersion).toBe(1);
 
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const res = await putLesson(cookie, courseId, lessonId, { explanation: "post-lock edit" });
     expect(res.status).toBe(200);
@@ -606,8 +606,8 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../lessons/:lessonId/script persists shortScript, sets status scripted, reports an unflagged similarity", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4a-script-one@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const res = await genLessonScript(cookie, courseId, lessonId);
     expect(res.status).toBe(200);
@@ -626,7 +626,7 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../lessons/:lessonId/script on two lessons: scripts differ and lesson 2's similarity is measured against lesson 1", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4a-script-two@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
     const [l1, l2] = detail.lessons;
 
     const r1 = await genLessonScript(cookie, courseId, l1.id);
@@ -647,8 +647,8 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../lessons/:lessonId/script on another org's lesson is a 404", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4a-script-iso@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const strangerCookie = await signUpAndGetCookie("d4a-script-stranger@example.com");
     const res = await genLessonScript(strangerCookie, courseId, lessonId);
@@ -658,8 +658,8 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../lessons/:lessonId/script as a viewer-role member is a real 403", async () => {
     await startServer();
     const { cookie: ownerCookie, courseId, modules } = await courseWithPlan("d4a-script-403@example.com");
-    const detail = await getModule(ownerCookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(ownerCookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const viewerCookie = await inviteMemberCookie(
       ownerCookie,
@@ -673,7 +673,7 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../modules/:moduleId/long-form-script persists a §24 long-form script and sets its status scripted", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4a-longform@example.com");
-    const moduleId = modules[0].id;
+    const moduleId = modules[0]!.id;
 
     const res = await genModuleLongForm(cookie, courseId, moduleId);
     expect(res.status).toBe(200);
@@ -690,7 +690,7 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../modules/:moduleId/long-form-script on another org's module is a 404", async () => {
     await startServer();
     const { courseId, modules } = await courseWithPlan("d4a-longform-iso@example.com");
-    const moduleId = modules[0].id;
+    const moduleId = modules[0]!.id;
 
     const strangerCookie = await signUpAndGetCookie("d4a-longform-stranger@example.com");
     const res = await genModuleLongForm(strangerCookie, courseId, moduleId);
@@ -721,11 +721,11 @@ describe("curriculum course CRUD routes", () => {
   /** Build a course with a 3×2 plan and give its first lesson a real shortScript. */
   async function courseWithScriptedLesson(email: string) {
     const { cookie, courseId, modules } = await courseWithPlan(email);
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id as string;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id as string;
     const scripted = await genLessonScript(cookie, courseId, lessonId);
     if (scripted.status !== 200) throw new Error(`script generation failed: ${scripted.status}`);
-    return { cookie, courseId, lessonId, moduleId: modules[0].id as string, modules };
+    return { cookie, courseId, lessonId, moduleId: modules[0]!.id as string, modules };
   }
 
   it(
@@ -766,8 +766,8 @@ describe("curriculum course CRUD routes", () => {
       const items = await listReviewItems();
       const forRun = items.filter((i) => i.runId === run.runId);
       expect(forRun.length).toBeGreaterThanOrEqual(1);
-      expect(forRun[0].id).toBe(asset.reviewItemId);
-      expect(forRun[0].dryRun).toBe(true);
+      expect(forRun[0]!.id).toBe(asset.reviewItemId);
+      expect(forRun[0]!.dryRun).toBe(true);
     },
     30_000
   );
@@ -775,8 +775,8 @@ describe("curriculum course CRUD routes", () => {
   it("POST .../lessons/:lessonId/produce on a lesson with no script is a 409", async () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4b-noscript@example.com");
-    const detail = await getModule(cookie, courseId, modules[0].id);
-    const lessonId = detail.lessons[0].id;
+    const detail = await getModule(cookie, courseId, modules[0]!.id);
+    const lessonId = detail.lessons[0]!.id;
 
     const res = await produce(cookie, courseId, lessonId);
     expect(res.status).toBe(409);
@@ -834,7 +834,7 @@ describe("curriculum course CRUD routes", () => {
     await startServer();
     const { cookie, courseId, modules } = await courseWithPlan("d4b-assets-empty@example.com");
     const otherModuleDetail = await getModule(cookie, courseId, modules[1].id);
-    const otherLessonId = otherModuleDetail.lessons[0].id;
+    const otherLessonId = otherModuleDetail.lessons[0]!.id;
 
     const res = await getAssets(cookie, courseId, `?lessonId=${otherLessonId}`);
     expect(res.status).toBe(200);
@@ -909,7 +909,7 @@ describe("curriculum tenant isolation — §35 (comprehensive)", () => {
     const moduleA1Detail = await (
       await asA("GET", `/accounts/curricula/${courseAId}/modules/${moduleA1Id}`)
     ).json();
-    lessonA1Id = moduleA1Detail.lessons[0].id;
+    lessonA1Id = moduleA1Detail.lessons[0]!.id;
 
     const scriptA = await asA("POST", `/accounts/curricula/${courseAId}/lessons/${lessonA1Id}/script`, {});
     if (scriptA.status !== 200) throw new Error(`setup: Org A lesson script ${scriptA.status}`);
@@ -1162,7 +1162,7 @@ describe("curriculum knowledge-check (F1)", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   /** Build a course with a 3×2 mock plan and return the first lesson's id. */
@@ -1175,11 +1175,11 @@ describe("curriculum knowledge-check (F1)", () => {
       await fetch(`${baseUrl}/accounts/curricula/${course.id}/modules`, { headers: { Cookie: cookie } })
     ).json();
     const detail = await (
-      await fetch(`${baseUrl}/accounts/curricula/${course.id}/modules/${modules[0].id}`, {
+      await fetch(`${baseUrl}/accounts/curricula/${course.id}/modules/${modules[0]!.id}`, {
         headers: { Cookie: cookie }
       })
     ).json();
-    return { cookie, courseId: course.id as string, lessonId: detail.lessons[0].id as string };
+    return { cookie, courseId: course.id as string, lessonId: detail.lessons[0]!.id as string };
   }
 
   type KcQuestion = {
@@ -1371,7 +1371,7 @@ describe("curriculum learn-mode progress (F2)", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   type ModuleRow = { id: string; order: number };
@@ -1384,11 +1384,11 @@ describe("curriculum learn-mode progress (F2)", () => {
     const gen = await generatePlan(cookie, course.id, { seed: "agentic-ai" });
     if (gen.status !== 200) throw new Error(`generate-plan failed: ${gen.status}`);
     const { modules } = await getModules(cookie, course.id);
-    const detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0].id);
+    const detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0]!.id);
     return {
       cookie,
       courseId: course.id as string,
-      module1: (modules as ModuleRow[])[0],
+      module1: (modules as ModuleRow[])[0]!,
       lessons: detail.lessons as LessonRow[]
     };
   }
@@ -1398,7 +1398,7 @@ describe("curriculum learn-mode progress (F2)", () => {
     async () => {
       await startServer();
       const { cookie, courseId, module1, lessons } = await seededCourse("f2-complete@example.com");
-      const [first, second] = lessons;
+      const first = lessons[0]!, second = lessons[1]!;
 
       const res = await complete(cookie, courseId, first.id);
       expect(res.status).toBe(200);
@@ -1428,7 +1428,7 @@ describe("curriculum learn-mode progress (F2)", () => {
     async () => {
       await startServer();
       const { cookie, courseId, lessons } = await seededCourse("f2-idempotent@example.com");
-      const [l1, l2] = lessons;
+      const l1 = lessons[0]!, l2 = lessons[1]!;
 
       expect((await complete(cookie, courseId, l1.id)).status).toBe(200);
       expect((await complete(cookie, courseId, l2.id)).status).toBe(200);
@@ -1450,7 +1450,7 @@ describe("curriculum learn-mode progress (F2)", () => {
     async () => {
       await startServer();
       const { cookie, courseId, lessons } = await seededCourse("f2-answers@example.com");
-      const target = lessons[0];
+      const target = lessons[0]!;
 
       const kc = await genKnowledgeCheck(cookie, courseId, target.id);
       expect(kc.status).toBe(200);
@@ -1503,8 +1503,8 @@ describe("curriculum learn-mode progress (F2)", () => {
       expect(row.lessonsCompleted).toBe(0);
       expect(row.pct).toBe(0);
       const { modules } = await getModules(cookie, course.id);
-      const m1Detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0].id);
-      expect(row.nextLesson.id).toBe((m1Detail.lessons as LessonRow[])[0].id);
+      const m1Detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0]!.id);
+      expect(row.nextLesson.id).toBe((m1Detail.lessons as LessonRow[])[0]!.id);
 
       // A tiny 1×1 course, fully completed → still listed, but nextLesson null / pct 100.
       const { course: tiny } = await (
@@ -1515,8 +1515,8 @@ describe("curriculum learn-mode progress (F2)", () => {
       ).toBe(200);
       expect((await approve(cookie, tiny.id)).status).toBe(201);
       const tinyModules = (await getModules(cookie, tiny.id)).modules as ModuleRow[];
-      const tinyDetail = await getModule(cookie, tiny.id, tinyModules[0].id);
-      const onlyLesson = (tinyDetail.lessons as LessonRow[])[0];
+      const tinyDetail = await getModule(cookie, tiny.id, tinyModules[0]!.id);
+      const onlyLesson = (tinyDetail.lessons as LessonRow[])[0]!;
       expect((await complete(cookie, tiny.id, onlyLesson.id)).status).toBe(200);
 
       today = await (await getToday(cookie)).json();
@@ -1539,15 +1539,15 @@ describe("curriculum learn-mode progress (F2)", () => {
       const { course: courseB } = await (await createCourse(cookieB, F2_SEEDED)).json();
       expect((await generatePlan(cookieB, courseB.id, { seed: "agentic-ai" })).status).toBe(200);
       const bModules = (await getModules(cookieB, courseB.id)).modules as ModuleRow[];
-      const bDetail = await getModule(cookieB, courseB.id, bModules[0].id);
-      const bLesson = (bDetail.lessons as LessonRow[])[0];
+      const bDetail = await getModule(cookieB, courseB.id, bModules[0]!.id);
+      const bLesson = (bDetail.lessons as LessonRow[])[0]!;
 
       // Org B holding Org A's ids: both routes 404.
-      expect((await complete(cookieB, a.courseId, a.lessons[0].id)).status).toBe(404);
+      expect((await complete(cookieB, a.courseId, a.lessons[0]!.id)).status).toBe(404);
       expect((await getProgress(cookieB, a.courseId)).status).toBe(404);
 
       // Each org completes a lesson of its OWN course.
-      expect((await complete(a.cookie, a.courseId, a.lessons[0].id)).status).toBe(200);
+      expect((await complete(a.cookie, a.courseId, a.lessons[0]!.id)).status).toBe(200);
       expect((await complete(cookieB, courseB.id, bLesson.id)).status).toBe(200);
 
       // Each sees exactly its own single completion — never the other org's.
@@ -1567,7 +1567,7 @@ describe("curriculum learn-mode progress (F2)", () => {
         "f2-multiuser-editor@example.com",
         "editor"
       );
-      const [l1, l2] = lessons;
+      const l1 = lessons[0]!, l2 = lessons[1]!;
 
       expect((await complete(ownerCookie, courseId, l1.id)).status).toBe(200);
       expect((await complete(editorCookie, courseId, l2.id)).status).toBe(200);
@@ -1665,7 +1665,7 @@ describe("curriculum cost-estimate (J1)", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   type ModuleRow = { id: string; order: number };
@@ -1678,7 +1678,7 @@ describe("curriculum cost-estimate (J1)", () => {
     const gen = await generatePlan(cookie, course.id, { seed: "agentic-ai" });
     if (gen.status !== 200) throw new Error(`generate-plan failed: ${gen.status}`);
     const { modules } = await getModules(cookie, course.id);
-    const detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0].id);
+    const detail = await getModule(cookie, course.id, (modules as ModuleRow[])[0]!.id);
     return {
       cookie,
       courseId: course.id as string,
@@ -1724,7 +1724,7 @@ describe("curriculum cost-estimate (J1)", () => {
 
       const res = await costEstimate(cookie, courseId, {
         scope: "module",
-        moduleId: modules[0].id
+        moduleId: modules[0]!.id
       });
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -1743,7 +1743,7 @@ describe("curriculum cost-estimate (J1)", () => {
 
       const res = await costEstimate(cookie, courseId, {
         scope: "lesson",
-        lessonId: lessons[0].id
+        lessonId: lessons[0]!.id
       });
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -1812,10 +1812,10 @@ describe("curriculum cost-estimate (J1)", () => {
 
       expect((await costEstimate(cookieB, courseId, { scope: "course" })).status).toBe(404);
       expect(
-        (await costEstimate(cookieB, courseId, { scope: "module", moduleId: modules[0].id })).status
+        (await costEstimate(cookieB, courseId, { scope: "module", moduleId: modules[0]!.id })).status
       ).toBe(404);
       expect(
-        (await costEstimate(cookieB, courseId, { scope: "lesson", lessonId: lessons[0].id })).status
+        (await costEstimate(cookieB, courseId, { scope: "lesson", lessonId: lessons[0]!.id })).status
       ).toBe(404);
     },
     30_000
@@ -1856,8 +1856,8 @@ describe("curriculum cost-estimate (J1)", () => {
       const reviewItemsBefore = (await listReviewItems()).length;
 
       await costEstimate(cookie, courseId, { scope: "course" });
-      await costEstimate(cookie, courseId, { scope: "module", moduleId: modules[0].id });
-      await costEstimate(cookie, courseId, { scope: "lesson", lessonId: lessons[0].id });
+      await costEstimate(cookie, courseId, { scope: "module", moduleId: modules[0]!.id });
+      await costEstimate(cookie, courseId, { scope: "lesson", lessonId: lessons[0]!.id });
 
       expect((await listReviewItems()).length).toBe(reviewItemsBefore);
 
@@ -1961,7 +1961,7 @@ describe("curriculum module long-form produce (G1)", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   type ModuleRow = { id: string; order: number };
@@ -1976,7 +1976,7 @@ describe("curriculum module long-form produce (G1)", () => {
     return {
       cookie,
       courseId: course.id as string,
-      moduleId: (modules as ModuleRow[])[0].id,
+      moduleId: (modules as ModuleRow[])[0]!.id,
       modules: modules as ModuleRow[]
     };
   }
@@ -2021,8 +2021,8 @@ describe("curriculum module long-form produce (G1)", () => {
       const { listReviewItems } = await import("@vvugc/review-queue");
       const items = (await listReviewItems()).filter((i) => i.runId === run.runId);
       expect(items.length).toBeGreaterThanOrEqual(1);
-      expect(items[0].id).toBe(asset.reviewItemId);
-      expect(items[0].dryRun).toBe(true);
+      expect(items[0]!.id).toBe(asset.reviewItemId);
+      expect(items[0]!.dryRun).toBe(true);
 
       // The module moved to "completed" and a follow-up GET reflects it.
       const moduleAfter = await (await getModule(cookie, courseId, moduleId)).json();
@@ -2207,7 +2207,7 @@ describe("curriculum batch queue (J2)", () => {
     });
     const setCookie = accept.headers.get("set-cookie");
     if (!setCookie) throw new Error("no session cookie returned from invite accept");
-    return setCookie.split(";")[0];
+    return setCookie.split(";")[0]!;
   }
 
   type LessonRow = { id: string; globalOrder: number; shortScript?: string };
@@ -2227,7 +2227,7 @@ describe("curriculum batch queue (J2)", () => {
     const gen = await generatePlan(cookie, course.id, planBody);
     if (gen.status !== 200) throw new Error(`generate-plan failed: ${gen.status} ${await gen.text()}`);
     const { modules } = await getModules(cookie, course.id);
-    const moduleId = (modules as { id: string }[])[0].id;
+    const moduleId = (modules as { id: string }[])[0]!.id;
     const { lessons } = await getModule(cookie, course.id, moduleId);
     const ordered = (lessons as LessonRow[]).slice().sort((a, b) => a.globalOrder - b.globalOrder);
     const toScript = ordered.slice(0, Math.min(scriptCount, ordered.length));
@@ -2275,7 +2275,7 @@ describe("curriculum batch queue (J2)", () => {
       for (const runId of runIds) {
         const forRun = all.filter((i) => i.runId === runId);
         expect(forRun.length).toBeGreaterThanOrEqual(1);
-        expect(forRun[0].dryRun).toBe(true);
+        expect(forRun[0]!.dryRun).toBe(true);
       }
     },
     90_000
@@ -2312,7 +2312,7 @@ describe("curriculum batch queue (J2)", () => {
         OVERRIDE_1x4,
         3
       );
-      const unscripted = lessons[3];
+      const unscripted = lessons[3]!;
 
       const body = await (await queueModule(cookie, courseId, moduleId)).json();
       expect(body.produced).toHaveLength(3);

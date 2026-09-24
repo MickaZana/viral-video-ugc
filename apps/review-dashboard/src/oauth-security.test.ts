@@ -33,7 +33,7 @@ const CLIENT_PAYLOAD = {
 function sessionCookieFrom(res: Response): string {
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no Set-Cookie header on response");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 async function startServer() {
@@ -87,7 +87,7 @@ describe("OAuth state: signing, expiry, and tamper detection", () => {
 
   it("rejects a tampered signature (different character)", () => {
     const { state } = createGoogleOAuthState("org-1", "client-1", SECRET);
-    const [payload, sig] = state.split(".");
+    const [payload, sig] = state.split(".") as [string, string];
     const flipped = sig[0] === "A" ? "B" : "A";
     expect(verifyGoogleOAuthState(`${payload}.${flipped}${sig.slice(1)}`, SECRET)).toBeUndefined();
   });

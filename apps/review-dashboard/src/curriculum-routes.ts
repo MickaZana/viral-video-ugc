@@ -465,7 +465,7 @@ async function runBoundedProduceQueue(args: {
   const toRun: Array<{ lesson: CurriculumLesson; est: number }> = [];
   let stoppedByCap = false;
   for (let i = 0; i < eligible.length; i++) {
-    const lesson = eligible[i];
+    const lesson = eligible[i]!;
     const est = estimateLessonProduceUsd(course, lesson, settings);
     if (cap) {
       try {
@@ -509,7 +509,7 @@ async function runBoundedProduceQueue(args: {
   const produced: QueueRunOutcome["produced"] = [];
   let estimatedSpendUsd = 0;
   settled.forEach((outcome, idx) => {
-    const { lesson, est } = toRun[idx];
+    const { lesson, est } = toRun[idx]!;
     if (outcome.status === "fulfilled") {
       produced.push({
         lessonId: outcome.value.lessonId,
@@ -570,7 +570,7 @@ export function registerCurriculumRoutes(
     return resolveOrgId(account);
   }
 
-  const paramId = (raw: string | string[] | undefined): string => (Array.isArray(raw) ? raw[0] : raw ?? "");
+  const paramId = (raw: string | string[] | undefined): string => (Array.isArray(raw) ? raw[0] ?? "" : raw ?? "");
 
   const badRequest = (res: Response, error: z.ZodError): Response =>
     res.status(400).json({ error: error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });

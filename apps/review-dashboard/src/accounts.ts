@@ -233,11 +233,11 @@ export function isPrivateAddress(address: string): boolean {
   if (isIP(address) === 6) {
     const value = address.toLowerCase();
     const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateAddress(mapped[1]);
+    if (mapped) return isPrivateAddress(mapped[1]!);
     return value === "::1" || value.startsWith("fe80:") || value.startsWith("fc") || value.startsWith("fd");
   }
   if (isIP(address) !== 4) return true;
-  const [a, b] = address.split(".").map(Number);
+  const [a = Number.NaN, b = Number.NaN] = address.split(".").map(Number);
   return a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || (a === 100 && b >= 64 && b <= 127) || a === 0 || a >= 224;
 }
 
@@ -273,7 +273,7 @@ async function fetchExternalBytes(raw: string, maxBytes: number, accepted: (cont
         continue;
       }
       if (!response.ok) throw new Error(`remote page returned ${response.status}`);
-      const contentType = (response.headers.get("content-type") ?? "").split(";", 1)[0].toLowerCase();
+      const contentType = (response.headers.get("content-type") ?? "").split(";", 1)[0]!.toLowerCase();
       if (!accepted(contentType)) throw new Error(`unsupported remote content type: ${contentType || "unknown"}`);
       const declared = Number(response.headers.get("content-length") ?? 0);
       if (declared > maxBytes) throw new Error("remote response is too large");
@@ -405,7 +405,7 @@ export function registerAccountRoutes(
   const identity = deps.identity ?? (process.env.NODE_ENV === "production" ? (() => { throw new Error("production account routes require initialized PostgreSQL identity") })() : localIdentity(VVUGC_RUNS_DIR));
   const tenantProfiles = deps.tenantProfiles ?? new LocalTenantProfileRepository(VVUGC_RUNS_DIR, resolveSocialTokenEncryptionKey());
   const billing = deps.billing ?? new LocalBillingRepository(VVUGC_RUNS_DIR);
-  app.use("/accounts/creators/:creatorId/images", (req: AuthedRequest, res: Response, next: NextFunction) => requireSession(req, res, next), async (req: AuthedRequest, res: Response, next: NextFunction) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (creator && !creator.consentConfirmed) return res.status(400).json({ error: "explicit consent is required before uploading reference images" }); next(); });
+  app.use("/accounts/creators/:creatorId/images", (req: AuthedRequest, res: Response, next: NextFunction) => requireSession(req, res, next), async (req: AuthedRequest, res: Response, next: NextFunction) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (creator && !creator.consentConfirmed) return res.status(400).json({ error: "explicit consent is required before uploading reference images" }); next(); });
   const jobStore = createPipelineJobStore(join(VVUGC_RUNS_DIR, "pipeline-jobs.json"));
   const productEvents = createProductEventStore(join(VVUGC_RUNS_DIR, "product-events.json"));
 
@@ -512,7 +512,7 @@ export function registerAccountRoutes(
   });
   app.get("/templates/:id", requireSession, (req: AuthedRequest, res: Response) => {
     if (!requireAccount(req, res)) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     const template = getUgcTemplate(id);
     if (!template) return res.status(404).json({ error: "template not found" });
     res.json({ template });
@@ -530,7 +530,7 @@ export function registerAccountRoutes(
   });
   app.get("/presets/:id", requireSession, (req: AuthedRequest, res: Response) => {
     if (!requireAccount(req, res)) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     const preset = getPreset(id);
     if (!preset) return res.status(404).json({ error: "preset not found" });
     res.json({ preset });
@@ -611,7 +611,7 @@ export function registerAccountRoutes(
 
   const clientIp = (req: Request): string | undefined => {
     const forwarded = req.headers["x-forwarded-for"];
-    return typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.ip;
+    return typeof forwarded === "string" ? forwarded.split(",")[0]!.trim() : req.ip;
   };
 
   app.post("/accounts/signup", accountRateLimiter, asyncHandler(async (req: Request, res: Response) => {
@@ -825,7 +825,7 @@ export function registerAccountRoutes(
   app.delete("/accounts/social-connections/:id", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("social.manage")(req, res);
     if (!account) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     if (!await tenantProfiles.socialDisconnect(resolveOrgId(account), id)) return res.status(404).json({ error: "connection not found" });
     res.status(204).end();
   }));
@@ -833,7 +833,7 @@ export function registerAccountRoutes(
   app.post("/accounts/clients/:clientId/oauth/google/start", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("social.manage")(req, res);
     if (!account) return;
-    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0]! : req.params.clientId!;
     const orgId = resolveOrgId(account);
     if (!await tenantProfiles.clientGet(orgId, clientId)) return res.status(404).json({ error: "client not found" });
     const env = loadEnv();
@@ -912,7 +912,7 @@ export function registerAccountRoutes(
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const account = requireAccount(req, res);
       if (!account) return;
-      const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+      const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0]! : req.params.clientId!;
       const orgId = resolveOrgId(account);
       const client = await tenantProfiles.clientGet(orgId, clientId);
       if (!client) return res.status(404).json({ error: "client not found" });
@@ -989,7 +989,7 @@ export function registerAccountRoutes(
   app.get("/accounts/jobs/:id", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requireAccount(req, res);
     if (!account) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     const job = await jobStore.get(resolveOrgId(account), id);
     if (!job) return res.status(404).json({ error: "job not found" });
     res.json({ job });
@@ -998,7 +998,7 @@ export function registerAccountRoutes(
   app.delete("/accounts/jobs/:id", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("jobs.manage")(req, res);
     if (!account) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     // Distinguish "no such job in your org" (404) from "your job, but it can't be
     // cancelled in its current state" (409) — without the pre-check, another tenant's
     // job id would answer 409 and reveal that an id exists somewhere in the store.
@@ -1014,7 +1014,7 @@ export function registerAccountRoutes(
   app.post("/accounts/jobs/:id/replay", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("jobs.manage")(req, res);
     if (!account) return;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     // Same 404-vs-409 split as DELETE above — another tenant's job must read as
     // "not found", not "exists but isn't replayable".
     if (!await jobStore.get(resolveOrgId(account), id)) {
@@ -1042,7 +1042,7 @@ export function registerAccountRoutes(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
     }
-    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0]! : req.params.clientId!;
     const client = await tenantProfiles.clientUpdate(resolveOrgId(account), clientId, parsed.data as AgencyClientInput);
     if (!client) return res.status(404).json({ error: "client not found" });
     res.json({ client });
@@ -1051,7 +1051,7 @@ export function registerAccountRoutes(
   app.delete("/accounts/clients/:clientId", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("clients.manage")(req, res);
     if (!account) return;
-    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0]! : req.params.clientId!;
     if (!await tenantProfiles.clientArchive(resolveOrgId(account), clientId)) {
       return res.status(404).json({ error: "client not found" });
     }
@@ -1070,7 +1070,7 @@ export function registerAccountRoutes(
   app.get("/accounts/products/:productId", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requireAccount(req, res);
     if (!account) return;
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
     const product = await tenantProfiles.productGet(resolveOrgId(account), productId);
     if (!product) return res.status(404).json({ error: "product not found" });
     res.json({ product: publicProduct(product) });
@@ -1093,7 +1093,7 @@ export function registerAccountRoutes(
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
     const orgId = resolveOrgId(account);
     if (parsed.data.clientId && !await tenantProfiles.clientGet(orgId, parsed.data.clientId)) return res.status(404).json({ error: "client not found" });
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
     const product = await tenantProfiles.productUpdate(orgId, productId, parsed.data);
     if (!product) return res.status(404).json({ error: "product not found" });
     res.json({ product: publicProduct(product) });
@@ -1102,7 +1102,7 @@ export function registerAccountRoutes(
   app.delete("/accounts/products/:productId", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("clients.manage")(req, res);
     if (!account) return;
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
     if (!await tenantProfiles.productArchive(resolveOrgId(account), productId)) return res.status(404).json({ error: "product not found" });
     res.status(204).end();
   });
@@ -1146,7 +1146,7 @@ export function registerAccountRoutes(
   app.post("/accounts/products/:productId/images", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("clients.manage")(req, res);
     if (!account) return;
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
     const product = await tenantProfiles.productGet(resolveOrgId(account), productId);
     if (!product) return res.status(404).json({ error: "product not found" });
     const fileName = typeof req.body?.fileName === "string" ? req.body.fileName.trim().slice(0, 160) : "product-image";
@@ -1174,8 +1174,8 @@ export function registerAccountRoutes(
   app.delete("/accounts/products/:productId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("clients.manage")(req, res);
     if (!account) return;
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
-    const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
+    const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0]! : req.params.imageId!;
     const removed = await tenantProfiles.productRemoveImage(resolveOrgId(account), productId, imageId);
     if (!removed) return res.status(404).json({ error: "image not found" });
     const absolutePath = join(VVUGC_RUNS_DIR, removed.filePath);
@@ -1186,8 +1186,8 @@ export function registerAccountRoutes(
   app.get("/accounts/products/:productId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => {
     const account = requireAccount(req, res);
     if (!account) return;
-    const productId = Array.isArray(req.params.productId) ? req.params.productId[0] : req.params.productId;
-    const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId;
+    const productId = Array.isArray(req.params.productId) ? req.params.productId[0]! : req.params.productId!;
+    const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0]! : req.params.imageId!;
     const product = await tenantProfiles.productGet(resolveOrgId(account), productId);
     const image = product?.productImages.find((entry) => entry.id === imageId);
     if (!image) return res.status(404).end();
@@ -1198,13 +1198,13 @@ export function registerAccountRoutes(
 
   app.get("/accounts/creators", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const clientId = typeof req.query.clientId === "string" ? req.query.clientId : undefined; res.json({ creators: (await tenantProfiles.creatorList(resolveOrgId(account), clientId)).map(publicCreator) }); });
   app.post("/accounts/creators", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const parsed = CreatorInputSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.message }); const orgId = resolveOrgId(account); if (parsed.data.clientId && !await tenantProfiles.clientGet(orgId, parsed.data.clientId)) return res.status(404).json({ error: "client not found" }); if (parsed.data.avatarMode !== "none" && !parsed.data.consentConfirmed) return res.status(400).json({ error: "explicit consent is required for reference images" }); const consent = parsed.data.consentConfirmed ? { consentConfirmedAt: new Date().toISOString(), consentConfirmedBy: req.auditActor ?? `account:${account.id}` } : {}; res.status(201).json({ creator: publicCreator(await tenantProfiles.creatorCreate(orgId, { ...parsed.data, ...consent })) }); });
-  app.get("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!creator) return res.status(404).json({ error: "creator not found" }); res.json({ creator: publicCreator(creator) }); });
-  app.get("/accounts/creators/:creatorId/preflight", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!creator) return res.status(404).json({ error: "creator not found" }); const clientId = typeof req.query.clientId === "string" ? req.query.clientId : undefined; const client = clientId ? await tenantProfiles.clientGet(resolveOrgId(account), clientId) : undefined; if (clientId && !client) return res.status(404).json({ error: "client not found" }); const videoVendor = typeof req.query.videoVendor === "string" ? req.query.videoVendor : client?.videoVendor ?? "higgsfield"; const result = creatorPreflight(creator, videoVendor); res.json({ creatorId: creator.id, ...result }); });
-  app.put("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const parsed = CreatorInputSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.message }); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const existing = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!existing) return res.status(404).json({ error: "creator not found" }); if ((parsed.data.avatarMode !== "none" || existing.referenceImages.length > 0) && !parsed.data.consentConfirmed) return res.status(400).json({ error: "explicit consent is required for reference images" }); const consent = parsed.data.consentConfirmed ? { consentConfirmedAt: new Date().toISOString(), consentConfirmedBy: req.auditActor ?? `account:${account.id}` } : {}; const creator = await tenantProfiles.creatorUpdate(resolveOrgId(account), id, { ...parsed.data, ...consent }); if (!creator) return res.status(404).json({ error: "creator not found" }); res.json({ creator: publicCreator(creator) }); });
-  app.delete("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; if (!await tenantProfiles.creatorArchive(resolveOrgId(account), id)) return res.status(404).json({ error: "creator not found" }); res.status(204).end(); });
-  app.post("/accounts/creators/:creatorId/images", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const existingCreator = await tenantProfiles.creatorGet(orgId, id); if (!existingCreator) return res.status(404).json({ error: "creator not found" }); if (!existingCreator.consentConfirmed || !existingCreator.consentConfirmedAt || !existingCreator.consentConfirmedBy) return res.status(400).json({ error: "audited explicit consent is required before uploading reference images" }); const mimeType = typeof req.body?.mimeType === "string" ? req.body.mimeType : ""; const data = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : ""; const extension = PRODUCT_IMAGE_MIME.get(mimeType); if (!extension || !/^[A-Za-z0-9+/]*={0,2}$/.test(data) || data.length % 4 !== 0) return res.status(400).json({ error: "valid JPEG, PNG, or WebP base64 image required" }); const bytes = Buffer.from(data, "base64"); if (!bytes.length || bytes.length > MAX_PRODUCT_IMAGE_BYTES) return res.status(400).json({ error: "image too large" }); const magicOk = (mimeType === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8) || (mimeType === "image/png" && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) || (mimeType === "image/webp" && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP"); if (!magicOk) return res.status(400).json({ error: "image signature mismatch" }); const imageId = randomUUID(); const relativePath = join("creator-assets", orgId, id, `${imageId}${extension}`); mkdirSync(join(VVUGC_RUNS_DIR, "creator-assets", orgId, id), { recursive: true }); writeFileSync(join(VVUGC_RUNS_DIR, relativePath), bytes, { mode: 0o600 }); const image = CreatorReferenceImageSchema.parse({ id: imageId, fileName: typeof req.body?.fileName === "string" ? req.body.fileName.slice(0, 160) || "reference-image" : "reference-image", mimeType, filePath: relativePath, createdAt: new Date().toISOString() }); const creator = await tenantProfiles.creatorAddImage(orgId, id, image); if (!creator) { unlinkSync(join(VVUGC_RUNS_DIR, relativePath)); return res.status(409).json({ error: "reference image limit reached" }); } res.status(201).json({ creator: publicCreator(creator) }); });
-  app.delete("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId; const removed = await tenantProfiles.creatorRemoveImage(orgId, id, imageId); if (!removed) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, removed.filePath); if (existsSync(path)) unlinkSync(path); res.status(204).end(); });
-  app.get("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0] : req.params.creatorId; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0] : req.params.imageId; const image = (await tenantProfiles.creatorGet(resolveOrgId(account), id))?.referenceImages.find((v) => v.id === imageId); if (!image) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, image.filePath); if (!existsSync(path)) return res.status(404).end(); res.type(image.mimeType).set("Content-Disposition", "inline").sendFile(path); });
+  app.get("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!creator) return res.status(404).json({ error: "creator not found" }); res.json({ creator: publicCreator(creator) }); });
+  app.get("/accounts/creators/:creatorId/preflight", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const creator = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!creator) return res.status(404).json({ error: "creator not found" }); const clientId = typeof req.query.clientId === "string" ? req.query.clientId : undefined; const client = clientId ? await tenantProfiles.clientGet(resolveOrgId(account), clientId) : undefined; if (clientId && !client) return res.status(404).json({ error: "client not found" }); const videoVendor = typeof req.query.videoVendor === "string" ? req.query.videoVendor : client?.videoVendor ?? "higgsfield"; const result = creatorPreflight(creator, videoVendor); res.json({ creatorId: creator.id, ...result }); });
+  app.put("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const parsed = CreatorInputSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.message }); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const existing = await tenantProfiles.creatorGet(resolveOrgId(account), id); if (!existing) return res.status(404).json({ error: "creator not found" }); if ((parsed.data.avatarMode !== "none" || existing.referenceImages.length > 0) && !parsed.data.consentConfirmed) return res.status(400).json({ error: "explicit consent is required for reference images" }); const consent = parsed.data.consentConfirmed ? { consentConfirmedAt: new Date().toISOString(), consentConfirmedBy: req.auditActor ?? `account:${account.id}` } : {}; const creator = await tenantProfiles.creatorUpdate(resolveOrgId(account), id, { ...parsed.data, ...consent }); if (!creator) return res.status(404).json({ error: "creator not found" }); res.json({ creator: publicCreator(creator) }); });
+  app.delete("/accounts/creators/:creatorId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; if (!await tenantProfiles.creatorArchive(resolveOrgId(account), id)) return res.status(404).json({ error: "creator not found" }); res.status(204).end(); });
+  app.post("/accounts/creators/:creatorId/images", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const existingCreator = await tenantProfiles.creatorGet(orgId, id); if (!existingCreator) return res.status(404).json({ error: "creator not found" }); if (!existingCreator.consentConfirmed || !existingCreator.consentConfirmedAt || !existingCreator.consentConfirmedBy) return res.status(400).json({ error: "audited explicit consent is required before uploading reference images" }); const mimeType = typeof req.body?.mimeType === "string" ? req.body.mimeType : ""; const data = typeof req.body?.dataBase64 === "string" ? req.body.dataBase64 : ""; const extension = PRODUCT_IMAGE_MIME.get(mimeType); if (!extension || !/^[A-Za-z0-9+/]*={0,2}$/.test(data) || data.length % 4 !== 0) return res.status(400).json({ error: "valid JPEG, PNG, or WebP base64 image required" }); const bytes = Buffer.from(data, "base64"); if (!bytes.length || bytes.length > MAX_PRODUCT_IMAGE_BYTES) return res.status(400).json({ error: "image too large" }); const magicOk = (mimeType === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8) || (mimeType === "image/png" && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) || (mimeType === "image/webp" && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP"); if (!magicOk) return res.status(400).json({ error: "image signature mismatch" }); const imageId = randomUUID(); const relativePath = join("creator-assets", orgId, id, `${imageId}${extension}`); mkdirSync(join(VVUGC_RUNS_DIR, "creator-assets", orgId, id), { recursive: true }); writeFileSync(join(VVUGC_RUNS_DIR, relativePath), bytes, { mode: 0o600 }); const image = CreatorReferenceImageSchema.parse({ id: imageId, fileName: typeof req.body?.fileName === "string" ? req.body.fileName.slice(0, 160) || "reference-image" : "reference-image", mimeType, filePath: relativePath, createdAt: new Date().toISOString() }); const creator = await tenantProfiles.creatorAddImage(orgId, id, image); if (!creator) { unlinkSync(join(VVUGC_RUNS_DIR, relativePath)); return res.status(409).json({ error: "reference image limit reached" }); } res.status(201).json({ creator: publicCreator(creator) }); });
+  app.delete("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requirePermission("clients.manage")(req, res); if (!account) return; const orgId = resolveOrgId(account); const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0]! : req.params.imageId!; const removed = await tenantProfiles.creatorRemoveImage(orgId, id, imageId); if (!removed) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, removed.filePath); if (existsSync(path)) unlinkSync(path); res.status(204).end(); });
+  app.get("/accounts/creators/:creatorId/images/:imageId", requireSession, async (req: AuthedRequest, res: Response) => { const account = requireAccount(req, res); if (!account) return; const id = Array.isArray(req.params.creatorId) ? req.params.creatorId[0]! : req.params.creatorId!; const imageId = Array.isArray(req.params.imageId) ? req.params.imageId[0]! : req.params.imageId!; const image = (await tenantProfiles.creatorGet(resolveOrgId(account), id))?.referenceImages.find((v) => v.id === imageId); if (!image) return res.status(404).end(); const path = join(VVUGC_RUNS_DIR, image.filePath); if (!existsSync(path)) return res.status(404).end(); res.type(image.mimeType).set("Content-Disposition", "inline").sendFile(path); });
 
   // Character Builder — "generate a person from scratch," a standalone flow separate from
   // the main discover->script->video pipeline (see mcp-video-gen/src/character-builder.ts's
@@ -1254,7 +1254,7 @@ export function registerAccountRoutes(
     asyncHandler<{ id: string }>(async (req: AuthedRequest, res: Response) => {
       const account = requireAccount(req, res);
       if (!account) return;
-      const itemId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const itemId = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
       const item = await getReviewItem(itemId);
       if (!item || item.orgId !== resolveOrgId(account)) return res.status(404).json({ error: "review item not found" });
       res.json({ item });
@@ -1268,7 +1268,7 @@ export function registerAccountRoutes(
       asyncHandler<{ id: string }>(async (req: AuthedRequest, res: Response) => {
         const account = requirePermission("review.manage")(req, res);
         if (!account) return;
-        const itemId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const itemId = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
         const item = await getReviewItem(itemId);
         if (!item || item.orgId !== resolveOrgId(account)) {
           return res.status(404).json({ error: "review item not found" });
@@ -1834,7 +1834,7 @@ export function registerAccountRoutes(
   app.put("/accounts/members/:id/role", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("team.manage")(req, res);
     if (!account) return;
-    const targetId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const targetId = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     const role = req.body?.role;
     if (!ACCOUNT_ROLES.includes(role as AccountRole) || role === "owner") {
       return res.status(400).json({ error: `role must be one of: ${ACCOUNT_ROLES.filter((r) => r !== "owner").join(", ")}` });
@@ -1864,7 +1864,7 @@ export function registerAccountRoutes(
   app.delete("/accounts/members/:id", requireSession, asyncHandler(async (req: AuthedRequest, res: Response) => {
     const account = requirePermission("team.manage")(req, res);
     if (!account) return;
-    const targetId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const targetId = Array.isArray(req.params.id) ? req.params.id[0]! : req.params.id!;
     const target = await identity.findById(targetId);
     if (!target || target.orgId !== account.orgId) {
       return res.status(404).json({ error: "member not found" });

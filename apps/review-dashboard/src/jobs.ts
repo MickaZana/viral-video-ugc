@@ -128,7 +128,7 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
       return mutate((jobs) => {
         const before = jobs.length;
         for (let i = jobs.length - 1; i >= 0; i--) {
-          if (jobs[i].orgId === orgId) jobs.splice(i, 1);
+          if (jobs[i]!.orgId === orgId) jobs.splice(i, 1);
         }
         return before - jobs.length;
       });
