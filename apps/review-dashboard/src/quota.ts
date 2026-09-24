@@ -1,6 +1,6 @@
 import type { AccountUsage } from "@vvugc/shared-auth";
 import type { AccountPlan } from "@vvugc/shared-billing";
-import { getTier } from "@vvugc/shared-billing";
+import { getTier, getDurationTier, computeOverageCost, MAX_DURATION_SEC } from "@vvugc/shared-billing";
 
 /**
  * Shared by billing.ts (display) and accounts.ts (enforcement) so the number a
@@ -13,9 +13,10 @@ export function runsUsedThisMonth(usage: AccountUsage): number {
 }
 
 export interface QuotaCheck {
-  /** Always true — runs past the limit are allowed as consumption overage rather
-   *  than hard-blocked (see `overage`). `allowed` is kept for callers that only
-   *  need to know "may I run?" without caring about overage. */
+  /** True when the run is permitted. Overage runs past the monthly limit are
+   *  still allowed (billed as consumption overage). The only case where `allowed`
+   *  is false is when the requested duration exceeds MAX_DURATION_SEC — that is
+   *  a hard block since no vendor supports generation above 60s. */
   allowed: boolean;
   /** True when this run is *over* the tier's included monthly allowance and will
    *  therefore be billed at overagePriceUsdPerRun. False when within the allowance
@@ -23,6 +24,10 @@ export interface QuotaCheck {
   overage: boolean;
   /** The per-run overage price when overage === true, else undefined. */
   overagePriceUsdPerRun?: number;
+  /** Duration multiplier applied (1.0× for ≤15s, up to 4.0× for ≤60s). */
+  durationMultiplier?: number;
+  /** The effective overage cost after duration multiplier (overagePriceUsdPerRun × durationMultiplier). */
+  effectiveOverageCost?: number;
   /** Present when the account is over the allowance — a human-readable note. */
   reason?: string;
 }
@@ -47,18 +52,31 @@ export interface QuotaCheck {
  * directly to paying customers, that path would need its own call into
  * checkRunQuota (or a shared enforcement point above both callers).
  */
-export function checkRunQuota(plan: AccountPlan, usage: AccountUsage): QuotaCheck {
+export function checkRunQuota(plan: AccountPlan, usage: AccountUsage, durationSec?: number): QuotaCheck {
+  // Validate duration cap
+  if (durationSec !== undefined && durationSec > MAX_DURATION_SEC) {
+    return {
+      allowed: false,
+      overage: false,
+      reason: `requested duration ${durationSec}s exceeds maximum allowed ${MAX_DURATION_SEC}s`
+    };
+  }
+
   if (plan.status !== "active" || !plan.tierId) return { allowed: true, overage: false };
   const tier = getTier(plan.tierId);
   if (!tier) return { allowed: true, overage: false };
 
   const used = runsUsedThisMonth(usage);
   if (used >= tier.monthlyRunLimit) {
+    const durationTier = getDurationTier(durationSec ?? 30);
+    const effectiveCost = computeOverageCost(tier.overagePriceUsdPerRun, durationSec ?? 30);
     return {
       allowed: true,
       overage: true,
       overagePriceUsdPerRun: tier.overagePriceUsdPerRun,
-      reason: `over the ${tier.name} plan's ${tier.monthlyRunLimit} included runs this month — this run will be billed at overage ($${tier.overagePriceUsdPerRun.toFixed(2)}/run)`
+      durationMultiplier: durationTier.costMultiplier,
+      effectiveOverageCost: effectiveCost,
+      reason: `over the ${tier.name} plan's ${tier.monthlyRunLimit} included runs this month — this ${durationTier.label} run (${durationTier.costMultiplier}×) will be billed at $${effectiveCost.toFixed(2)}`
     };
   }
   return { allowed: true, overage: false };

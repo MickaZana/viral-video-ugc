@@ -7,7 +7,7 @@
  * product. Edit here, both surfaces update (served at /tokens.css by each app).
  */
 :root {
-  --bg: #ffffff;
+  --bg: #EDE8DC;
   --bg-raised: #f4f4f4;
   --bg-card: #ffffff;
   --border: #d6d6d6;
@@ -190,53 +190,92 @@ select:focus-visible,
  * Tailwind's `:root` defaults for the same name.
  * ------------------------------------------------------------------------- */
 :root[data-surface="workspace"] {
-  --color-bg: #080808;
-  --color-nav: #0a0a0a;
-  --color-surface: #111111;
-  --color-raised: #1a1a1a;
-  --color-border: #242424;
-  --color-input: #2a2a2a;
-  --color-text: #f0f0f0;
-  --color-on-accent: #080808;
-  /* Muted ramp brightened so every tone clears WCAG AA (4.5:1) on the darkest
-     surfaces (#080808 bg / #0a0a0a nav / #111111 surface / #1a1a1a raised).
-     Hierarchy preserved: muted-3 (dimmest) < muted-2 < muted < muted-5 < muted-4 < muted-6. */
-  --color-muted: #999999;
-  --color-muted-2: #8f8f8f;
-  --color-muted-3: #858585;
-  --color-muted-4: #adadad;
-  --color-muted-5: #a3a3a3;
-  --color-muted-6: #bdbdbd;
-  --color-faint: #333333;
-  --color-lime: #c8ff00;
-  --color-lime-dim: #8ab300;
-  --color-red: #ff2b2b;
-  --color-orange: #ff7a00;
-  --font-display: 'Barlow Condensed', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-}
-
-/* Light / "white" theme — flips the workspace surfaces to paper while keeping
-   the lime identity readable (darkened to an olive-green that works on white).
-   Values not re-declared here (red/orange/type) intentionally inherit the
-   workspace defaults above. */
-:root[data-surface="workspace"][data-theme="light"] {
-  --color-bg: #f4f4f1;
+  --color-bg: #EDE8DC;
   --color-nav: #ffffff;
   --color-surface: #ffffff;
-  --color-raised: #e8e8e4;
-  --color-border: #e1e1dd;
-  --color-input: #d7d7d2;
+  --color-raised: #f3eee3;
+  --color-border: #dcd7cb;
+  --color-input: #e4dfd3;
   --color-text: #171717;
   --color-on-accent: #ffffff;
-  --color-muted: #5c5c58;
-  --color-muted-2: #565653;
-  --color-muted-3: #6d6d69;
-  --color-muted-4: #797975;
-  --color-muted-5: #61615e;
-  --color-muted-6: #4c4c49;
-  --color-faint: #8c8c87;
-  --color-lime: #4f6b00;
-  --color-lime-dim: #6f8a00;
+  /* Muted ramp — dark enough for WCAG AA (4.5:1+) on beige (#EDE8DC) and white */
+  --color-muted: #4a4a45;
+  --color-muted-2: #444441;
+  --color-muted-3: #3d3d3a;
+  --color-muted-4: #363633;
+  --color-muted-5: #2f2f2c;
+  --color-muted-6: #282825;
+  --color-faint: #5f5f5a;
+  --color-lime: #3d5a00;
+  --color-lime-dim: #4f6b00;
+  --color-blue: #2d6fd4;
+  --color-blue-dim: #1f5ab0;
+  --color-blue-glow: rgba(45, 111, 212, 0.25);
+  --color-red: #cc0000;
+  --color-orange: #b34500;
+  --color-amber: #b45309;
+  --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', monospace;
+}
+
+:root[data-surface="workspace"][data-theme="light"] {
+  --color-bg: #EDE8DC;
+  --color-nav: #ffffff;
+  --color-surface: #ffffff;
+  --color-raised: #f3eee3;
+  --color-border: #dcd7cb;
+  --color-input: #e4dfd3;
+  --color-text: #171717;
+  --color-on-accent: #ffffff;
+  --color-muted: #4a4a45;
+  --color-muted-2: #444441;
+  --color-muted-3: #3d3d3a;
+  --color-muted-4: #363633;
+  --color-muted-5: #2f2f2c;
+  --color-muted-6: #282825;
+  --color-faint: #5f5f5a;
+  --color-lime: #3d5a00;
+  --color-lime-dim: #4f6b00;
+  --color-blue: #2d6fd4;
+  --color-blue-dim: #1f5ab0;
+  --color-blue-glow: rgba(45, 111, 212, 0.25);
+  --color-red: #cc0000;
+  --color-orange: #b34500;
+  --color-amber: #b45309;
+}
+
+/* ---------------------------------------------------------------------------
+ * DARK THEME — Higgsfield Cinema Studio-inspired.
+ * Glossy black, beige/warm gray text, rounded cards with subtle depth,
+ * neon acid-yellow CTA. The 3D/glow effects are handled via component
+ * styles (border-radius, box-shadow) — here we set the palette only.
+ * ------------------------------------------------------------------------- */
+:root[data-surface="workspace"][data-theme="dark"] {
+  --color-bg: #080a0c;
+  --color-nav: #0f0f0f;
+  --color-surface: #161616;
+  --color-raised: #1e1e1e;
+  --color-border: #2c2c2c;
+  --color-input: #1a1a1a;
+  --color-text: #e8e0d4;
+  --color-on-accent: #0a0a0a;
+  /* Warm beige/gray muted ramp — not cold blue-gray */
+  --color-muted: #9e9689;
+  --color-muted-2: #b0a89b;
+  --color-muted-3: #8a8279;
+  --color-muted-4: #c4bbb0;
+  --color-muted-5: #d4ccc2;
+  --color-muted-6: #e0d8cf;
+  --color-faint: #363230;
+  /* Neon acid-yellow — Higgsfield GENERATE button color */
+  --color-lime: #d4ff00;
+  --color-lime-dim: #a3c700;
+  /* Logo blue — electric blue from the brand mark, used for secondary/nav buttons */
+  --color-blue: #4d8dff;
+  --color-blue-dim: #3a6fd4;
+  --color-blue-glow: rgba(77, 141, 255, 0.35);
+  --color-red: #ff4444;
+  --color-orange: #ff8c00;
+  --color-amber: #f59e0b;
 }

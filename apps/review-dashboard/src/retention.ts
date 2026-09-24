@@ -8,7 +8,7 @@ import { loadEnv } from "@vvugc/shared-config";
  * security-events.ndjson (identity/access-control events — see security-events.ts).
  *
  * Both are flat JSONL files that otherwise grow without bound; this is the
- * bounded-retention piece (docs/remaining-p0-execution-plan.md Phase 7). Lines
+ * bounded-retention piece (docs/archive/remaining-p0-execution-plan.md Phase 7). Lines
  * older than SECURITY_LOG_RETENTION_DAYS are dropped. The rule is deliberately
  * conservative in both directions:
  *

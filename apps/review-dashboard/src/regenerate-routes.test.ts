@@ -43,12 +43,13 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     ],
     captions: [
       { startSec: 0, endSec: 6, text: script.hook },
-      { startSec: 6, endSec: 12, text: script.points[0] },
-      { startSec: 12, endSec: 18, text: script.points[1] },
+      { startSec: 6, endSec: 12, text: script.points[0]! },
+      { startSec: 12, endSec: 18, text: script.points[1]! },
       { startSec: 18, endSec: 24, text: script.cta }
     ],
     sourceTranscriptText: "An unrelated source transcript about a totally different topic.",
     status: "approved",
+    dryRun: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };

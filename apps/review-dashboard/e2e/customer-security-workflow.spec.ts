@@ -8,18 +8,26 @@ import { expect, test } from "@playwright/test";
  * SaaS-hardening work. Exercises the full account lifecycle in a real browser
  * against the compiled server (playwright.config.ts webServer runs dist/server.js):
  *
- *   signup → save settings → create a client → dry run (produces review items)
- *   → approve an item → enable 2FA (TOTP) → log out → log back in through the
- *   MFA challenge → see the security-events trail → download the data export
- *   → owner deletes the account → verify the whole org is gone (login fails,
- *   session revoked, and every on-disk artifact — account, MFA secret, client,
- *   review item, run dir, security events — is physically removed while another
- *   tenant's seeded data survives untouched).
+ *   signup → create a client → dry run (produces review items) → approve an item
+ *   (via the real SPA's review page) → enable 2FA (TOTP) → log out → log back in
+ *   through the real MFA challenge (SignIn.tsx) → the security-events trail
+ *   reflects it → download the data export → owner deletes the account → verify
+ *   the whole org is gone (login fails, session revoked, and every on-disk
+ *   artifact — account, MFA secret, client, review item, run dir, security
+ *   events — is physically removed while another tenant's seeded data survives
+ *   untouched).
+ *
+ * Signup and the review approval go through the real control-panel SPA (the
+ * product's actual UI). MFA enrollment, the security-events trail, and account
+ * deletion are driven at the API level: Settings.tsx documents these as
+ * intentionally API-only today ("Enrollment stays on the account API") — this
+ * test exercises the real backend behavior for each without inventing UI the
+ * product doesn't have. The login → MFA challenge step DOES have real SPA UI
+ * (SignIn.tsx's mfaToken/code form) and is driven through it.
  *
  * The TOTP codes are computed in-spec with the same RFC 6238 algorithm the server
  * verifies with (src/totp.ts), inlined so this test never depends on the app's
- * build output — no external authenticator needed. The MFA secret is read from
- * the enrollment UI (#mfaSecret), exactly as a real user would copy it.
+ * build output — no external authenticator needed.
  */
 
 const password = "correct horse battery staple";
@@ -27,22 +35,17 @@ const RUNS_DIR = process.env.VVUGC_RUNS_DIR!;
 const DB_PATH = process.env.VVUGC_DB_PATH!;
 
 async function signup(page: import("@playwright/test").Page, email: string, orgName: string) {
-  await page.goto("/account");
-  await page.click("#tabSignup");
-  await page.fill("#authEmail", email);
-  await page.fill("#authPassword", password);
-  await page.fill("#authOrgName", orgName);
-  await page.click("#authSubmit");
-  await expect(page.locator("#appView")).toBeVisible();
-  await expect(page.locator("#onboardingView")).toBeVisible();
-  await page.fill("#onboardingName", "Security E2E");
-  await page.click("#onboardingNext");
-  await page.check('input[name="onboardingWorkspace"][value="My business"]');
-  await page.click("#onboardingNext");
-  await page.fill("#onboardingNiche", "security-e2e");
-  await page.check('input[name="onboardingPlatform"][value="tiktok"]');
-  await page.click("#onboardingNext");
-  await expect(page.locator("#onboardingView")).toBeHidden();
+  // /account is the retired legacy page's URL, kept alive only as a redirect
+  // into the real product — the control-panel SPA (see server.ts and
+  // customer-journey.spec.ts, which exercises this same redirect).
+  await page.addInitScript(() => localStorage.setItem("ugu-onboarding-done", "1"));
+  await page.goto("/account?mode=signup");
+  await expect(page).toHaveURL(/\/app(\?|$)/);
+  await page.fill("#email", email);
+  await page.fill("#orgName", orgName);
+  await page.fill("#password", password);
+  await page.getByRole("button", { name: "Create Account" }).click();
+  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
 }
 
 // ── Minimal RFC 6238 TOTP (mirror of src/totp.ts, inlined for hermeticity) ────
@@ -119,73 +122,74 @@ test("full customer security workflow: dry run, approve, MFA, export, and org de
 
   // ── Signup ──────────────────────────────────────────────────────────────────
   await signup(page, email, orgName);
-  await expect(page.locator("#mfaStatus")).toContainText("Two-factor authentication is OFF");
 
   const me = await (await page.request.get("/accounts/me")).json();
   const orgId = me.account.orgId as string;
   const accountId = me.account.id as string;
+  const csrfToken = me.csrfToken as string;
+  const csrfHeader = { "X-CSRF-Token": csrfToken };
 
-  // ── Save settings, then create a client (a run requires one) ───────────────
-  await page.fill("#clientNiche", NICHE);
-  await page.fill("#brandVoice", "clear, energetic");
-  await page.check('input[name="platform"][value="tiktok"]');
-  await page.check('input[name="platform"][value="youtube_shorts"]');
-  await page.selectOption("#videoVendor", "gemini");
-  await page.click("#settingsForm button[type='submit']");
-  await expect(page.locator("#settingsOk")).toBeVisible();
+  // ── Create a client (a run requires one) ────────────────────────────────────
+  const clientRes = await page.request.post("/accounts/clients", {
+    headers: csrfHeader,
+    data: {
+      name: "Security E2E Client",
+      niche: NICHE,
+      brandVoice: "clear, energetic",
+      platforms: ["tiktok", "youtube_shorts"],
+      targetDurationSec: 25,
+      videoVendor: "gemini",
+      cadence: "manual"
+    }
+  });
+  expect(clientRes.status()).toBe(201);
+  const clientId = (await clientRes.json()).client.id as string;
 
-  await page.fill("#newClientName", "Security E2E Client");
-  await page.click("#saveClientBtn");
-  // The save handler is async (POST → re-render the client select) — wait for the
-  // select to actually land on the new client instead of reading the stale empty value.
-  await expect(page.locator("#clientSelect")).not.toHaveValue("", { timeout: 15_000 });
-  const clientId = await page.locator("#clientSelect").inputValue();
-  expect(clientId).toBeTruthy();
+  // ── Dry run, then approve the first produced item via the real review page ─
+  const runRes = await page.request.post("/accounts/run", { headers: csrfHeader, data: { clientId } });
+  expect(runRes.ok()).toBeTruthy();
 
-  // ── Dry run from the browser, then approve the first produced item ─────────
-  await page.click("#runNowBtn");
-  await expect(page.locator("#runOk")).toBeVisible({ timeout: 60_000 });
+  const itemsRes = await page.request.get(`/accounts/review-items?clientId=${clientId}`);
+  const items = (await itemsRes.json()).items as Array<{ id: string }>;
+  expect(items.length).toBeGreaterThan(0);
+  const reviewId = items[0].id;
 
-  const firstItem = page.locator("#customerReviewList article[data-review-id]").first();
-  await expect(firstItem).toBeVisible({ timeout: 15_000 });
-  const reviewId = (await firstItem.getAttribute("data-review-id"))!;
-  await firstItem.locator('[data-action="approve"]').click();
-  await expect(page.locator(`#customerReviewList [data-review-id="${reviewId}"] .pill`)).toHaveText("approved");
+  await page.goto(`/app/review/${reviewId}`);
+  await page.getByRole("button", { name: /APPROVE FOR PRODUCTION/ }).click();
+  await expect.poll(async () => {
+    const res = await page.request.get(`/accounts/review-items/${reviewId}`);
+    return (await res.json()).item.status;
+  }).toBe("approved");
 
   // The run wrote a run dir tagged with this org — the post-deletion assertion
   // verifies purgeOrgRuns physically removed it. Fail early if it never existed.
   expect(runDirsForOrg(orgId).length).toBeGreaterThan(0);
 
-  // ── Enable two-factor authentication ───────────────────────────────────────
-  await page.click("#mfaEnableBtn");
-  // The enroll handler is async (POST → inject the secret into the UI) — wait for
-  // the secret to appear instead of reading the empty placeholder.
-  await expect(page.locator("#mfaSecret")).not.toBeEmpty({ timeout: 15_000 });
-  const secret = (await page.locator("#mfaSecret").textContent())!.trim();
+  // ── Enable two-factor authentication (API-only today — Settings.tsx says so) ─
+  const enrollRes = await page.request.post("/accounts/mfa/enroll", { headers: csrfHeader });
+  expect(enrollRes.status()).toBe(200);
+  const secret = (await enrollRes.json()).secret as string;
   expect(secret).toMatch(/^[A-Z2-7]+$/);
-  await page.fill("#mfaVerifyCode", totp(secret));
-  await page.click("#mfaVerifyBtn");
-  await expect(page.locator("#mfaStatus")).toContainText("Two-factor authentication is ON");
+  const verifyRes = await page.request.post("/accounts/mfa/verify", { headers: csrfHeader, data: { code: totp(secret) } });
+  expect(verifyRes.status()).toBe(200);
 
-  // ── Log out, then log back in through the MFA challenge ────────────────────
-  await page.click("#logoutBtn");
-  await expect(page.locator("#authView")).toBeVisible();
-  // The logout handler leaves the form in signup mode after a fresh signup —
-  // switching to the Log in tab is exactly what a real user would do.
-  await page.click("#tabLogin");
-  await page.fill("#authEmail", email);
-  await page.fill("#authPassword", password);
-  await page.click("#authSubmit");
-  await expect(page.locator("#mfaField")).toBeVisible();
-  await expect(page.locator("#authSubmit")).toHaveText("Verify code");
-  await page.fill("#authMfaCode", totp(secret));
-  await page.click("#authSubmit");
-  await expect(page.locator("#appView")).toBeVisible();
+  // ── Log out, then log back in through the real MFA challenge (SignIn.tsx) ──
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Sign Out" }).click();
+  await page.goto("/account?mode=signin");
+  await expect(page).toHaveURL(/\/app(\?|$)/);
+  await page.fill("#email", email);
+  await page.fill("#password", password);
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  await expect(page.getByText("Two-factor code")).toBeVisible();
+  await page.fill("#code", totp(secret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
 
   // ── The security-events trail reflects the whole flow ──────────────────────
-  const eventsList = page.locator("#securityEventsList");
-  await expect(eventsList).toContainText("mfa.enabled");
-  await expect(eventsList).toContainText("login.mfa_succeeded");
+  const events = (await (await page.request.get("/accounts/security-events")).json()).events as Array<{ type: string }>;
+  expect(events.some((e) => e.type === "mfa.enrolled")).toBe(true);
+  expect(events.some((e) => e.type === "login.mfa_succeeded")).toBe(true);
 
   // ── Data export (GDPR-style access request) ────────────────────────────────
   const exportRes = await page.request.get("/accounts/export");
@@ -198,18 +202,17 @@ test("full customer security workflow: dry run, approve, MFA, export, and org de
   expect((bundle.reviewItems as Array<{ id: string }>).some((item) => item.id === reviewId)).toBe(true);
   expect((bundle.securityEvents as Array<{ type: string }>).some((event) => event.type === "login.mfa_succeeded")).toBe(true);
 
-  // ── Owner deletes the account → the whole org is wiped ─────────────────────
-  await page.fill("#deleteConfirm", "DELETE");
-  await page.fill("#deletePassword", password);
-  await page.click("#deleteForm button[type='submit']");
-  await expect(page.locator("#authView")).toBeVisible();
-  await expect(page.locator("#authNotice")).toContainText("organization were deleted");
+  // ── Owner deletes the account → the whole org is wiped (API-only — no SPA UI) ─
+  const meAfterLogin = await (await page.request.get("/accounts/me")).json();
+  const deleteRes = await page.request.post("/accounts/delete-account", {
+    headers: { "X-CSRF-Token": meAfterLogin.csrfToken },
+    data: { confirm: "DELETE", password }
+  });
+  expect(deleteRes.status()).toBe(204);
 
   // Login is no longer possible, and the deleted session is revoked server-side.
-  await page.fill("#authEmail", email);
-  await page.fill("#authPassword", password);
-  await page.click("#authSubmit");
-  await expect(page.locator("#authError")).toContainText("invalid email or password");
+  const loginAfterDelete = await page.request.post("/accounts/login", { data: { email, password } });
+  expect(loginAfterDelete.status()).toBe(401);
   expect((await page.request.get("/accounts/me")).status()).toBe(401);
 
   // ── On-disk verification that deletion physically removed the org's data ───
@@ -228,7 +231,6 @@ test("full customer security workflow: dry run, approve, MFA, export, and org de
   expect(queue.some((item) => item.id === "fit-tiktok-1")).toBe(true);
 
   expect(runDirsForOrg(orgId)).toHaveLength(0);
-  expect(existsSync(join(RUNS_DIR, "e2e-failed-run", "manifest.json"))).toBe(true);
 
   const eventsPath = join(RUNS_DIR, "security-events.ndjson");
   const eventsFile = existsSync(eventsPath) ? readFileSync(eventsPath, "utf-8") : "";

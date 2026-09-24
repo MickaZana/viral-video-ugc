@@ -9,6 +9,7 @@
  */
 export type CostVendor =
   | "anthropic"
+  | "openai"
   | "higgsfield"
   | "kling"
   | "runway"
@@ -17,7 +18,14 @@ export type CostVendor =
   | "elevenlabs"
   | "grok"
   | "gemini"
-  | "replicate";
+  | "replicate"
+  | "seedance"
+  | "grok_video"
+  | "sync_labs"
+  | "heygen"
+  | "wan"
+  | "alibaba"
+  | "kimi";
 
 export interface CostEvent {
   stage: string;
@@ -44,16 +52,83 @@ const ANTHROPIC_RATE_TABLE: Record<string, Record<string, number>> = {
   "claude-fable-5": { input_tokens: 10 / 1_000_000, output_tokens: 50 / 1_000_000 }
 };
 
+// One-time-per-model warning for Anthropic model strings absent from
+// ANTHROPIC_RATE_TABLE (the ledger would otherwise silently price them at $0).
+// Module-level Set so repeated recordAnthropicUsage calls with the same unknown
+// model (input_tokens + output_tokens, then every subsequent cycle) warn once.
+const warnedUnknownAnthropicModels = new Set<string>();
+
+function warnUnknownAnthropicModel(model: string): void {
+  if (warnedUnknownAnthropicModels.has(model)) return;
+  warnedUnknownAnthropicModels.add(model);
+  console.warn(
+    `[shared-cost] Unknown Anthropic model "${model}" is not in ANTHROPIC_RATE_TABLE ` +
+      `(packages/shared-cost/src/index.ts); usage is recorded but the cost estimate for it ` +
+      `is $0. Add the model's rates to ANTHROPIC_RATE_TABLE and docs/cost-table.md in the ` +
+      `same change (see AGENTS.md).`
+  );
+}
+
+// OpenAI text fallback pricing; sourced from the official GPT-4.1 mini model page.
+const OPENAI_RATE_TABLE: Record<string, Record<string, number>> = {
+  "gpt-4.1-mini": { input_tokens: 0.4 / 1_000_000, output_tokens: 1.6 / 1_000_000 }
+};
+
 // Per-token list pricing for Gemini text models, used by the orchestrator's LLM
 // failover (Anthropic primary -> Gemini on hard provider failure). These are the
 // current published per-1M-token rates converted to per-token; confirm against
 // current Google pricing before relying on them in billing.
+//
+// "gemini-2.5-pro"/"gemini-2.5-flash" are dead (404, verified 2026-08-31) — kept
+// below ONLY to correctly price historical cost-ledger JSON already on disk from
+// before llm-failover.ts's defaults were updated, mirroring ANTHROPIC_RATE_TABLE's
+// "claude-sonnet-4-5" entry and its comment. No agent should newly target them;
+// see llm-failover.ts's GEMINI_TEXT_MODEL for the current defaults.
 const GEMINI_RATE_TABLE: Record<string, Record<string, number>> = {
   "gemini-2.5-pro": { input_tokens: 1.25 / 1_000_000, output_tokens: 10 / 1_000_000 },
-  "gemini-2.5-flash": { input_tokens: 0.3 / 1_000_000, output_tokens: 2.5 / 1_000_000 }
+  "gemini-2.5-flash": { input_tokens: 0.3 / 1_000_000, output_tokens: 2.5 / 1_000_000 },
+  // Current default for pro-tier callers. Published rate for prompts up to 200K
+  // tokens; prompts above that bill at $4.00/$18.00 (2x input, 1.5x output) — not
+  // modeled here since this ledger doesn't track per-call prompt length.
+  "gemini-3.1-pro-preview": { input_tokens: 2.0 / 1_000_000, output_tokens: 12.0 / 1_000_000 },
+  // Current default for caption-agent (mechanical/fast tier). Introductory pricing
+  // set 2026-08-13; both rates double 2027-01-01 per Google's own announcement —
+  // revisit this entry before then.
+  "gemini-3.6-flash": { input_tokens: 0.75 / 1_000_000, output_tokens: 3.75 / 1_000_000 }
 };
 
-const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number>> = {
+// Per-token list pricing for Grok (xAI) text models, used by the orchestrator's LLM
+// failover and direct provider execution. Current published per-1M-token rates converted to per-token.
+//
+// "grok-2"/"grok-2-latest"/"grok-2-mini"/"grok-beta"/"grok-3" no longer exist in
+// xAI's catalog at all (400 "Model not found", verified 2026-08-31 via GET
+// /v1/models) — kept below ONLY to correctly price historical cost-ledger JSON
+// already on disk, same convention as GEMINI_RATE_TABLE's dead entries above. No
+// agent should newly target them; see llm-failover.ts's GROK_TEXT_MODEL.
+const GROK_RATE_TABLE: Record<string, Record<string, number>> = {
+  "grok-2": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
+  "grok-2-latest": { input_tokens: 2 / 1_000_000, output_tokens: 10 / 1_000_000 },
+  "grok-2-mini": { input_tokens: 0.2 / 1_000_000, output_tokens: 1 / 1_000_000 },
+  "grok-beta": { input_tokens: 5 / 1_000_000, output_tokens: 15 / 1_000_000 },
+  "grok-3": { input_tokens: 3 / 1_000_000, output_tokens: 15 / 1_000_000 },
+  // Current default (verified genuinely working live, 2026-08-31). Standard-tier
+  // published rate.
+  "grok-4.3": { input_tokens: 1.25 / 1_000_000, output_tokens: 2.5 / 1_000_000 }
+};
+
+// Per-token list pricing for Kimi (Moonshot AI) text models, used by the orchestrator's
+// Ad Storyboard agent (llm-failover.ts's opt-in "kimi" provider). Sourced from Moonshot's
+// official published rate for kimi-k2.6 ($0.95/$4.00 per 1M input/output tokens) — this
+// codebase's actual default model is "kimi-k3" (Moonshot's newer flagship), whose real
+// published per-token rate was not found/confirmed at the time this table was written;
+// the k2.6 rate is used here as the closest documented estimate. Confirm against current
+// Moonshot pricing (platform.moonshot.ai) before relying on this for kimi-k3 specifically.
+const KIMI_RATE_TABLE: Record<string, Record<string, number>> = {
+  "kimi-k2.6": { input_tokens: 0.95 / 1_000_000, output_tokens: 4.0 / 1_000_000 },
+  "kimi-k3": { input_tokens: 0.95 / 1_000_000, output_tokens: 4.0 / 1_000_000 }
+};
+
+const RATE_TABLE: Record<Exclude<CostVendor, "anthropic" | "openai">, Record<string, number>> = {
   higgsfield: { clip: 0.4 },
   kling: { clip: 0.35 },
   runway: { clip: 0.5 },
@@ -74,19 +149,54 @@ const RATE_TABLE: Record<Exclude<CostVendor, "anthropic">, Record<string, number
   // DEFAULT_MODEL is overridable via REPLICATE_MODEL) — this is a rough
   // representative estimate, not tied to any specific model's real per-run cost.
   // Confirm against the actual model's listed price on replicate.com before relying on it.
-  replicate: { clip: 0.4 }
+  replicate: { clip: 0.4 },
+  // Seedance via fal.ai — ~$0.02/sec of generated video, estimated as ~$0.10/clip
+  // at a typical 5-second clip. Confirm against current fal.ai pricing.
+  seedance: { clip: 0.1 },
+  // Grok Video via xAI — ~$0.05/sec of generated video, estimated as ~$0.25/clip
+  // at a typical 5-second clip. Confirm against current xAI pricing.
+  grok_video: { clip: 0.25 },
+  // Sync Labs — ~$0.02/sec for talking-head lipsync from audio + image.
+  // Estimated as ~$0.50/clip at a typical 25-second segment.
+  sync_labs: { clip: 0.5 },
+  // HeyGen — ~$0.03/sec for avatar video generation from audio + image.
+  // Estimated as ~$0.75/clip at a typical 25-second segment.
+  heygen: { clip: 0.75 },
+  // Wan 3.0 (Alibaba, via Replicate) — real published list rates: $0.05/$0.10/$0.20
+  // per output-second at 480p/720p/1080p. Estimated here as ~$0.50/clip at 720p
+  // for a typical short segment clip, same convention as seedance/grok_video above.
+  // Confirm against actual usage once live generation is run through this adapter.
+  wan: { clip: 0.5 },
+  // Placeholder until a concrete Model Studio model and region are priced.
+  alibaba: { clip: 0.5 },
+  // Kimi is purely per-model + per-token (see KIMI_RATE_TABLE below and its branch
+  // in estimateCostUsd) — no flat-unit use case, unlike grok/gemini which also
+  // have a real TTS/image rate here. Empty only to satisfy this Record's
+  // exhaustiveness; never actually looked up.
+  kimi: {}
 };
 
 export function estimateCostUsd(vendor: CostVendor, unit: string, quantity: number, model?: string): number {
   let rate: number | undefined;
-  // Anthropic and Gemini text models are priced per-model + per-token; the rest of
+  // Anthropic, Gemini, and Grok text models are priced per-model + per-token; the rest of
   // the table is flat per-unit (per clip/image/character).
   if (vendor === "anthropic") {
     rate = model ? ANTHROPIC_RATE_TABLE[model]?.[unit] : undefined;
+    if (model && !(model in ANTHROPIC_RATE_TABLE)) warnUnknownAnthropicModel(model);
+  } else if (vendor === "openai") {
+    rate = model ? OPENAI_RATE_TABLE[model]?.[unit] : undefined;
   } else if (vendor === "gemini") {
     // Gemini is flat-priced for images, but per-model + per-token for text.
     rate = model ? GEMINI_RATE_TABLE[model]?.[unit] : undefined;
     if (rate === undefined && !model) rate = RATE_TABLE.gemini?.[unit];
+  } else if (vendor === "grok") {
+    // Grok is flat-priced for TTS characters, but per-model + per-token for text.
+    rate = model ? GROK_RATE_TABLE[model]?.[unit] : undefined;
+    if (rate === undefined && !model) rate = RATE_TABLE.grok?.[unit];
+  } else if (vendor === "kimi") {
+    // Kimi is per-model + per-token only — see KIMI_RATE_TABLE's own comment for
+    // what's confirmed vs. estimated.
+    rate = model ? KIMI_RATE_TABLE[model]?.[unit] : undefined;
   } else {
     rate = RATE_TABLE[vendor]?.[unit];
   }
@@ -121,10 +231,27 @@ export class CostLedger {
     this.record(stage, "anthropic", "output_tokens", usage.output_tokens, undefined, model);
   }
 
+  recordOpenAIUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "openai", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "openai", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
   /** Same shape as recordAnthropicUsage but attributed to Gemini (LLM failover). */
   recordGeminiUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
     this.record(stage, "gemini", "input_tokens", usage.input_tokens, undefined, model);
     this.record(stage, "gemini", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
+  /** Same shape as recordAnthropicUsage but attributed to Grok (LLM failover). */
+  recordGrokUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "grok", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "grok", "output_tokens", usage.output_tokens, undefined, model);
+  }
+
+  /** Same shape as recordAnthropicUsage but attributed to Kimi (Ad Storyboard agent's opt-in provider). */
+  recordKimiUsage(stage: string, usage: { input_tokens: number; output_tokens: number }, model: string): void {
+    this.record(stage, "kimi", "input_tokens", usage.input_tokens, undefined, model);
+    this.record(stage, "kimi", "output_tokens", usage.output_tokens, undefined, model);
   }
 
   getEvents(): CostEvent[] {

@@ -55,7 +55,7 @@ describe("listRuns", () => {
       candidatesFailed: 1,
       platformsFailed: 1
     });
-    expect(listRuns()[0]).toMatchObject({ candidatesFailed: 1, platformsFailed: 1 });
+    expect(listRuns()[0]!).toMatchObject({ candidatesFailed: 1, platformsFailed: 1 });
   });
 
   it("surfaces the failures array (candidateId/platform/reason) from the manifest when present", () => {
@@ -70,7 +70,7 @@ describe("listRuns", () => {
         { candidateId: "cand-b", platform: "tiktok", reason: "simulated qa-agent failure" }
       ]
     });
-    expect(listRuns()[0].failures).toEqual([
+    expect(listRuns()[0]!.failures).toEqual([
       { candidateId: "cand-a", reason: "simulated script-agent failure" },
       { candidateId: "cand-b", platform: "tiktok", reason: "simulated qa-agent failure" }
     ]);
@@ -83,19 +83,19 @@ describe("listRuns", () => {
       reviewItemsCreated: 0,
       candidatesFailed: 1
     });
-    expect(listRuns()[0].failures).toBeUndefined();
+    expect(listRuns()[0]!.failures).toBeUndefined();
   });
 
   it("leaves candidatesFailed/platformsFailed undefined for manifests written before that field existed", () => {
     writeRun("run-1", { config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" }, candidatesFound: 1, reviewItemsCreated: 1 });
-    const run = listRuns()[0];
+    const run = listRuns()[0]!;
     expect(run.candidatesFailed).toBeUndefined();
     expect(run.platformsFailed).toBeUndefined();
   });
 
   it("tolerates a missing cost-ledger.json (dry-run or a pre-cost-tracking run)", () => {
     writeRun("run-1", { config: { niche: "fitness", createdAt: "2026-01-01T00:00:00.000Z" }, candidatesFound: 1, reviewItemsCreated: 1 });
-    expect(listRuns()[0].estimatedCostUsd).toBeUndefined();
+    expect(listRuns()[0]!.estimatedCostUsd).toBeUndefined();
   });
 
   it("skips directories with no manifest.json", () => {
@@ -108,5 +108,55 @@ describe("listRuns", () => {
     writeRun("old", { config: { niche: "a", createdAt: "2026-01-01T00:00:00.000Z" } });
     writeRun("new", { config: { niche: "b", createdAt: "2026-01-02T00:00:00.000Z" } });
     expect(listRuns().map((r) => r.runId)).toEqual(["new", "old"]);
+  });
+
+  it("filters runs by orgId when provided (tenant isolation)", () => {
+    writeRun("org-a-run", {
+      config: { niche: "fitness", platforms: ["tiktok"], createdAt: "2026-01-01T00:00:00.000Z", accountId: "org-a" },
+      candidatesFound: 3,
+      reviewItemsCreated: 2
+    });
+    writeRun("org-b-run", {
+      config: { niche: "beauty", platforms: ["instagram_reels"], createdAt: "2026-01-02T00:00:00.000Z", accountId: "org-b" },
+      candidatesFound: 5,
+      reviewItemsCreated: 4
+    });
+    writeRun("org-a-run-2", {
+      config: { niche: "nutrition", platforms: ["youtube_shorts"], createdAt: "2026-01-03T00:00:00.000Z", accountId: "org-a" },
+      candidatesFound: 2,
+      reviewItemsCreated: 1
+    });
+
+    // Org A should only see their 2 runs
+    const orgARuns = listRuns("org-a");
+    expect(orgARuns).toHaveLength(2);
+    expect(orgARuns.map((r) => r.runId).sort()).toEqual(["org-a-run", "org-a-run-2"].sort());
+
+    // Org B should only see their 1 run
+    const orgBRuns = listRuns("org-b");
+    expect(orgBRuns).toHaveLength(1);
+    expect(orgBRuns[0]!.runId).toBe("org-b-run");
+
+    // No org filter returns all (operator access)
+    expect(listRuns()).toHaveLength(3);
+
+    // Non-existent org returns nothing
+    expect(listRuns("org-doesnt-exist")).toHaveLength(0);
+  });
+
+  it("surfaces only validated proposal status/count within the already tenant-filtered run summary", () => {
+    writeRun("org-a-proposals", {
+      config: { niche: "fitness", accountId: "org-a", createdAt: "2026-01-03T00:00:00.000Z" },
+      improvementProposals: { status: "proposals", advisoryOnly: true, requiresHumanApproval: true,
+        proposals: [{ id: "qa-weak_hook", suggestion: "Private proposal text", evidence: "QA flag observed." }] }
+    });
+    writeRun("org-b-none", {
+      config: { niche: "beauty", accountId: "org-b", createdAt: "2026-01-02T00:00:00.000Z" },
+      improvementProposals: { status: "none", advisoryOnly: true, requiresHumanApproval: true, proposals: [] }
+    });
+
+    expect(listRuns("org-a")).toMatchObject([{ runId: "org-a-proposals", improvementProposalStatus: "proposals", improvementProposalCount: 1 }]);
+    expect(JSON.stringify(listRuns("org-a"))).not.toContain("Private proposal text");
+    expect(listRuns("org-b")).toMatchObject([{ runId: "org-b-none", improvementProposalStatus: "none", improvementProposalCount: 0 }]);
   });
 });

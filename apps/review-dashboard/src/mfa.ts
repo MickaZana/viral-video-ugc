@@ -159,7 +159,7 @@ export function createMfaChallengeStore(dbPath: string): MfaChallengeStore {
       try {
         const challenges = readAllUnlocked<MfaChallenge>(dbPath);
         const index = challenges.findIndex((challenge) => challenge.token === token);
-        if (index !== -1 && new Date(challenges[index].expiresAt).getTime() > Date.now()) {
+        if (index !== -1 && new Date(challenges[index]!.expiresAt).getTime() > Date.now()) {
           consumed = challenges[index];
           challenges.splice(index, 1);
           writeAllUnlocked(dbPath, challenges);

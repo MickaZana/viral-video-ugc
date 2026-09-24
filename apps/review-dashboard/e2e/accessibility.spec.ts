@@ -20,26 +20,31 @@ test.describe("accessibility — operator queue dashboard", () => {
 
 test.describe("accessibility — self-service account page", () => {
   test("the signed-out /account view (login/signup form) has no WCAG A/AA violations", async ({ page }) => {
-    await page.goto("/account");
-    await expect(page.locator("#authView")).toBeVisible();
+    // /account is the retired legacy page's URL, kept alive only as a redirect
+    // into the real product — the control-panel SPA (see server.ts and
+    // customer-journey.spec.ts, which exercises this same redirect).
+    await page.goto("/account?mode=signup");
+    await expect(page).toHaveURL(/\/app(\?|$)/);
+    await expect(page.locator("#email")).toBeVisible();
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
   });
 
-  test("the signed-in /account view (usage, team, billing, settings) has no WCAG A/AA violations", async ({
-    page
-  }) => {
-    await page.goto("/account");
-    await page.click("#tabSignup");
-    await page.fill("#authEmail", "a11y-e2e@example.com");
-    await page.fill("#authPassword", "hunter22");
-    await page.click("#authSubmit");
-    await expect(page.locator("#appView")).toBeVisible();
-    // A fresh signup is its own org owner — wait for the async loadTeam() fetch to
-    // actually populate/reveal the invite form before scanning, not just for the
-    // parent panel to be visible (that flips synchronously, before the fetch lands).
-    await expect(page.locator("#inviteForm")).toBeVisible();
+  test("the signed-in /app/settings view (team, password, theme) has no WCAG A/AA violations", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("ugu-onboarding-done", "1"));
+    await page.goto("/account?mode=signup");
+    await page.fill("#email", `a11y-e2e-${Date.now()}@example.com`);
+    await page.fill("#password", "hunter22345");
+    await page.getByRole("button", { name: "Create Account" }).click();
+    await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
+
+    await page.getByRole("link", { name: "Settings" }).click();
+    // A fresh signup is its own org owner — wait for TeamSection's async
+    // api.members() fetch to actually populate/reveal the invite form before
+    // scanning, not just for the parent panel to be visible (that renders
+    // synchronously, before the fetch lands).
+    await expect(page.getByPlaceholder("teammate@agency.com")).toBeVisible();
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);

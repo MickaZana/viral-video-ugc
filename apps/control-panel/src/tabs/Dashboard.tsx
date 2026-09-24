@@ -23,12 +23,14 @@ export function Dashboard({ onOpenHistory }: { onOpenHistory?: () => void } = {}
     : 0
   // Sum of source views across tracked creators (real discovery metrics).
   const totalSourceViews = creatorList.reduce((s, c) => s + c.views, 0)
+  // Creators with strong velocity — a unique trend-intelligence signal.
+  const risingCreators = creatorList.filter((c) => c.velocityScore > 1000).length
 
   const statCards = [
     { label: 'Creators Tracked', value: String(creatorList.length), sub: 'source videos discovered', accent: 'var(--color-lime)' },
-    { label: 'Scripts Rewritten', value: String(items.length), sub: 'in review queue', accent: 'var(--color-lime)' },
+    { label: '🔥 Rising Fast', value: String(risingCreators), sub: 'trending up this week', accent: 'var(--color-orange)' },
     { label: 'Total Source Views', value: formatCompact(totalSourceViews), sub: 'across tracked creators', accent: 'var(--color-orange)' },
-    { label: 'Avg Viral Score', value: String(avgScore), sub: 'queued items', accent: 'var(--color-lime)' }
+    { label: 'Avg Viral Score', value: String(avgScore), sub: 'queued items (0–100)', accent: 'var(--color-lime)' }
   ]
 
   // Real activity log — derived from the backend's run history and queue.

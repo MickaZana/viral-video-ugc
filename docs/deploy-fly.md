@@ -13,6 +13,13 @@ works without CORS). Because `Dockerfile.review-dashboard` runs `pnpm -r run bui
 and copies the result into the runtime image, deploying the review-dashboard is
 sufficient — there is no separate control-panel image to build or host.
 
+**`video-worker` is separate from this Fly walkthrough.** It is a long-running
+provider-job worker, has its own CI-published `video-worker` image, and is included
+in local `docker-compose.yml`. Deploy it as an independent worker process on the
+platform selected for background work; it is not replaced by the control-panel SPA
+or the review-dashboard HTTP service. This document intentionally only contains Fly
+configs for the two public HTTP apps.
+
 Both configs build the image directly from source on Fly's own builders
 (`[build] dockerfile = ...`), not from the images `ci.yml` pushes to GHCR. That's
 deliberate: pulling a private GHCR image onto Fly needs extra registry-credential

@@ -12,7 +12,7 @@ WORKDIR /repo
 # identical comment.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/marketing-site/package.json apps/marketing-site/package.json
@@ -60,7 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python-
 # container's ephemeral layer instead of the shared, persisted volume.
 ENV INIT_CWD=/repo
 
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
 
 COPY --from=build /repo ./
 # The build stage's `pnpm install` pulls in devDependencies too (needed for `tsc -b`,
@@ -81,6 +81,18 @@ RUN find . -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} + \
 # docker-compose.yml), make sure that directory is writable by uid 1000 (e.g.
 # `chmod -R a+rwX runs` once on the host, or override `user:` in compose to
 # match your own uid/gid instead).
+
+# ─── SOURCE CODE PROTECTION ──────────────────────────────────────────────────
+# Strip TypeScript source, test files, declarations, source maps, and markdown
+# from the runtime image. Only compiled JS (dist/) is needed to run.
+RUN find . -name '*.ts' ! -name '*.d.ts' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.tsx' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.test.*' -delete 2>/dev/null; \
+    find . -name '*.spec.*' -delete 2>/dev/null; \
+    find . -name '*.d.ts' -delete 2>/dev/null; \
+    find . -name '*.map' -delete 2>/dev/null; \
+    find . -name '*.md' ! -name 'LICENSE*' -delete 2>/dev/null; true
+
 RUN chown -R node:node /repo
 USER node
 

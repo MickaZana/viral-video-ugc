@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { VisualDirectionSchema } from "./visual-direction.js";
+export { PlatformSchema, type Platform } from "./platform.js";
+import { PlatformSchema } from "./platform.js";
 
-export const PlatformSchema = z.enum(["tiktok", "youtube_shorts", "instagram_reels", "facebook"]);
-export type Platform = z.infer<typeof PlatformSchema>;
 
 export const BrandKitSchema = z.object({
   logoUrl: z.string().url().optional(),
@@ -12,6 +13,59 @@ export const BrandKitSchema = z.object({
   forbiddenClaims: z.array(z.string().trim().min(1).max(160)).max(20).default([])
 });
 export type BrandKit = z.infer<typeof BrandKitSchema>;
+
+export const ProductImageSchema = z.object({
+  id: z.string().min(1),
+  fileName: z.string().min(1).max(160),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  filePath: z.string().min(1),
+  createdAt: z.string().datetime()
+});
+export type ProductImage = z.infer<typeof ProductImageSchema>;
+
+export const ProductProfileSchema = z.object({
+  id: z.string().min(1),
+  orgId: z.string().min(1),
+  clientId: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(160),
+  canonicalUrl: z.string().url().optional(),
+  description: z.string().max(5000).default(""),
+  shortDescription: z.string().max(500).default(""),
+  productCategory: z.string().max(160).default(""),
+  targetCustomer: z.string().max(1000).default(""),
+  customerPain: z.string().max(1000).default(""),
+  primaryBenefits: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  features: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  claims: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  forbiddenClaims: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  differentiators: z.array(z.string().trim().min(1).max(500)).max(30).default([]),
+  price: z.string().max(120).optional(),
+  callToAction: z.string().max(300).default("Learn more"),
+  brandTone: z.string().max(500).optional(),
+  productImages: z.array(ProductImageSchema).max(12).default([]),
+  extractedImageUrls: z.array(z.string().url()).max(12).default([]),
+  extractedSourceText: z.string().max(20000).optional(),
+  extractionStatus: z.enum(["manual", "pending", "complete", "failed"]).default("manual"),
+  extractionError: z.string().max(1000).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+export type ProductProfile = z.infer<typeof ProductProfileSchema>;
+
+export const CreatorReferenceImageSchema = z.object({
+  id: z.string().min(1), fileName: z.string().min(1).max(160), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), filePath: z.string().min(1), createdAt: z.string().datetime()
+});
+export type CreatorReferenceImage = z.infer<typeof CreatorReferenceImageSchema>;
+
+export const CreatorProfileSchema = z.object({
+  id: z.string().min(1), orgId: z.string().min(1), clientId: z.string().min(1).optional(), displayName: z.string().trim().min(1).max(160), description: z.string().max(3000).default(""), referenceImages: z.array(CreatorReferenceImageSchema).max(8).default([]), faceEmbeddingStatus: z.enum(["none", "training", "ready", "failed"]).default("none"), primaryReferenceImageUrl: z.string().url().optional(), avatarMode: z.enum(["reference_images", "vendor_avatar", "none"]).default("reference_images"), preferredVideoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"]).optional(), compatibleVendors: z.array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"])).max(8).default([]), voiceVendor: z.enum(["elevenlabs", "grok"]).optional(), voiceId: z.string().trim().max(160).optional(), lipSyncVendor: z.enum(["sync_labs", "heygen", "none"]).default("none"), speechStyle: z.string().max(500).default(""), tone: z.string().max(500).default(""), wardrobe: z.string().max(500).default(""), visualStyle: z.string().max(1000).default(""), ageRange: z.string().max(80).optional(), language: z.string().trim().min(2).max(35).default("en"), accent: z.string().max(120).optional(), prohibitedDepictions: z.array(z.string().trim().min(1).max(300)).max(30).default([]), defaultLocation: z.string().max(300).optional(), consentConfirmed: z.boolean().default(false), consentConfirmedAt: z.string().datetime().optional(), consentConfirmedBy: z.string().min(1).max(200).optional(), active: z.boolean().default(true), createdAt: z.string().datetime(), updatedAt: z.string().datetime()
+});
+export type CreatorProfile = z.infer<typeof CreatorProfileSchema>;
+
+export const UGC_TEMPLATE_IDS = ["testimonial", "unboxing", "tutorial", "problem_solution", "comparison", "before_after", "founder_story"] as const;
+export const UGC_TEMPLATE_IDSchema = z.enum(UGC_TEMPLATE_IDS);
+export const UGCTemplateSchema = z.object({ id: UGC_TEMPLATE_IDSchema, version: z.string().regex(/^\d+\.\d+\.\d+$/), name: z.string().min(1).max(120), description: z.string().max(1000), category: z.string().max(80), targetPlatforms: z.array(PlatformSchema).min(1), recommendedDurationSec: z.number().int().min(15).max(60), scriptStructure: z.array(z.string().min(1).max(120)).min(2).max(12), hookPatterns: z.array(z.string().min(1).max(300)).min(1).max(12), requiredInputs: z.array(z.string().min(1).max(80)).max(20), optionalInputs: z.array(z.string().min(1).max(80)).max(20), visualDirection: z.string().max(1000), cameraDirection: z.string().max(1000), creatorDirection: z.string().max(1000), productPlacementDirection: z.string().max(1000), captionStyle: z.enum(["clean", "bold", "minimal"]), ctaPatterns: z.array(z.string().min(1).max(300)).min(1).max(8), forbiddenPatterns: z.array(z.string().min(1).max(300)).max(20), qaRubric: z.array(z.string().min(1).max(300)).min(1).max(12), defaultVariants: z.array(z.string().min(1).max(120)).max(12), active: z.boolean(), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export type UGCTemplate = z.infer<typeof UGCTemplateSchema>;
 
 export const TranscriptSegmentSchema = z.object({
   startSec: z.number().nonnegative(),
@@ -33,6 +87,12 @@ export const RunConfigSchema = z.object({
   platforms: z.array(PlatformSchema).min(1),
   brandVoice: z.string().default("neutral, energetic, concise"),
   brandKit: BrandKitSchema.optional(),
+  productProfileId: z.string().min(1).optional(),
+  productProfile: ProductProfileSchema.optional(),
+  creatorProfileId: z.string().min(1).optional(),
+  creatorProfile: CreatorProfileSchema.optional(),
+  templateId: UGC_TEMPLATE_IDSchema.optional(),
+  template: UGCTemplateSchema.optional(),
   /** BCP-47-ish language tag (e.g. "en", "es", "pt-BR") the script should be written in —
    *  threaded straight into script-agent.ts's prompt. Captions/originality-scoring need no
    *  separate locale handling: captions time whatever text the script already has, and
@@ -40,22 +100,28 @@ export const RunConfigSchema = z.object({
   locale: z.string().default("en"),
   targetDurationSec: z.number().int().min(15).max(60).default(25),
   maxCandidates: z.number().int().min(1).max(50).default(10),
-  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]).default("higgsfield"),
+  /** Number of distinct short-video angles produced per discovered source. */
+  outputVariants: z.number().int().min(2).max(4).default(2),
+  videoVendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"]).default("kling"),
   /** Ordered fallback chain for video generation. If the primary `videoVendor`
    *  fails on a clip, the conductor tries the next vendor in this list (and so on)
    *  before giving up on that platform. The actual vendor that produced each clip
    *  is recorded on the RawClip. When omitted, the conductor falls back to a
-   *  cost/quality-sensible default chain (higgsfield → gemini → replicate), which
+   *  cost/quality-sensible default chain (seedance → grok_video → kling → ...), which
    *  can be overridden globally via VIDEO_VENDOR_FALLBACKS. */
   videoVendorFallbacks: z
-    .array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]))
-    .max(5)
+    .array(z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"]))
+    .max(8)
     .optional(),
   /** Narration synced to burned-in captions (see packages/mcp-voiceover) — opt-in,
    *  omitted means the current silent/vendor-native-audio behavior is unchanged. */
   voiceVendor: z.enum(["elevenlabs", "grok"]).optional(),
+  /** LipSync vendor for talking-head segments. "none" or undefined = B-roll + voiceover. */
+  lipSyncVendor: z.enum(["sync_labs", "heygen", "none"]).default("none"),
   dryRun: z.boolean().default(false),
   autoPost: z.boolean().default(false),
+  /** Cinema Controls: visual direction applied to all clips in a run. */
+  visualDirection: VisualDirectionSchema.optional(),
   /** Owning account (see @vvugc/shared-auth) — optional so CLI/--dry-run usage
    *  without an account stays exactly as it was; only self-service/API-driven
    *  runs need to tag ownership for usage metering (see shared-auth's usage.ts). */
@@ -72,6 +138,11 @@ export const RunConfigSchema = z.object({
    *  Both optional so plain discovery-driven runs are unchanged. */
   sourceUrl: z.string().url().optional(),
   sourceTranscript: TranscriptSchema.optional(),
+  /** Optional brief a user riffed from the discovery panel. Threaded into the run
+   *  so the Studio can surface "your brief" alongside the live nine-stage progress.
+   *  Typed loosely (z.any) on purpose — the brief shape lives in the discovery
+   *  analyzer, and importing it here would create a circular workspace dependency. */
+  discoveryBrief: z.any().nullable().optional(),
   createdAt: z.string().datetime()
 });
 export type RunConfig = z.infer<typeof RunConfigSchema>;
@@ -115,6 +186,164 @@ export const RewrittenScriptSchema = z.object({
 });
 export type RewrittenScript = z.infer<typeof RewrittenScriptSchema>;
 
+/** Source asset categories permitted in a long-form tutorial scene. */
+export const LongFormTutorialAssetTypeSchema = z.enum([
+  "screen_recording",
+  "slide",
+  "screenshot",
+  "image",
+  "animated_image",
+  "video"
+]);
+export type LongFormTutorialAssetType = z.infer<typeof LongFormTutorialAssetTypeSchema>;
+
+/** Whether a scene's visual is substantiated evidence or an illustrative workflow. */
+export const LongFormTutorialProofStatusSchema = z.enum([
+  "verified",
+  "illustrative",
+  "required_before_release"
+]);
+export type LongFormTutorialProofStatus = z.infer<typeof LongFormTutorialProofStatusSchema>;
+
+/**
+ * A long-form scene must identify the exact source used for its visual asset so
+ * the tutorial can be reviewed and reproduced without inventing proof footage.
+ */
+export const LongFormTutorialSceneSchema = z.object({
+  narration: z.string().trim().min(1).max(10000),
+  durationSec: z.number().positive(),
+  assetType: LongFormTutorialAssetTypeSchema,
+  assetPath: z.string().trim().min(1).max(2000),
+  source: z.string().trim().min(1).max(2000),
+  proofStatus: LongFormTutorialProofStatusSchema
+});
+export type LongFormTutorialScene = z.infer<typeof LongFormTutorialSceneSchema>;
+
+/**
+ * Isolated contract for 16:9 YouTube tutorials. It intentionally does not
+ * extend RunConfigSchema or RewrittenScriptSchema: Shorts remain capped at 60s.
+ */
+export const LongFormTutorialSchema = z.object({
+  platform: z.literal("youtube_long"),
+  title: z.string().trim().min(1).max(160),
+  durationSec: z.number().int().min(300).max(1800),
+  aspectRatio: z.literal("16:9"),
+  scenes: z.array(LongFormTutorialSceneSchema).min(1).max(100)
+}).superRefine((tutorial, ctx) => {
+  const sceneDurationSec = tutorial.scenes.reduce((total, scene) => total + scene.durationSec, 0);
+  if (sceneDurationSec !== tutorial.durationSec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["scenes"],
+      message: "Scene durations must sum exactly to durationSec"
+    });
+  }
+});
+export type LongFormTutorial = z.infer<typeof LongFormTutorialSchema>;
+
+/** Visual strategies available to the idea-to-long-form production flow. */
+export const LongFormVisualModeSchema = z.enum([
+  "generated_video",
+  "slide",
+  "animated_image",
+  "user_recording"
+]);
+export type LongFormVisualMode = z.infer<typeof LongFormVisualModeSchema>;
+
+/** Video backends supported by this flow. Higgsfield is opt-in per request. */
+export const LongFormVideoProviderSchema = z.enum(["wan", "replicate", "higgsfield"]);
+export type LongFormVideoProvider = z.infer<typeof LongFormVideoProviderSchema>;
+
+/** Explicitly marks illustrative imagery used when a recording is unavailable. */
+export const LongFormIllustrativeFallbackSchema = z.object({
+  substitutedFor: z.literal("screen_recording"),
+  reason: z.string().trim().min(1).max(1000),
+  proofStatus: z.literal("illustrative")
+});
+export type LongFormIllustrativeFallback = z.infer<typeof LongFormIllustrativeFallbackSchema>;
+
+/** Initial customer request for the standalone 5–10 minute production flow. */
+export const LongFormProductionRequestSchema = z.object({
+  idea: z.string().trim().min(1).max(4000),
+  /** A source-video URL or other pointer whose structure may be analyzed. */
+  sourcePointer: z.string().trim().min(1).max(2000).optional(),
+  durationSec: z.number().int().min(300).max(600).default(300),
+  aspectRatio: z.literal("16:9").default("16:9"),
+  /** Ordered providers; defaults to Wan with Replicate fallback. */
+  videoProviderChain: z.array(LongFormVideoProviderSchema).min(1).max(3).default(["wan", "replicate"]),
+  /** Selectable separately in the UI; included only when Higgsfield is intended. */
+  useHiggsfield: z.boolean().default(false)
+}).superRefine((request, ctx) => {
+  if (new Set(request.videoProviderChain).size !== request.videoProviderChain.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["videoProviderChain"], message: "Provider chain cannot contain duplicates" });
+  }
+  if (request.videoProviderChain.includes("higgsfield") !== request.useHiggsfield) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["useHiggsfield"],
+      message: "Higgsfield must be explicitly selected and included in the provider chain"
+    });
+  }
+});
+export type LongFormProductionRequest = z.infer<typeof LongFormProductionRequestSchema>;
+
+/** One planned narration/visual unit; fallback metadata prevents illustrative work from reading as proof. */
+export const LongFormScenePlanSceneSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  narration: z.string().trim().min(1).max(10000),
+  visualPrompt: z.string().trim().min(1).max(4000),
+  durationSec: z.number().int().min(1).max(600),
+  visualMode: LongFormVisualModeSchema,
+  provider: LongFormVideoProviderSchema.optional(),
+  assetPath: z.string().trim().min(1).max(2000).optional(),
+  proofStatus: LongFormTutorialProofStatusSchema,
+  illustrativeFallback: LongFormIllustrativeFallbackSchema.optional()
+}).superRefine((scene, ctx) => {
+  if (scene.visualMode === "animated_image" && scene.proofStatus !== "illustrative") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["proofStatus"], message: "Animated images must be labeled illustrative" });
+  }
+  if (scene.illustrativeFallback && (scene.visualMode !== "animated_image" || scene.proofStatus !== "illustrative")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["illustrativeFallback"],
+      message: "A screen-recording fallback must use an explicitly illustrative animated image"
+    });
+  }
+  if (scene.visualMode === "user_recording" && !scene.assetPath) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["assetPath"], message: "User recordings require an uploaded asset path" });
+  }
+});
+export type LongFormScenePlanScene = z.infer<typeof LongFormScenePlanSceneSchema>;
+
+/** Structured script-and-scene plan produced before any media is generated. */
+export const LongFormScenePlanSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  durationSec: z.number().int().min(300).max(600),
+  aspectRatio: z.literal("16:9"),
+  scenes: z.array(LongFormScenePlanSceneSchema).min(2).max(200)
+}).superRefine((plan, ctx) => {
+  const sceneDurationSec = plan.scenes.reduce((total, scene) => total + scene.durationSec, 0);
+  if (sceneDurationSec !== plan.durationSec) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["scenes"], message: "Scene durations must sum exactly to durationSec" });
+  }
+});
+export type LongFormScenePlan = z.infer<typeof LongFormScenePlanSchema>;
+
+/** Durable job envelope for an idea-to-finished-video request. */
+export const LongFormProductionJobSchema = z.object({
+  id: z.string().min(1),
+  orgId: z.string().min(1),
+  request: LongFormProductionRequestSchema,
+  status: z.enum(["queued", "planning", "generating_assets", "assembling", "qa", "completed", "failed", "cancelled"]).default("queued"),
+  progress: z.number().int().min(0).max(100).default(0),
+  scenePlan: LongFormScenePlanSchema.optional(),
+  outputPath: z.string().trim().min(1).max(2000).optional(),
+  error: z.string().trim().min(1).max(4000).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+export type LongFormProductionJob = z.infer<typeof LongFormProductionJobSchema>;
+
 export const CaptionCueSchema = z.object({
   startSec: z.number().nonnegative(),
   endSec: z.number().nonnegative(),
@@ -125,7 +354,7 @@ export type CaptionCue = z.infer<typeof CaptionCueSchema>;
 export const RawClipSchema = z.object({
   id: z.string(),
   scriptSegmentIndex: z.number().int().nonnegative(),
-  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate"]),
+  vendor: z.enum(["higgsfield", "kling", "runway", "pika", "gemini", "replicate", "seedance", "grok_video", "wan", "alibaba"]),
   filePath: z.string(),
   durationSec: z.number().positive()
 });
@@ -155,11 +384,15 @@ export const ReviewItemSchema = z.object({
   runId: z.string(),
   orgId: z.string().optional(),
   clientId: z.string().optional(),
+  productProfileId: z.string().optional(),
+  templateId: UGC_TEMPLATE_IDSchema.optional(),
+  template: UGCTemplateSchema.optional(),
   niche: z.string(),
   videoPath: z.string(),
   platform: PlatformSchema,
   script: RewrittenScriptSchema,
   score: z.number().min(0).max(100),
+  structuralScore: z.number().min(0).max(100).optional(),
   flags: z.array(z.string()).default([]),
   /** Algorithmic "trend-informed but original" check (@vvugc/shared-originality) — separate
    *  from `score`, which is Claude's virality judgment. Optional so older review-queue JSON
@@ -183,6 +416,11 @@ export const ReviewItemSchema = z.object({
   publishedUrl: z.string().optional(),
   publishedAt: z.string().datetime().optional(),
   status: ReviewItemStatusSchema.default("pending"),
+  /** True when this item came from a dry-run (mock) pipeline run — see RunConfig.dryRun.
+   *  Carried onto the item so the review UI can badge/deprioritize mock items and the
+   *  publish route can refuse to ship a fake asset. Defaults to false for items written
+   *  before this field existed. */
+  dryRun: z.boolean().default(false),
   createdAt: z.string().datetime()
 });
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
@@ -207,3 +445,12 @@ export const RunResultSchema = z.object({
   platformsFailed: z.number().int().nonnegative().optional()
 });
 export type RunResult = z.infer<typeof RunResultSchema>;
+
+// ─── Batch Variation Generation ─────────────────────────────────────────────
+export * from "./batch.js";
+export * from "./batch-planner.js";
+export * from "./presets.js";
+
+// ─── Cinema Controls ────────────────────────────────────────────────────────
+export * from "./visual-direction.js";
+export * from "./segment-type.js";

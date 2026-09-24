@@ -31,7 +31,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   });
   const setCookie = res.headers.get("set-cookie")!;
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId, accountId: account.id };
 }
 
 const CLIENT_BODY = {
@@ -77,6 +77,7 @@ function reviewItem(orgId: string, id: string): ReviewItem {
     score: 80,
     flags: [],
     status: "pending",
+    dryRun: false,
     createdAt: new Date().toISOString()
   };
 }

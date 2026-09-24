@@ -6,6 +6,14 @@ import ffmpegPath from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
 import type { AssembledVideo, CaptionCue, Platform, RawClip, RewrittenScript } from "@vvugc/shared-schema";
 
+// Kept separate from assembleVideo: long-form tutorials have their own scene
+// contract and never pass through the Shorts assembly path.
+export {
+  assembleLongFormTutorial,
+  type AssembleLongFormTutorialOptions,
+  type LongFormAssemblyResult
+} from "./long-form.js";
+
 /**
  * ffmpeg-static's downloaded binary isn't always runnable — in this project's dev
  * sandbox it fails with "Exec format error" despite being a valid PE32+ binary,
@@ -47,6 +55,7 @@ if (resolvedFfprobePath) ffmpeg.setFfprobePath(resolvedFfprobePath);
 export const ASPECT_RATIO_BY_PLATFORM: Record<Platform, AssembledVideo["aspectRatio"]> = {
   tiktok: "9:16",
   youtube_shorts: "9:16",
+  youtube_long: "16:9",
   instagram_reels: "9:16",
   facebook: "1:1"
 };
@@ -104,6 +113,10 @@ export interface AssembleOptions {
    * existed — clips' native audio (if any) passes through untouched.
    */
   voiceoverPath?: string;
+  /** Optional background music. It is duration-conformed and mixed beneath narration. */
+  musicPath?: string;
+  /** Background music gain before mixing, from 0 through 1. Defaults to a quiet bed. */
+  musicVolume?: number;
 }
 
 /**
@@ -159,10 +172,30 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
   const threadLimit = process.env.VVUGC_FFMPEG_THREADS;
   const finalPath = join(outDir, `${script.videoId}-final.mp4`);
   const hasVoiceover = Boolean(opts.voiceoverPath);
+  const hasMusic = Boolean(opts.musicPath);
+  const musicVolume = opts.musicVolume ?? 0.16;
+  if (!Number.isFinite(musicVolume) || musicVolume < 0 || musicVolume > 1) {
+    throw new Error(`assembleVideo musicVolume must be between 0 and 1, got ${musicVolume}`);
+  }
   await run(
     (cmd) => {
       cmd.input(concatListPath).inputOptions(["-f concat", "-safe 0"]);
       if (opts.voiceoverPath) cmd.input(opts.voiceoverPath);
+      if (opts.musicPath) {
+        cmd.input(opts.musicPath).inputOptions(["-stream_loop", "-1"]);
+        const duration = script.durationSec;
+        const fadeOutStart = Math.max(0, duration - Math.min(1.2, duration / 4));
+        const musicFilter = `[${hasVoiceover ? 2 : 1}:a]volume=${musicVolume},afade=t=in:st=0:d=0.35,afade=t=out:st=${fadeOutStart}:d=${duration - fadeOutStart},atrim=0:${duration},asetpts=PTS-STARTPTS[music]`;
+        if (hasVoiceover) {
+          cmd.complexFilter([
+            musicFilter,
+            `[1:a]aresample=48000,asetpts=PTS-STARTPTS[voice]`,
+            `[voice][music]amix=inputs=2:duration=first:dropout_transition=0,alimiter=limit=0.95[mixed]`
+          ]);
+        } else {
+          cmd.complexFilter([musicFilter]);
+        }
+      }
 
       cmd.videoFilters([
         `scale=${w}:${h}:force_original_aspect_ratio=increase`,
@@ -171,13 +204,10 @@ export async function assembleVideo(opts: AssembleOptions): Promise<AssembledVid
       ]);
 
       const outputOptions = threadLimit ? ["-threads", threadLimit, "-x264-params", `threads=${threadLimit}`] : [];
-      if (hasVoiceover) {
-        // Video from the clip concat (input 0), audio from the voiceover track
-        // (input 1) — replaces whatever native audio the vendor clips carried.
-        // -shortest guards against a floating-point mismatch between the two
-        // (they're both anchored to the same cue timing, so any gap should be
-        // sub-frame, but this avoids a frozen/silent tail either way.
-        outputOptions.push("-map", "0:v:0", "-map", "1:a:0", "-shortest");
+      if (hasMusic || hasVoiceover) {
+        // Voiceover alone replaces clip audio; music is either the only audio
+        // stream or mixed beneath voiceover by the complex filter above.
+        outputOptions.push("-map", "0:v:0", "-map", hasMusic ? (hasVoiceover ? "[mixed]" : "[music]") : "1:a:0", "-shortest");
       }
       return cmd.outputOptions(outputOptions);
     },

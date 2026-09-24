@@ -7,7 +7,7 @@ name: "CodeQL"
 #
 # IMPORTANT — GHAS gating: CodeQL can only run on a private repo once GitHub
 # Advanced Security is enabled, which is a documented *pending business
-# decision* (see docs/race-to-100-execution-plan.md P4.4 — "Enable GitHub
+# decision* (see docs/archive/race-to-100-execution-plan.md P4.4 — "Enable GitHub
 # Advanced Security (or make repo public)"). On a private repo without GHAS
 # the analyze step hard-fails. Rather than merge a workflow that turns every
 # push/PR/scheduled run red until that decision lands, the job first probes the
@@ -75,7 +75,7 @@ jobs:
               const status = error?.status;
               const message = error?.message ?? "";
               if (status === 403 && /Advanced Security must be enabled/i.test(message)) {
-                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
+                core.notice("GitHub Advanced Security is not enabled — skipping CodeQL analysis to keep CI green. Enable GHAS (docs/archive/race-to-100-execution-plan.md P4.4) to activate scanning; no workflow change needed.");
               } else {
                 core.warning(`could not confirm code-scanning availability (status ${status}); skipping CodeQL. ${message}`);
               }
@@ -104,4 +104,4 @@ jobs:
         if: steps.ghas.outputs.enabled != 'true'
         run: |
           echo "GitHub Advanced Security is not enabled for this repository."
-          echo "Skipping CodeQL analysis — CI stays green. See docs/race-to-100-execution-plan.md P4.4."
+          echo "Skipping CodeQL analysis — CI stays green. See docs/archive/race-to-100-execution-plan.md P4.4."

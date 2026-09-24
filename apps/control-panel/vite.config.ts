@@ -7,10 +7,34 @@ import tailwindcss from '@tailwindcss/vite'
 // and the account-session auth). The proxy keeps the browser same-origin so the
 // session cookie flows normally — no CORS needed in development.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: 'app-basename',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const path = (req.url ?? '').split('?')[0]
+          if (path === '/') {
+            res.statusCode = 302
+            res.setHeader('Location', '/app')
+            res.end()
+            return
+          }
+          if (path === '/app' || path.startsWith('/app/')) {
+            req.url = '/'
+          }
+          next()
+        })
+      }
+    }
+  ],
   server: {
     host: '0.0.0.0',
     port: 4330,
+    fs: {
+      deny: ['.env', '.env.*', '**/.git/**']
+    },
     proxy: {
       '/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:4310',
@@ -32,8 +56,30 @@ export default defineConfig({
       }
     }
   },
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+    legalComments: 'none',
+    // Mangle internal property names matching underscore-prefix convention
+    // (e.g. _internalState, _cache) to make reverse engineering harder.
+    // Public API properties (no underscore prefix) are left intact so
+    // runtime JSON serialization and DOM interactions still work.
+    mangleProps: /^_[a-z]/,
+    reserveProps: /^__/  // preserve React/framework double-underscore props
+  },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: false,
+    minify: 'esbuild',
+    cssMinify: true,
+    target: 'es2022',
+    reportCompressedSize: false,
+    rollupOptions: {
+      output: {
+        // Obfuscate chunk and asset filenames with cryptographic hashes
+        chunkFileNames: 'assets/c_[hash].js',
+        entryFileNames: 'assets/e_[hash].js',
+        assetFileNames: 'assets/a_[hash].[ext]'
+      }
+    }
   }
 })

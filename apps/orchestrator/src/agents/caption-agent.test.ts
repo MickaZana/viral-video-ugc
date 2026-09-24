@@ -31,10 +31,22 @@ describe("generateCaptions", () => {
   beforeEach(() => {
     mockCreate.mockReset();
     process.env.ANTHROPIC_API_KEY = "test-key";
+    // Hermeticity: generateWithFailover's Gemini/Grok fallbacks read these
+    // straight off process.env, so an ambient key left set in the shell (not
+    // this test's own env) would otherwise leak this suite onto a real
+    // network call. Clear them every test, and make any fetch a hard failure
+    // rather than a silent live call — a fallback test stubs its own fetch.
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GROK_API_KEY;
+    delete process.env.XAI_API_KEY;
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("unexpected live fetch — mock it explicitly for this test");
+    }));
   });
 
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    vi.unstubAllGlobals();
   });
 
   it("dry-run: even-splits the script into contiguous cues covering the full duration, without calling the Anthropic API", async () => {

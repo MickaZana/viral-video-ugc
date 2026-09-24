@@ -153,10 +153,10 @@ export function renderDashboardPage(scriptNonce = "development-nonce"): string {
   <div class="runs-table-wrap">
     <table class="runs-table" id="runs-table">
       <thead>
-        <tr><th scope="col">Run</th><th scope="col">Niche</th><th scope="col">Platforms</th><th scope="col">Candidates</th><th scope="col">Items</th><th scope="col">Failed</th><th scope="col">Est. cost</th><th scope="col">Started</th></tr>
+        <tr><th scope="col">Run</th><th scope="col">Niche</th><th scope="col">Platforms</th><th scope="col">Candidates</th><th scope="col">Items</th><th scope="col">Failed</th><th scope="col">Improvement proposals</th><th scope="col">Est. cost</th><th scope="col">Started</th></tr>
       </thead>
       <tbody id="runs-tbody">
-        <tr class="skeleton-row" aria-hidden="true"><td colspan="8"><div class="skeleton" style="height: 1.2rem;"></div></td></tr>
+        <tr class="skeleton-row" aria-hidden="true"><td colspan="9"><div class="skeleton" style="height: 1.2rem;"></div></td></tr>
       </tbody>
     </table>
   </div>
@@ -246,11 +246,12 @@ async function loadRuns() {
         <td>\${r.candidatesFound}</td>
         <td>\${r.reviewItemsCreated}</td>
         <td\${failed > 0 ? ' style="color: var(--warn);"' : ''}>\${failedCell}</td>
+        <td>\${r.improvementProposalStatus === 'none' ? 'None' : r.improvementProposalStatus === 'proposals' ? r.improvementProposalCount + ' to review' : '—'}</td>
         <td>\${r.estimatedCostUsd !== undefined ? '$' + r.estimatedCostUsd.toFixed(4) : '—'}</td>
         <td>\${r.createdAt ? new Date(r.createdAt).toLocaleString() : '—'}</td>
       </tr>\`;
       }).join('')
-    : '<tr><td colspan="8" class="empty-state">No runs yet.</td></tr>';
+    : '<tr><td colspan="9" class="empty-state">No runs yet.</td></tr>';
 }
 
 function populateFilterOptions() {
@@ -421,7 +422,8 @@ async function load() {
 
   const res = await fetch('/queue?' + params.toString());
   if (!res.ok) throw new Error('Failed to load queue (' + res.status + ')');
-  state.items = await res.json();
+  const body = await res.json();
+  state.items = Array.isArray(body) ? body : body.items;
   state.selected.clear();
   document.getElementById('select-all').checked = false;
   populateFilterOptions();

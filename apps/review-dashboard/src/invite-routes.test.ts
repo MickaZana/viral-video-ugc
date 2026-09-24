@@ -30,7 +30,7 @@ async function signUpAndGetCookie(email: string): Promise<string> {
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 describe("multi-seat: invites and shared org data", () => {
@@ -69,7 +69,7 @@ describe("multi-seat: invites and shared org data", () => {
       body: JSON.stringify({ token: inviteToken, password: "hunter22" })
     });
     expect(acceptRes.status).toBe(201);
-    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0];
+    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0]!;
 
     const membersRes = await fetch(`${baseUrl}/accounts/members`, { headers: { Cookie: ownerCookie } });
     const { members } = await membersRes.json();
@@ -107,7 +107,7 @@ describe("multi-seat: invites and shared org data", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: inviteToken, password: "hunter22" })
     });
-    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0];
+    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0]!;
 
     const memberSettings = await (await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: memberCookie } })).json();
     expect(memberSettings.niche).toBe("fitness"); // set by the owner, visible to the invited member
@@ -127,7 +127,7 @@ describe("multi-seat: invites and shared org data", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: inviteToken, password: "hunter22" })
     });
-    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0];
+    const memberCookie = acceptRes.headers.get("set-cookie")!.split(";")[0]!;
 
     const secondInvite = await fetch(`${baseUrl}/accounts/invite`, {
       method: "POST",

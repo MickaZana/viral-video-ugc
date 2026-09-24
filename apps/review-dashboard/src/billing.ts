@@ -11,11 +11,13 @@ import {
   getTier,
   type PlanStore
 } from "@vvugc/shared-billing";
-import { createAccountStore, aggregateUsage, resolveOrgId, roleHasPermission } from "@vvugc/shared-auth";
+import { aggregateUsage, resolveOrgId, roleHasPermission } from "@vvugc/shared-auth";
 import { loadEnv } from "@vvugc/shared-config";
 import type { AuthedRequest } from "./accounts.js";
 import { runsUsedThisMonth } from "./quota.js";
 import { createOverageStore } from "./overage.js";
+import { PostgresBillingRepository } from "./billing-postgres.js";
+import type { Pool } from "pg";
 
 /**
  * Stripe's subscription.status vocabulary is wider than our own PlanStatus —
@@ -71,6 +73,31 @@ export function applyStripeWebhookEvent(event: { type: string; data: { object: u
     if (plan && mapped) planStore.upsert(plan.accountId, { status: mapped });
   }
 }
+class StripePlanPrerequisiteMissing extends Error {}
+
+export async function applyStripeWebhookEventPostgres(event: { type: string; created?: number; data: { object: unknown } }, billing: PostgresBillingRepository): Promise<string | undefined> {
+  const created = Number.isSafeInteger(event.created) ? event.created! : Math.floor(Date.now() / 1000);
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object as { client_reference_id?: string | null; customer?: string | null; subscription?: string | null };
+    const parsed = parseClientReferenceId(session.client_reference_id);
+    if (!parsed) return undefined;
+    await billing.applyStripePlanEvent(parsed.accountId, { tierId: parsed.tierId, status: "active", stripeCustomerId: session.customer ?? undefined, stripeSubscriptionId: session.subscription ?? undefined }, created);
+    return parsed.accountId;
+  }
+  if (event.type === "customer.subscription.deleted") {
+    const plan = await billing.findPlanBySubscriptionId((event.data.object as { id: string }).id);
+    if (!plan) throw new StripePlanPrerequisiteMissing("subscription deletion arrived before checkout association");
+    await billing.applyStripePlanEvent(plan.accountId, { status: "canceled" }, created); return plan.accountId;
+  }
+  if (event.type === "customer.subscription.updated") {
+    const subscription = event.data.object as { id: string; status: string };
+    const plan = await billing.findPlanBySubscriptionId(subscription.id);
+    const mapped = mapStripeSubscriptionStatus(subscription.status);
+    if (!plan) throw new StripePlanPrerequisiteMissing("subscription update arrived before checkout association");
+    if (mapped) { await billing.applyStripePlanEvent(plan.accountId, { status: mapped }, created); return plan.accountId; }
+  }
+  return undefined;
+}
 
 /**
  * Stripe's webhook signature check needs the RAW request body, not the JSON-parsed
@@ -80,11 +107,12 @@ export function applyStripeWebhookEvent(event: { type: string; data: { object: u
  * function (not bundled into registerBillingRoutes) specifically so server.ts can
  * call it at the right point in the middleware chain.
  */
-export function registerStripeWebhookRoute(app: Express): void {
+export function registerStripeWebhookRoute(app: Express, options: { pool?: Pool } = {}): void {
   const { VVUGC_RUNS_DIR } = loadEnv();
   const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
 
-  app.post("/webhooks/stripe", express.raw({ type: "application/json" }), (req: Request, res: Response) => {
+  const billing = options.pool ? new PostgresBillingRepository(options.pool) : undefined;
+  app.post("/webhooks/stripe", express.raw({ type: "application/json" }), async (req: Request, res: Response) => {
     const signature = req.headers["stripe-signature"];
     if (typeof signature !== "string") {
       return res.status(400).json({ error: "missing stripe-signature header" });
@@ -97,8 +125,15 @@ export function registerStripeWebhookRoute(app: Express): void {
       return res.status(400).json({ error: `webhook signature verification failed: ${err instanceof Error ? err.message : String(err)}` });
     }
 
-    applyStripeWebhookEvent(event, planStore);
-    res.json({ received: true });
+    try {
+      if (billing) await billing.processStripeEvent(event, (transactionalBilling) => applyStripeWebhookEventPostgres(event, transactionalBilling));
+      else applyStripeWebhookEvent(event, planStore);
+      res.json({ received: true });
+    } catch (err) {
+      // Deliberately return 500: Stripe must retry an event whose durable receipt
+      // and subscription effect failed together. Never acknowledge partial work.
+      res.status(500).json({ error: "webhook processing failed", detail: err instanceof Error ? err.message : String(err) });
+    }
   });
 }
 
@@ -110,24 +145,23 @@ const CheckoutRateLimiter = rateLimit({
   message: { error: "too many checkout attempts — try again later" }
 });
 
-export function registerBillingRoutes(app: Express, requireSession: RequestHandler): void {
+export function registerBillingRoutes(app: Express, requireSession: RequestHandler, options: { pool?: Pool } = {}): void {
   const { VVUGC_RUNS_DIR } = loadEnv();
   const planStore = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json"));
-  const accountStore = createAccountStore(join(VVUGC_RUNS_DIR, "accounts.json"));
   const overageStore = createOverageStore(join(VVUGC_RUNS_DIR, "overage.json"));
+  const billing = options.pool ? new PostgresBillingRepository(options.pool) : undefined;
 
-  app.get("/accounts/billing", requireSession, (req: AuthedRequest, res: Response) => {
-    const account = accountStore.findById(req.accountId!);
+  app.get("/accounts/billing", requireSession, async (req: AuthedRequest, res: Response) => {
+    const account = req.account;
     if (!account) return res.status(401).json({ error: "not authenticated" });
     const orgId = resolveOrgId(account);
 
-    const plan = planStore.get(orgId);
+    const plan = billing ? await billing.getPlan(orgId) : planStore.get(orgId);
     const tier = plan.tierId ? getTier(plan.tierId) : undefined;
     const usage = aggregateUsage(orgId, VVUGC_RUNS_DIR);
     const thisMonth = new Date().toISOString().slice(0, 7);
     const runsUsed = runsUsedThisMonth(usage);
-    const overageCount = overageStore.countForMonth(orgId, thisMonth);
-    const overageTotalUsd = overageStore.totalForMonth(orgId, thisMonth);
+    const summary = billing ? await billing.overageSummary(orgId, thisMonth) : { count: overageStore.countForMonth(orgId, thisMonth), totalUsd: overageStore.totalForMonth(orgId, thisMonth) };
     const limit = tier?.monthlyRunLimit;
     const overageRuns = limit !== undefined && runsUsed > limit ? runsUsed - limit : 0;
     res.json({
@@ -140,8 +174,8 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
       overage: {
         priceUsdPerRun: tier?.overagePriceUsdPerRun ?? 0,
         overageRunsThisMonth: overageRuns,
-        chargedThisMonth: overageCount,
-        totalUsdThisMonth: overageTotalUsd
+        chargedThisMonth: summary.count,
+        totalUsdThisMonth: summary.totalUsd
       }
     });
   });
@@ -155,7 +189,7 @@ export function registerBillingRoutes(app: Express, requireSession: RequestHandl
       if (typeof tierId !== "string" || !getTier(tierId)) {
         return res.status(400).json({ error: `tierId must be one of: ${PRICING_TIERS.map((t) => t.id).join(", ")}` });
       }
-      const account = accountStore.findById(req.accountId!);
+      const account = req.account;
       if (!account) return res.status(401).json({ error: "not authenticated" });
       if (!roleHasPermission(account.role, "billing.manage")) {
         return res.status(403).json({ error: "requires the billing.manage permission" });

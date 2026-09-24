@@ -1,0 +1,74 @@
+# Builds and runs the video-generation worker process.
+# Long-running persistent service that claims provider-level jobs from the queue,
+# manages MCP sessions for Higgsfield, and falls back to REST vendors.
+FROM node:20-slim AS build
+WORKDIR /repo
+
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY apps/video-worker/package.json apps/video-worker/package.json
+COPY apps/orchestrator/package.json apps/orchestrator/package.json
+COPY apps/review-dashboard/package.json apps/review-dashboard/package.json
+COPY apps/control-panel/package.json apps/control-panel/package.json
+COPY apps/marketing-site/package.json apps/marketing-site/package.json
+COPY packages/shared-schema/package.json packages/shared-schema/package.json
+COPY packages/shared-config/package.json packages/shared-config/package.json
+COPY packages/shared-cost/package.json packages/shared-cost/package.json
+COPY packages/shared-http/package.json packages/shared-http/package.json
+COPY packages/shared-metrics/package.json packages/shared-metrics/package.json
+COPY packages/shared-auth/package.json packages/shared-auth/package.json
+COPY packages/shared-originality/package.json packages/shared-originality/package.json
+COPY packages/shared-billing/package.json packages/shared-billing/package.json
+COPY packages/mcp-video-gen/package.json packages/mcp-video-gen/package.json
+COPY packages/mcp-assembly/package.json packages/mcp-assembly/package.json
+COPY packages/mcp-discovery/package.json packages/mcp-discovery/package.json
+COPY packages/mcp-transcript/package.json packages/mcp-transcript/package.json
+COPY packages/mcp-voiceover/package.json packages/mcp-voiceover/package.json
+COPY packages/mcp-publish/package.json packages/mcp-publish/package.json
+COPY packages/review-queue/package.json packages/review-queue/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.base.json ./
+COPY apps apps
+COPY packages packages
+COPY infra infra
+
+RUN pnpm -r run build
+
+FROM node:20-slim AS runtime
+WORKDIR /repo
+ENV NODE_ENV=production
+ENV INIT_CWD=/repo
+
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python-is-python3 && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
+
+COPY --from=build /repo ./
+RUN find . -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} + \
+    && pnpm install --prod --frozen-lockfile
+
+# ─── SOURCE CODE PROTECTION ──────────────────────────────────────────────────
+# Strip TypeScript source, test files, declarations, source maps, and markdown
+# from the runtime image. Only compiled JS (dist/) is needed to run.
+RUN find . -name '*.ts' ! -name '*.d.ts' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.tsx' -path '*/src/*' -delete 2>/dev/null; \
+    find . -name '*.test.*' -delete 2>/dev/null; \
+    find . -name '*.spec.*' -delete 2>/dev/null; \
+    find . -name '*.d.ts' -delete 2>/dev/null; \
+    find . -name '*.map' -delete 2>/dev/null; \
+    find . -name '*.md' ! -name 'LICENSE*' -delete 2>/dev/null; true
+
+RUN chown -R node:node /repo
+USER node
+
+EXPOSE 4330
+
+WORKDIR /repo/apps/video-worker
+ENTRYPOINT ["node", "dist/index.js"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:4330/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

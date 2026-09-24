@@ -88,7 +88,7 @@ export function Remix() {
             onClick={handlePreview}
             disabled={loading !== null || !sourceUrl.trim()}
             className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-            style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+            style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
           >
             {loading === 'preview' ? 'FETCHING...' : 'PREVIEW REMIX'}
           </button>
@@ -96,7 +96,7 @@ export function Remix() {
             onClick={handleGenerate}
             disabled={loading !== null || !sourceUrl.trim()}
             className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-            style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-input)', color: 'var(--color-text)' }}
+            style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-input)', color: 'var(--color-text)' }}
           >
             {loading === 'generate' ? 'GENERATING...' : 'GENERATE VIDEO'}
           </button>
@@ -112,7 +112,7 @@ export function Remix() {
       {preview && (
         <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed' }}>
+            <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
               ADAPTED SCRIPT <span className="text-[var(--color-lime)]">FOR {niche.toUpperCase() || 'YOUR NICHE'}</span>
             </p>
             <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest">✓ READY TO REVIEW</span>
@@ -133,7 +133,7 @@ export function Remix() {
 
       {run && (
         <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-          <p className="text-sm font-black uppercase tracking-widest mb-3" style={{ fontFamily: 'Barlow Condensed' }}>
+          <p className="text-sm font-black uppercase tracking-widest mb-3" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
             RUN COMPLETE
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">

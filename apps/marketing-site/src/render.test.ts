@@ -170,4 +170,22 @@ describe("renderPage", () => {
       expect(html).toContain('content="/videos/hero-reel.svg"');
     });
   });
+
+  describe("{{APP_BASE_URL}} substitution", () => {
+    const appTemplate = `<a href="{{APP_BASE_URL}}/app?mode=signin">Sign In</a><a href="{{APP_BASE_URL}}/app?mode=signup">Try it now</a>${template}`;
+
+    it("replaces every {{APP_BASE_URL}} occurrence with the given app origin", () => {
+      const html = renderPage([], appTemplate, "", "https://app.example.com");
+      expect(html).not.toContain("{{APP_BASE_URL}}");
+      expect(html).toContain('href="https://app.example.com/app?mode=signin"');
+      expect(html).toContain('href="https://app.example.com/app?mode=signup"');
+    });
+
+    it("defaults to an empty string, leaving path-relative URLs, when no appBaseUrl is given", () => {
+      const html = renderPage([], appTemplate);
+      expect(html).not.toContain("{{APP_BASE_URL}}");
+      expect(html).toContain('href="/app?mode=signin"');
+      expect(html).toContain('href="/app?mode=signup"');
+    });
+  });
 });

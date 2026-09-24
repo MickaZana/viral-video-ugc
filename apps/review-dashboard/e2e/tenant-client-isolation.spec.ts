@@ -6,22 +6,19 @@ import { expect, test } from "@playwright/test";
 const password = "correct horse battery staple";
 
 async function signup(page: import("@playwright/test").Page, email: string, orgName: string) {
-  await page.goto("/account");
-  await page.click("#tabSignup");
-  await page.fill("#authEmail", email);
-  await page.fill("#authPassword", password);
-  await page.fill("#authOrgName", orgName);
-  await page.click("#authSubmit");
-  await expect(page.locator("#appView")).toBeVisible();
-  await expect(page.locator("#onboardingView")).toBeVisible();
-  await page.fill("#onboardingName", "Workspace Owner");
-  await page.click("#onboardingNext");
-  await page.check('input[name="onboardingWorkspace"][value="Clients"]');
-  await page.click("#onboardingNext");
-  await page.fill("#onboardingNiche", "multi-client");
-  await page.check('input[name="onboardingPlatform"][value="youtube_shorts"]');
-  await page.click("#onboardingNext");
-  await expect(page.locator("#onboardingView")).toBeHidden();
+  // /account is the retired legacy page's URL, kept alive only as a redirect
+  // into the real product — the control-panel SPA (see server.ts and
+  // customer-journey.spec.ts, which exercises this same redirect). This test
+  // doesn't exercise onboarding (components/Onboarding.tsx, a separate,
+  // already-covered feature) — skip its overlay so it doesn't block clicks.
+  await page.addInitScript(() => localStorage.setItem("ugu-onboarding-done", "1"));
+  await page.goto("/account?mode=signup");
+  await expect(page).toHaveURL(/\/app(\?|$)/);
+  await page.fill("#email", email);
+  await page.fill("#orgName", orgName);
+  await page.fill("#password", password);
+  await page.getByRole("button", { name: "Create Account" }).click();
+  await expect(page.getByRole("heading", { name: "This Week" })).toBeVisible();
 }
 
 async function createClient(request: import("@playwright/test").APIRequestContext, name: string, niche: string) {
@@ -53,10 +50,9 @@ test("multiple client workspaces persist independently and review output cannot 
   const fitness = await createClient(owner.request, "Fitness Brand", `fitness-${suffix}`);
   const finance = await createClient(owner.request, "Finance Brand", `finance-${suffix}`);
 
-  await owner.reload();
-  await expect(owner.locator("#clientSelect option")).toHaveCount(3);
-  await expect(owner.locator("#clientSelect")).toContainText("Fitness Brand");
-  await expect(owner.locator("#clientSelect")).toContainText("Finance Brand");
+  await owner.goto("/app/brand");
+  await expect(owner.locator("body")).toContainText("Fitness Brand");
+  await expect(owner.locator("body")).toContainText("Finance Brand");
 
   const run = await owner.request.post("/accounts/run", { data: { clientId: fitness.id, dryRun: true } });
   expect(run.ok()).toBeTruthy();
@@ -70,11 +66,12 @@ test("multiple client workspaces persist independently and review output cannot 
   expect(ownerItems.length).toBeGreaterThan(0);
   expect(ownerItems.every((item) => item.clientId === fitness.id && item.orgId === runResult.orgId)).toBeTruthy();
 
-  await owner.reload();
-  await owner.selectOption("#clientSelect", fitness.id);
-  await expect(owner.locator("#customerReviewList [data-review-id]")).not.toHaveCount(0);
-  await owner.locator(`#customerReviewList [data-review-id="${ownerItems[0].id}"] [data-action="approve"]`).click();
-  await expect(owner.locator(`#customerReviewList [data-review-id="${ownerItems[0].id}"] .pill`)).toHaveText("approved");
+  await owner.goto(`/app/review/${ownerItems[0].id}`);
+  await owner.getByRole("button", { name: /APPROVE FOR PRODUCTION/ }).click();
+  await expect.poll(async () => {
+    const res = await owner.request.get(`/accounts/review-items/${ownerItems[0].id}`);
+    return (await res.json()).item.status;
+  }).toBe("approved");
 
   const financeItems = await owner.request.get(`/accounts/review-items?clientId=${finance.id}`);
   expect(((await financeItems.json()).items as unknown[]).length).toBe(0);

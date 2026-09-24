@@ -37,7 +37,7 @@ describe("retention pruning of audit/security logs", () => {
     expect(removed).toBe(1);
     const kept = readFileSync(path, "utf-8").split("\n").filter((l) => l.trim());
     expect(kept).toHaveLength(1);
-    expect(JSON.parse(kept[0]).at).toBe(fresh);
+    expect(JSON.parse(kept[0]!).at).toBe(fresh);
   });
 
   it("never deletes unparseable lines (crash-truncated tail lines are preserved)", () => {
@@ -63,10 +63,10 @@ describe("retention pruning of audit/security logs", () => {
 
     const auditLines = readFileSync(join(runsDir, "audit.ndjson"), "utf-8").split("\n").filter((l) => l.trim());
     expect(auditLines).toHaveLength(1);
-    expect(JSON.parse(auditLines[0]).at).toBe(fresh);
+    expect(JSON.parse(auditLines[0]!).at).toBe(fresh);
     const eventLines = readFileSync(join(runsDir, "security-events.ndjson"), "utf-8").split("\n").filter((l) => l.trim());
     expect(eventLines).toHaveLength(1);
-    expect(JSON.parse(eventLines[0]).at).toBe(fresh);
+    expect(JSON.parse(eventLines[0]!).at).toBe(fresh);
   });
 
   it("is a no-op on missing files", () => {

@@ -189,6 +189,19 @@ describe("roleHasPermission", () => {
     expect(roleHasPermission("viewer", "settings.manage")).toBe(false);
   });
 
+  it("curriculum permissions: everyone views, editor edits/approves/produces but can't delete", () => {
+    expect(roleHasPermission("owner", "curriculum.delete")).toBe(true);
+    expect(roleHasPermission("admin", "curriculum.delete")).toBe(true);
+    expect(roleHasPermission("editor", "curriculum.edit")).toBe(true);
+    expect(roleHasPermission("editor", "curriculum.approve")).toBe(true);
+    expect(roleHasPermission("editor", "curriculum.produce")).toBe(true);
+    expect(roleHasPermission("editor", "curriculum.delete")).toBe(false);
+    expect(roleHasPermission("reviewer", "curriculum.view")).toBe(true);
+    expect(roleHasPermission("reviewer", "curriculum.edit")).toBe(false);
+    expect(roleHasPermission("viewer", "curriculum.view")).toBe(true);
+    expect(roleHasPermission("viewer", "curriculum.edit")).toBe(false);
+  });
+
   it("legacy 'member' behaves like editor and unknown roles fail safe", () => {
     expect(roleHasPermission("member", "clients.manage")).toBe(true);
     expect(roleHasPermission("member", "pipeline.run")).toBe(true);

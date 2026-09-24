@@ -3,6 +3,11 @@
     "higgsfield": {
       "type": "http",
       "url": "https://mcp.higgsfield.ai/mcp"
+    },
+    "vvugc-conductor": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--filter", "@vvugc/orchestrator", "mcp-server"]
     }
   }
 }

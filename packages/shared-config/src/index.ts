@@ -29,9 +29,19 @@ const REPO_ROOT = process.env.INIT_CWD ?? process.cwd();
 // that assert on their absence — that's a behavior change no test asked for. Guarding on
 // VITEST (set by Vitest in both the runner and workers) keeps test env hermetic and
 // deterministic while the app itself gets the unified .env it needs.
-if (!process.env.VITEST) {
-  loadDotenv({ path: join(REPO_ROOT, ".env"), quiet: true });
-}
+// Captured separately from the process.env merge above: dotenv's default config()
+// never overwrites a name already present in process.env, so once loaded there is
+// no way to tell "this value came from .env" from "this was already sitting in the
+// ambient shell." XAI_API_KEY/GROK_API_KEY specifically need that distinction (see
+// resolveXaiOrGrokKey below) — a stale personal XAI_API_KEY left set globally on a
+// dev machine must never silently outrank this project's own configured
+// GROK_API_KEY. dotenvFileValues holds only what .env itself declares; same VITEST
+// guard as above (and for the same reason — never load real .env secrets into a
+// test process), which is exactly why the precedence logic itself is factored out
+// below as a pure function tests can exercise with synthetic values instead.
+const dotenvFileValues: Record<string, string> = process.env.VITEST
+  ? {}
+  : loadDotenv({ path: join(REPO_ROOT, ".env"), quiet: true }).parsed ?? {};
 
 const EnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -52,13 +62,18 @@ const EnvSchema = z.object({
   RUNWAY_API_KEY: z.string().optional(),
   /** Pika is served through fal.ai's platform, not a standalone Pika API — see adapters/pika.ts. */
   FAL_KEY: z.string().optional(),
+  /** Seedance 2.0 model ID on fal.ai — defaults to "fal-ai/seedance-2" if unset.
+   *  Override for a specific tier (e.g. "fal-ai/seedance-2/fast"). */
+  SEEDANCE_MODEL: z.string().optional(),
   /** Voiceover narration synced to burned-in captions — see packages/mcp-voiceover. Optional;
    *  select a vendor with the CLI's --voice-vendor flag, not just by setting a key here. */
   ELEVENLABS_API_KEY: z.string().optional(),
   /** Defaults to a stable built-in ElevenLabs voice if unset — see adapters/elevenlabs.ts. */
   ELEVENLABS_VOICE_ID: z.string().optional(),
-  /** xAI's Grok Speech/TTS API — same key as any other xAI API usage, not voiceover-specific. */
+  /** xAI's Grok Speech/TTS or Chat API — same key as any other xAI API usage. */
   XAI_API_KEY: z.string().optional(),
+  /** Grok / xAI API key alias. */
+  GROK_API_KEY: z.string().optional(),
   /** Defaults to xAI's "eve" voice if unset — see adapters/grok.ts. */
   GROK_VOICE_ID: z.string().optional(),
   /** ASR fallback for platforms without public caption tracks — see mcp-transcript/src/asr.ts. */
@@ -73,11 +88,24 @@ const EnvSchema = z.object({
    *  gives access to many interchangeable text-to-video models. Select it with
    *  --video-vendor replicate; see packages/mcp-video-gen/src/adapters/replicate.ts. */
   REPLICATE_API_TOKEN: z.string().optional(),
+  /** Alias accepted for providers/tools that label the Replicate credential as an API key. */
+  REPLICATE_API_KEY: z.string().optional(),
   /** Model slug to run, e.g. "minimax/video-01" or "luma/ray-3.2" — defaults to
    *  replicate.ts's own DEFAULT_MODEL if unset. Per-model input schemas vary; an
    *  incompatible override surfaces as a clear error from Replicate's own API, not
    *  a silent misparse. */
   REPLICATE_MODEL: z.string().optional(),
+  /** Alibaba Model Studio (Wan 2.7/3.0, HappyHorse 1.1) hosted video generation. */
+  DASHSCOPE_API_KEY: z.string().optional(),
+  /** Alias for users who store the Alibaba Wan 3.0 credential under its model name. */
+  "WAN3.0_API_KEY": z.string().optional(),
+  /** Full regional Model Studio video-synthesis endpoint, including workspace id when required. */
+  ALIBABA_VIDEO_ENDPOINT: z.string().optional(),
+  /** Model Studio model id, e.g. wan3.0-video or happyhorse-1.1-t2v. */
+  ALIBABA_VIDEO_MODEL: z.string().optional(),
+  /** Poll interval and maximum wait for hosted Model Studio async video jobs. */
+  ALIBABA_VIDEO_POLL_INTERVAL_MS: z.string().optional(),
+  ALIBABA_VIDEO_MAX_WAIT_MS: z.string().optional(),
   /** Publishing (packages/mcp-publish) — never called automatically by the pipeline, only
    *  from an explicit post-approval action (review-dashboard's POST /queue/:id/publish).
    *  A TikTok user access token with the video.publish scope, from a completed 3-legged
@@ -139,10 +167,23 @@ const EnvSchema = z.object({
   ASSET_SIGNING_SECRET: z.string().optional(),
   /** Master secret used to encrypt per-client social OAuth tokens at rest. */
   SOCIAL_TOKEN_ENCRYPTION_KEY: z.string().min(32).optional(),
+  /** Dedicated application AEAD key for TOTP secrets stored in Postgres. This
+   * is intentionally distinct from OAuth-token encryption so key rotation and
+   * access can be scoped independently. */
+  MFA_ENCRYPTION_KEY: z.string().min(32).optional(),
   OAUTH_STATE_SECRET: z.string().min(32).optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  /**
+   * Platform evolution feature flags (Phase B.5).
+   * Default: disabled. Enable in development/test to access dormant features.
+   * MUST be evaluated server-side — never trust frontend-supplied values.
+   */
+  VVUGC_AGENCY_CLIENTS_ENABLED: z.string().optional(),
+  VVUGC_API_ENABLED: z.string().optional(),
+  VVUGC_PLATFORM_ADMIN_ENABLED: z.string().optional(),
+  VVUGC_WEBHOOKS_ENABLED: z.string().optional(),
   /**
    * Absolute origin (e.g. "https://myapp.example.com", no trailing slash) the
    * marketing-site is publicly reachable at — needed because og:image/twitter:image
@@ -175,7 +216,33 @@ const EnvSchema = z.object({
    * 90 days is long enough to reconstruct what happened in any incident that
    * matters while keeping the files from growing without bound.
    */
-  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(90)
+  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(1).default(90),
+  // ---------------------------------------------------------------------------
+  // Video Worker
+  // ---------------------------------------------------------------------------
+  /** Two-key live gate: set to "true" to allow real provider API calls. */
+  VVUGC_LLM_LIVE: z.string().optional(),
+  /** MCP server URL for Higgsfield adapter connectivity. */
+  MCP_SERVER_URL: z.string().optional(),
+  /** Timeout in ms for establishing an MCP session connection. */
+  MCP_CONNECT_TIMEOUT_MS: z.string().optional(),
+  /** Maximum reconnect attempts before giving up on MCP. */
+  MCP_MAX_RECONNECT_ATTEMPTS: z.string().optional(),
+  /** Number of concurrent provider jobs to process. */
+  VIDEO_WORKER_CONCURRENCY: z.string().optional(),
+  /** Polling interval in ms between job-claim attempts. */
+  VIDEO_WORKER_POLL_MS: z.string().optional(),
+  /** Lease duration in ms before a claimed job is considered abandoned. */
+  VIDEO_WORKER_LEASE_MS: z.string().optional(),
+  /** Port for the video-worker health/metrics HTTP server. */
+  VIDEO_WORKER_HEALTH_PORT: z.string().optional(),
+  // ---------------------------------------------------------------------------
+  // LipSync
+  // ---------------------------------------------------------------------------
+  /** Sync Labs API key for talking-head lipsync generation. */
+  SYNC_LABS_API_KEY: z.string().optional(),
+  /** HeyGen API key for talking-head lipsync generation. */
+  HEYGEN_API_KEY: z.string().optional()
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -199,12 +266,68 @@ export function loadEnv(): Env {
 type StringEnvKey = Exclude<keyof Env, "TRUST_PROXY_HOPS" | "SECURITY_LOG_RETENTION_DAYS">;
 
 /**
+ * XAI_API_KEY and GROK_API_KEY name the same xAI credential. Resolution order:
+ * this project's .env value for the requested name, then .env's value for the
+ * alias name, then whatever's left in the ambient OS/shell environment for
+ * either name. .env always wins over the ambient shell — a stale personal
+ * XAI_API_KEY exported globally on a dev machine (from some other project, an
+ * old trial, a shell profile) must never silently shadow this project's own
+ * configured GROK_API_KEY.
+ *
+ * Pure and exported (rather than reading dotenvFileValues/process.env
+ * directly) so shared-config's own tests can exercise the precedence rule
+ * with synthetic values — the module-level dotenvFileValues is itself
+ * VITEST-guarded to empty (see above), so there'd otherwise be no way to test
+ * this logic without either loading real .env secrets into a test process or
+ * never covering the ".env beats ambient shell" behavior at all.
+ */
+export function resolveXaiOrGrokKeyFrom(
+  key: "XAI_API_KEY" | "GROK_API_KEY",
+  dotenvValues: { XAI_API_KEY?: string; GROK_API_KEY?: string },
+  ambientEnv: { XAI_API_KEY?: string; GROK_API_KEY?: string }
+): string | undefined {
+  const aliasKey = key === "XAI_API_KEY" ? "GROK_API_KEY" : "XAI_API_KEY";
+  return dotenvValues[key] || dotenvValues[aliasKey] || ambientEnv[key] || ambientEnv[aliasKey];
+}
+
+/**
+ * Every distinct known xAI credential value, in the same trust order as
+ * resolveXaiOrGrokKeyFrom (this project's .env first, then the ambient
+ * shell) — for call sites that want to retry a live 403 ("no credits/
+ * permission") against a different key rather than fail outright once the
+ * top pick turns out to be unfunded. Always includes at least the value
+ * requireEnvVar("XAI_API_KEY"|"GROK_API_KEY") would have returned, first.
+ */
+export function xaiGrokKeyCandidatesFrom(
+  dotenvValues: { XAI_API_KEY?: string; GROK_API_KEY?: string },
+  ambientEnv: { XAI_API_KEY?: string; GROK_API_KEY?: string }
+): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  for (const v of [dotenvValues.GROK_API_KEY, dotenvValues.XAI_API_KEY, ambientEnv.GROK_API_KEY, ambientEnv.XAI_API_KEY]) {
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      candidates.push(v);
+    }
+  }
+  return candidates;
+}
+
+/** Real-module-state wrapper around xaiGrokKeyCandidatesFrom — see that function's
+ *  doc for the precedence rule and why the logic itself lives in a pure function. */
+export function xaiGrokKeyCandidates(): string[] {
+  return xaiGrokKeyCandidatesFrom(dotenvFileValues, loadEnv());
+}
+
+/**
  * Adapters call this at the point a vendor call is actually made, not at
  * startup — keeps --dry-run runnable with zero configured API keys.
  */
 export function requireEnvVar(key: StringEnvKey): string {
   const env = loadEnv();
-  const value = env[key];
+  const value = key === "XAI_API_KEY" || key === "GROK_API_KEY"
+    ? resolveXaiOrGrokKeyFrom(key, dotenvFileValues, env)
+    : env[key];
   if (!value) {
     throw new Error(
       `Missing required env var "${key}". Set it in .env or your shell before running this stage live (not --dry-run).`
@@ -220,6 +343,7 @@ export function validateProductionEnv(env: Env = loadEnv()): void {
     "DASHBOARD_PASSWORD",
     "ASSET_SIGNING_SECRET",
     "SOCIAL_TOKEN_ENCRYPTION_KEY",
+    "MFA_ENCRYPTION_KEY",
     "OAUTH_STATE_SECRET",
     "PUBLIC_BASE_URL"
   ];

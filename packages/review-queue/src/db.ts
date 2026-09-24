@@ -15,6 +15,14 @@ let cached: { key: string; store: ReviewQueueStore } | undefined;
 
 async function getStore(): Promise<ReviewQueueStore> {
   const { DATABASE_URL, VVUGC_DB_PATH } = loadEnv();
+
+  // P0: In production, DATABASE_URL MUST exist. Never silently fall back to JSON.
+  if (process.env.NODE_ENV === "production" && !DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL is required in production — refusing to use JSON file persistence for customer data."
+    );
+  }
+
   const key = DATABASE_URL ?? `json:${VVUGC_DB_PATH}`;
   if (cached?.key === key) return cached.store;
 
@@ -44,7 +52,7 @@ export async function getReviewItem(id: string): Promise<ReviewItem | undefined>
   return await (await getStore()).getReviewItem(id);
 }
 
-export async function setReviewItemStatus(id: string, status: "approved" | "rejected"): Promise<void> {
+export async function setReviewItemStatus(id: string, status: "approved" | "rejected" | "pending"): Promise<void> {
   await (await getStore()).setReviewItemStatus(id, status);
 }
 

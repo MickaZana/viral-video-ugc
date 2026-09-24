@@ -18,3 +18,9 @@ Rules for keeping this coherent:
 - `claude-sonnet-4-5` stays in `ANTHROPIC_RATE_TABLE` for historical reasons only (pricing old on-disk cost-ledger JSON correctly) — no agent should newly target it; use `claude-sonnet-5`.
 
 See `docs/cost-table.md` for the actual per-million-token rates and `packages/shared-cost/src/index.test.ts` for how the ledger's per-model splitting is verified.
+
+## Documentation map
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) (repo root) is the **canonical architecture reference** — module layout, tenant/auth/billing models, key identifiers, feature flags. [`docs/architecture.md`](docs/architecture.md) holds the pipeline/dataflow design and must stay consistent with it.
+- [`docs/go-live-plan.md`](docs/go-live-plan.md) is the current status/go-live picture.
+- Superseded audits and plan docs live in [`docs/archive/`](docs/archive/) — history only, not current truth.

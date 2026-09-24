@@ -15,7 +15,7 @@ on:
         description: "Which image to roll back"
         required: true
         type: choice
-        options: [review-dashboard, marketing-site, orchestrator, all]
+        options: [review-dashboard, marketing-site, orchestrator, video-worker, all]
       sha:
         description: >-
           Commit SHA to roll back to. Must already have a pushed :<sha> image —
@@ -51,7 +51,7 @@ jobs:
         run: |
           IMAGES="${{ inputs.image }}"
           if [ "$IMAGES" = "all" ]; then
-            IMAGES="review-dashboard marketing-site orchestrator"
+            IMAGES="review-dashboard marketing-site orchestrator video-worker"
           fi
           for img in $IMAGES; do
             SRC="ghcr.io/${REPO_LC}/${img}:${{ inputs.sha }}"

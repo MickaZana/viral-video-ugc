@@ -10,6 +10,8 @@ export interface LifecycleOptions {
   shutdownTimeoutMs?: number;
   /** Injectable for tests — defaults to the real process.exit. */
   exit?: (code: number) => void;
+  /** Optional owned-resource drain, awaited after HTTP has stopped accepting traffic. */
+  onDrained?: () => Promise<void>;
 }
 
 /**
@@ -45,20 +47,36 @@ export function installLifecycleHandlers(server: Server, logger: LifecycleLogger
     logger.info({ signal }, "received shutdown signal — draining in-flight requests");
 
     const forceExitTimer = setTimeout(() => {
+      if (finished) return;
       logger.error({ signal, shutdownTimeoutMs }, "graceful shutdown timed out — forcing exit");
-      exit(1);
+      finish(1);
     }, shutdownTimeoutMs);
     forceExitTimer.unref();
 
-    server.close((err) => {
+    let finished = false;
+    function finish(code: number): void {
+      if (finished) return;
+      finished = true;
       clearTimeout(forceExitTimer);
+      exit(code);
+    }
+
+    server.close((err) => {
+      if (finished) return;
       if (err) {
         logger.error({ signal, err: String(err) }, "error while closing server");
-        exit(1);
+        finish(1);
         return;
       }
-      logger.info({ signal }, "shutdown complete");
-      exit(0);
+      void Promise.resolve(opts.onDrained?.()).then(() => {
+        if (finished) return;
+        logger.info({ signal }, "shutdown complete");
+        finish(0);
+      }).catch((drainError) => {
+        if (finished) return;
+        logger.error({ signal, err: String(drainError) }, "shutdown resource drain failed");
+        finish(1);
+      });
     });
   }
 

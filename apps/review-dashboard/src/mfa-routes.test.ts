@@ -31,7 +31,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId, accountId: account.id };
 }
 
 /** Reads the MFA store file to get the account's TOTP secret, then computes a live code. */
@@ -109,7 +109,7 @@ describe("two-factor authentication (TOTP)", () => {
       body: JSON.stringify({ mfaToken: challenge.mfaToken, code: codeFor(owner.accountId) })
     });
     expect(redeem.status).toBe(200);
-    const cookie = redeem.headers.get("set-cookie")!.split(";")[0];
+    const cookie = redeem.headers.get("set-cookie")!.split(";")[0]!;
     const me = await fetch(`${baseUrl}/accounts/me`, { headers: { Cookie: cookie } });
     expect(me.status).toBe(200);
     const meBody = await me.json();
@@ -220,7 +220,7 @@ describe("two-factor authentication (TOTP)", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: inviteToken, password: "hunter22" })
     });
-    const editorCookie = accept.headers.get("set-cookie")!.split(";")[0];
+    const editorCookie = accept.headers.get("set-cookie")!.split(";")[0]!;
 
     const enroll = await fetch(`${baseUrl}/accounts/mfa/enroll`, { method: "POST", headers: { Cookie: editorCookie } });
     expect(enroll.status).toBe(403);

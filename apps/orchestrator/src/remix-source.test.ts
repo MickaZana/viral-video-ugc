@@ -16,6 +16,13 @@ describe("parseSourceUrl", () => {
     });
   });
 
+  it("parses YouTube live URLs", () => {
+    expect(parseSourceUrl("https://www.youtube.com/live/L2CgXWTV2ls")).toEqual({
+      platform: "youtube_shorts",
+      videoId: "L2CgXWTV2ls"
+    });
+  });
+
   it("parses youtu.be share links", () => {
     expect(parseSourceUrl("https://youtu.be/dQw4w9WgXcQ")).toEqual({
       platform: "youtube_shorts",

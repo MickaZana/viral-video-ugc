@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { insertReviewItem } from "@vvugc/review-queue";
-import type { ReviewItem } from "@vvugc/shared-schema";
+import type { ReviewItem } from "@vvugc/review-queue";
 
 const TEST_USER = "test-user";
 const TEST_PASS = "test-pass";
@@ -37,7 +37,8 @@ function makeItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     flags: [],
     status: "approved",
     createdAt: "2026-01-01T00:00:00.000Z",
-    ...overrides
+    ...overrides,
+    dryRun: overrides.dryRun ?? false
   };
 }
 

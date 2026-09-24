@@ -2,7 +2,7 @@
 
 Claude-powered, cloud-orchestrated pipeline that discovers viral short-form video content, rewrites it into new scripts, generates and assembles finished platform-ready videos, and queues them for human review — on a weekly cadence, from one command.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design and [`docs/cost-table.md`](docs/cost-table.md) for the vendor cost template.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the canonical architecture reference (module layout, models, feature flags), [`docs/architecture.md`](docs/architecture.md) for the full pipeline design, and [`docs/cost-table.md`](docs/cost-table.md) for the vendor cost template. Current go-live status lives in [`docs/go-live-plan.md`](docs/go-live-plan.md); superseded audits/plan docs are archived under [`docs/archive/`](docs/archive/).
 
 ## Quickstart
 
@@ -32,6 +32,40 @@ pnpm cli run --niche=fitness --platforms=youtube_shorts --max-candidates=3
 ```
 
 The Kling/Runway/Pika video vendors are implemented but need their respective API credentials — see `docs/architecture.md`'s "Known gaps" section for what each one needs before it goes live. Higgsfield video generation requires running inside a Claude Agent SDK session with the Higgsfield MCP server attached (it has no standalone REST API) — see `infra/cron/README.md`. `--video-vendor gemini` is a still-image-driven alternative that needs only `GEMINI_API_KEY` (a standalone REST call, no MCP session required) — see `packages/mcp-video-gen/src/adapters/gemini.ts`.
+
+## LLM & external-call safety (governance)
+
+The pipeline has exactly **one** behavioral mock: the `dryRun` subsystem. When
+`dryRun` is true, every stage (discovery candidates, transcript, script,
+captions, QA, video, voiceover, assembly) returns deterministic output and
+contacts **no** third-party API. `dryRun` defaults to **true** on every request
+path, so the system is safe-by-default and never spends API credits unless you
+explicitly opt in.
+
+Real execution is a **two-key lock**:
+
+- **Per-request intent** — `live: true` (or `dryRun: false`) on the run / remix /
+  regenerate call. Necessary, but **not sufficient**.
+- **Environment opt-in** — `VVUGC_LLM_LIVE=true`. The operator must set this in
+  the deployment environment. Without it, every run is forced to `dryRun`
+  regardless of what the client requests.
+
+So accidental API spend is impossible even if a client sends `live: true`. This
+is enforced in one place (`apps/review-dashboard/src/llm-gate.ts`) and applied
+to every run / remix / regenerate endpoint plus the scheduler.
+
+External **discovery** (platform scraping: YouTube / TikTok / Meta) is gated
+separately by `VVUGC_DISCOVERY_LIVE=true`. When unset, `/accounts/discover`
+returns an empty candidate list and the editor seeds a brief from the niche text
+— fully offline, never a 500.
+
+Scheduled (cron) runs default to `dryRun`. To let them go live you must set both
+`SCHEDULED_RUNS_LIVE=true` **and** `VVUGC_LLM_LIVE=true`.
+
+> The only other "mock-like" code in the runtime is `discoveryAnalyze.seedBrief`,
+> a benign deterministic fallback used when discovery finds zero videos so the
+> editor is never empty. Everything else is real or part of the `dryRun` mock.
+> (Unit tests use `vi.mock` doubles — those are test seams, not shipped behavior.)
 
 ### Voiceover narration (optional)
 
@@ -66,7 +100,7 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 ## Deployment
 
-**CI publishes runnable images; it doesn't pick where they run.** On every push to `main`, `.github/workflows/ci.yml` builds all three Docker images and pushes them to GitHub Container Registry (`ghcr.io/<owner>/<repo>/{review-dashboard,marketing-site,orchestrator}:latest`, plus an immutable commit-SHA tag) — no setup needed, it authenticates with the workflow's own `GITHUB_TOKEN`. That's the "publish the artifact" half of CD. The "run it somewhere reachable" half needs a hosting target — Fly.io, Railway, ECS, a VPS, etc — which is a real cost/ops tradeoff only you can make; point whichever host you pick at the published image.
+**CI publishes runnable images; it doesn't pick where they run.** On every push to `main`, `.github/workflows/ci.yml` builds four Docker images and pushes them to GitHub Container Registry (`ghcr.io/<owner>/<repo>/{review-dashboard,marketing-site,orchestrator,video-worker}:latest`, plus an immutable commit-SHA tag) — no setup needed, it authenticates with the workflow's own `GITHUB_TOKEN`. `video-worker` is a long-running service and must be deployed alongside the dashboard wherever provider jobs are processed; `orchestrator` is a one-off CLI image. The control-panel is intentionally not a fifth image: its built SPA is included in `review-dashboard` and served from `/app` on the same origin. That's the "publish the artifact" half of CD. The "run it somewhere reachable" half needs a hosting target — Fly.io, Railway, ECS, a VPS, etc — which is a real cost/ops tradeoff only you can make; point whichever host you pick at the published image.
 
 **Fly.io, concretely**: if you don't want to pick a host from scratch, `fly.review-dashboard.toml` and `fly.marketing-site.toml` at the repo root are ready-to-use configs (health checks, persistent volumes, the `TRUST_PROXY_HOPS` setting Fly's proxy requires) — see [`docs/deploy-fly.md`](docs/deploy-fly.md) for the full first-deploy walkthrough, required secrets, and rollback notes. These build from source on Fly's own builders rather than deploying the GHCR image above, so `rollback.yml` doesn't apply to a Fly deployment — `docs/deploy-fly.md` covers what does.
 
@@ -76,7 +110,7 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 **The review-dashboard requires `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD`** in any real deployment — it approves/rejects content before it ships, so it's never served unauthenticated (see `apps/review-dashboard/src/auth.ts`). Leave both unset only for local dev/testing; the dashboard then generates a random one-time password and prints it in a plain-text startup banner. Production fails closed when explicit credentials are missing. Set real env vars for a login that survives restarts; never treat generated local credentials as a deployment secret.
 
-**All three containers run as a non-root user (uid 1000)**, not root. The `./runs` bind-mount keeps whatever ownership it already has on the host — if your host account isn't also uid 1000, the container won't be able to write to it. Run `chmod -R a+rwX runs` once before `docker compose up` (see the comment atop `docker-compose.yml` for the alternative: override each service's `user:` to match your own uid/gid instead).
+**Every container image (all four, including the one-off `orchestrator` CLI) runs as a non-root user (uid 1000)**, not root. The `./runs` bind-mount keeps whatever ownership it already has on the host — if your host account isn't also uid 1000, the container won't be able to write to it. Run `chmod -R a+rwX runs` once before `docker compose up` (see the comment atop `docker-compose.yml` for the alternative: override each service's `user:` to match your own uid/gid instead).
 
 **The marketing-site should have `PUBLIC_BASE_URL` set** in any real deployment — og:image/twitter:image meta tags must be absolute URLs per spec, and the server has no other way to know its own public origin (a proxy/CDN in front of it may present a different host than what it binds to). Leave it unset for local dev; the server then falls back to deriving the origin from each incoming request.
 
@@ -84,15 +118,22 @@ Neither approval process is something this repo (or an AI agent working in it) c
 
 ```
 apps/orchestrator/       conductor + CLI (`vvugc run ...`)
-apps/review-dashboard/   human-in-the-loop approve/reject UI
+apps/review-dashboard/   human-in-the-loop approve/reject UI (serves the control-panel SPA at /app)
 apps/marketing-site/     public landing page — video gallery + UGC-review wall, manifest-driven
+apps/control-panel/      React SPA workspace (built into review-dashboard)
+apps/video-worker/       background video-generation worker
 packages/mcp-discovery/  YouTube/TikTok/Meta discovery adapters
 packages/mcp-transcript/ caption/ASR transcription
-packages/mcp-video-gen/  Higgsfield/Kling/Runway/Pika video adapters
+packages/mcp-voiceover/  ElevenLabs/Grok narration synced to caption cues
+packages/mcp-video-gen/  video adapters — Higgsfield/Kling/Runway/Pika/Replicate/Seedance/Grok/Wan/Alibaba Model Studio, + Gemini stills
 packages/mcp-assembly/   ffmpeg stitching, captions, aspect-ratio, thumbnails
-packages/review-queue/   HITL queue — JSON file by default, Postgres via DATABASE_URL (see its README)
+packages/mcp-publish/    YouTube/TikTok/Facebook/Instagram publishing adapters (approve-gated dashboard route only)
+packages/mcp-lipsync/    lip-sync adapters (SyncLabs/HeyGen)
+packages/review-queue/   HITL queue — JSON file locally, Postgres via DATABASE_URL in production (see its README)
 packages/shared-schema/  Zod data contracts shared by every stage
 packages/shared-config/  env/secrets loader
++ shared-platform/auth/billing/cost/metrics/http/analytics/product-analytics/originality/persistence,
+  curriculum-engine, design-tokens — see ARCHITECTURE.md for the complete verified tree
 infra/cron/              documented (not deployed) weekly-cadence Lambda shape
-docs/                     architecture + cost table
+docs/                    architecture + cost table (superseded audits in docs/archive/)
 ```

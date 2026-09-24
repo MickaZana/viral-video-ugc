@@ -1,10 +1,10 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "./passwords.js";
 
 /**
- * Fine-grained org roles — Owner/Admin/Editor/Reviewer/Viewer (docs/remaining-p0-execution-plan.md
+ * Fine-grained org roles — Owner/Admin/Editor/Reviewer/Viewer (docs/archive/remaining-p0-execution-plan.md
  * Phase 7). Legacy on-disk accounts created before this model carried role "member"; that value is
  * treated as editor-equivalent everywhere (see roleHasPermission) so no existing account is locked
  * out or silently elevated — it just behaves like an editor until the owner re-roles them.
@@ -26,7 +26,12 @@ export type AccountPermission =
   | "pipeline.run.live"
   | "jobs.manage"
   | "review.manage"
-  | "view";
+  | "view"
+  | "curriculum.view"
+  | "curriculum.edit"
+  | "curriculum.approve"
+  | "curriculum.produce"
+  | "curriculum.delete";
 
 const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
   owner: [
@@ -39,7 +44,12 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run.live",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce",
+    "curriculum.delete"
   ],
   admin: [
     "team.manage",
@@ -49,7 +59,12 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce",
+    "curriculum.delete"
   ],
   editor: [
     "settings.manage",
@@ -58,10 +73,14 @@ const ROLE_PERMISSIONS: Record<AccountRole, readonly AccountPermission[]> = {
     "pipeline.run",
     "jobs.manage",
     "review.manage",
-    "view"
+    "view",
+    "curriculum.view",
+    "curriculum.edit",
+    "curriculum.approve",
+    "curriculum.produce"
   ],
-  reviewer: ["review.manage", "view"],
-  viewer: ["view"]
+  reviewer: ["review.manage", "view", "curriculum.view"],
+  viewer: ["view", "curriculum.view"]
 };
 
 /** True if the role may perform `permission`. Accepts the legacy "member" role (maps to editor)
@@ -150,7 +169,7 @@ function readAllUnlocked(dbPath: string): Account[] {
 
 function writeAllUnlocked(dbPath: string, accounts: Account[]): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  writeFileSync(dbPath, JSON.stringify(accounts, null, 2));
+  { const _atomicTmp = `${dbPath}.${randomUUID()}.tmp`; writeFileSync(_atomicTmp, JSON.stringify(accounts, null, 2)); renameSync(_atomicTmp, dbPath); };
 }
 
 export class EmailAlreadyRegisteredError extends Error {

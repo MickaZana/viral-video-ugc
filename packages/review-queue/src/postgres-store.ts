@@ -73,6 +73,10 @@ export function createPostgresStore(pool: PgPool): ReviewQueueStore {
         params.push(filter.clientId);
         conditions.push(`client_id = $${params.length}`);
       }
+      if (filter?.dryRun !== undefined) {
+        params.push(filter.dryRun ? "true" : "false");
+        conditions.push(`COALESCE((data->>'dryRun')::boolean, false) = $${params.length}`);
+      }
       const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
       const { rows } = await pool.query(`SELECT data FROM review_items ${where} ORDER BY created_at DESC`, params);
       return rows.map(rowToItem);

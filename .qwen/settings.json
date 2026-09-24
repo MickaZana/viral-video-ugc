@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd *)",
+      "Bash(pnpm *)",
+      "Bash(findstr *)"
+    ]
+  },
+  "$version": 4
+}

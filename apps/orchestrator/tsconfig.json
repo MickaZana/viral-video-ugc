@@ -8,12 +8,14 @@
   "references": [
     { "path": "../../packages/shared-schema" },
     { "path": "../../packages/shared-config" },
+    { "path": "../../packages/curriculum-engine" },
     { "path": "../../packages/mcp-discovery" },
     { "path": "../../packages/mcp-transcript" },
     { "path": "../../packages/mcp-video-gen" },
     { "path": "../../packages/mcp-assembly" },
     { "path": "../../packages/mcp-voiceover" },
     { "path": "../../packages/review-queue" },
-    { "path": "../../packages/shared-originality" }
+    { "path": "../../packages/shared-originality" },
+    { "path": "../../packages/shared-analytics" }
   ]
 }

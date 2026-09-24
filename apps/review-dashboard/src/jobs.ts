@@ -1,19 +1,19 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 
 import {
   getConfiguredPostgresPipelineJobStore,
   type PipelineJob,
   type PipelineJobStore
 } from "@vvugc/review-queue";
-import { runCycle } from "@vvugc/orchestrator";
+import { connectHiggsfieldMcp, runCycle, type ConnectedHiggsfieldMcp } from "@vvugc/orchestrator";
+import type { RunConfig } from "@vvugc/shared-schema";
+import type { RunCycleOptions } from "@vvugc/orchestrator";
 import { aggregateUsage } from "@vvugc/shared-auth";
-import { createPlanStore } from "@vvugc/shared-billing";
 import { loadEnv } from "@vvugc/shared-config";
-import { checkRunQuota } from "./quota.js";
-import { createOverageStore } from "./overage.js";
+import { LocalBillingRepository, type BillingRepository } from "./billing-postgres.js";
+import { createProgressCallback, completeRun } from "./run-progress.js";
 
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_RETRY_MS = 50;
@@ -42,14 +42,8 @@ function lock(path: string): void {
       while (Date.now() - start < LOCK_RETRY_MS) { /* spin-wait */ }
     }
   }
-  // Last resort: force-remove the lock and try once more
-  rmSync(lockPath, { force: true });
-  try {
-    closeSync(openSync(lockPath, "wx"));
-    return;
-  } catch {
-    throw new Error(`Failed to acquire lock on ${path} after ${LOCK_TIMEOUT_MS}ms — another process may be holding it`);
-  }
+  // P1 FIX: Do NOT force-delete another process's lock — fail loudly instead.
+  throw new Error(`Failed to acquire lock on ${path} after ${LOCK_TIMEOUT_MS}ms — another process may be holding it. Stale locks (>${STALE_LOCK_MS}ms) are recovered automatically.`);
 }
 
 /** Local fallback for development. Production selects the PostgreSQL backend. */
@@ -61,7 +55,11 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
     try {
       const jobs = read();
       const result = fn(jobs);
-      writeFileSync(path, JSON.stringify(jobs, null, 2));
+      // P1 FIX: Atomic write — write to temp file, then rename. Prevents
+      // 0-byte corruption if the process is killed mid-write.
+      const tmp = `${path}.${randomUUID()}.tmp`;
+      writeFileSync(tmp, JSON.stringify(jobs, null, 2));
+      renameSync(tmp, path);
       return result;
     } finally {
       rmSync(`${path}.lock`, { force: true });
@@ -130,7 +128,7 @@ function createJsonPipelineJobStore(path: string): PipelineJobStore {
       return mutate((jobs) => {
         const before = jobs.length;
         for (let i = jobs.length - 1; i >= 0; i--) {
-          if (jobs[i].orgId === orgId) jobs.splice(i, 1);
+          if (jobs[i]!.orgId === orgId) jobs.splice(i, 1);
         }
         return before - jobs.length;
       });
@@ -215,48 +213,57 @@ export function createPipelineJobStore(path: string, options: { forceJson?: bool
 export async function processNextPipelineJob(
   store: PipelineJobStore,
   workerId = `worker-${randomUUID()}`,
-  leaseMs = 60_000
+  leaseMs = 60_000,
+  billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR),
+  dependencies: {
+    connectHiggsfield?: () => Promise<ConnectedHiggsfieldMcp | undefined>;
+    runCycle?: (config: RunConfig, opts?: RunCycleOptions) => ReturnType<typeof runCycle>;
+  } = {}
 ): Promise<PipelineJob | undefined> {
   const job = await store.claim(workerId, leaseMs);
   if (!job) return undefined;
   const heartbeat = setInterval(() => void store.heartbeat(job.id, workerId, leaseMs), Math.max(1_000, Math.floor(leaseMs / 3)));
   heartbeat.unref();
+  let higgsfield: ConnectedHiggsfieldMcp | undefined;
   try {
     const { VVUGC_RUNS_DIR } = loadEnv();
-    const plan = createPlanStore(join(VVUGC_RUNS_DIR, "account-plans.json")).get(job.orgId);
-    const quota = checkRunQuota(plan, aggregateUsage(job.orgId, VVUGC_RUNS_DIR));
     // Hybrid billing: a run past the tier's included allowance is allowed and
     // recorded as consumption overage, not blocked.
-    const isOverage = quota.overage && quota.overagePriceUsdPerRun !== undefined;
-    const result = await runCycle(job.config, { onProgress: () => {} });
-    if (isOverage && quota.overagePriceUsdPerRun !== undefined) {
-      createOverageStore(join(VVUGC_RUNS_DIR, "overage.json")).record({
-        orgId: job.orgId,
-        runId: job.config.runId,
-        priceUsdPerRun: quota.overagePriceUsdPerRun,
-        estimatedVendorCostUsd: result.estimatedCostUsd ?? quota.overagePriceUsdPerRun,
-        clientId: job.config.clientId
-      });
+    const reservation = await billing.reserveRun({ orgId: job.orgId, runId: job.config.runId, clientId: job.config.clientId, durationSec: job.config.targetDurationSec, usageRunCount: aggregateUsage(job.orgId, VVUGC_RUNS_DIR).runs.length });
+    const isOverage = reservation.kind === "overage";
+    const onProgress = createProgressCallback(job.config.runId);
+    const higgsfieldRequested = job.config.videoVendor === "higgsfield" || job.config.videoVendorFallbacks?.includes("higgsfield");
+    if (!job.config.dryRun && higgsfieldRequested) {
+      try {
+        higgsfield = await (dependencies.connectHiggsfield ?? connectHiggsfieldMcp)();
+        if (!higgsfield) onProgress("Higgsfield MCP credentials are not configured; using the configured fallback chain.");
+      } catch {
+        onProgress("Higgsfield MCP is unavailable; using the configured fallback chain.");
+      }
     }
+    const result = await (dependencies.runCycle ?? runCycle)(job.config, { onProgress, callMcpTool: higgsfield?.callMcpTool });
+    completeRun(job.config.runId, true, { candidatesFound: result.candidatesFound, reviewItemsCreated: result.reviewItemsCreated });
     const current = await store.get(job.orgId, job.id);
-    if (current?.cancelRequested) await store.acknowledgeCancelled(job.id, workerId);
-    else await store.complete(job.id, workerId, result);
+    if (current?.cancelRequested) { await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId, estimatedVendorCostUsd: result.estimatedCostUsd }); await store.acknowledgeCancelled(job.id, workerId); }
+    else { if (isOverage) await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId, estimatedVendorCostUsd: result.estimatedCostUsd }); await store.complete(job.id, workerId, result); }
   } catch (error) {
+    await billing.settleReservation({ orgId: job.orgId, runId: job.config.runId });
     await store.fail(job.id, workerId, String(error));
   } finally {
     clearInterval(heartbeat);
+    await higgsfield?.close().catch(() => undefined);
   }
   return store.get(job.orgId, job.id);
 }
 
-export function startPipelineJobWorker(store: PipelineJobStore, intervalMs = 1_000): NodeJS.Timeout {
+export function startPipelineJobWorker(store: PipelineJobStore, intervalMs = 1_000, billing: BillingRepository = new LocalBillingRepository(loadEnv().VVUGC_RUNS_DIR)): NodeJS.Timeout {
   const workerId = `worker-${process.pid}-${randomUUID()}`;
   void store.recoverExpiredLeases();
   let busy = false;
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
-    void processNextPipelineJob(store, workerId).finally(() => { busy = false; });
+    void processNextPipelineJob(store, workerId, 60_000, billing).finally(() => { busy = false; });
   }, intervalMs);
   timer.unref();
   return timer;

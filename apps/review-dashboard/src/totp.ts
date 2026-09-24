@@ -70,12 +70,12 @@ export function totpCode(secret: string, timeMs = Date.now(), windowOffset = 0):
   const counterBuffer = Buffer.alloc(8);
   counterBuffer.writeBigUInt64BE(BigInt(counter));
   const digest = createHmac("sha1", base32Decode(secret)).update(counterBuffer).digest();
-  const offset = digest[digest.length - 1] & 0x0f;
+  const offset = digest[digest.length - 1]! & 0x0f;
   const truncated =
-    ((digest[offset] & 0x7f) << 24) |
-    (digest[offset + 1] << 16) |
-    (digest[offset + 2] << 8) |
-    digest[offset + 3];
+    ((digest[offset]! & 0x7f) << 24) |
+    (digest[offset + 1]! << 16) |
+    (digest[offset + 2]! << 8) |
+    digest[offset + 3]!;
   return String(truncated % 10 ** TOTP_CODE_DIGITS).padStart(TOTP_CODE_DIGITS, "0");
 }
 

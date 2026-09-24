@@ -45,7 +45,12 @@ export interface TrackedCreator {
   runs: string[];
 }
 
-export function listTrackedCreators(): TrackedCreator[] {
+/**
+ * Lists tracked creators derived from run manifests. When orgId is provided,
+ * only creators from runs belonging to that organization are included
+ * (tenant isolation). When omitted (operator context), all creators are returned.
+ */
+export function listTrackedCreators(orgId?: string): TrackedCreator[] {
   const { VVUGC_RUNS_DIR } = loadEnv();
   if (!existsSync(VVUGC_RUNS_DIR)) return [];
 
@@ -70,12 +75,15 @@ export function listTrackedCreators(): TrackedCreator[] {
     const manifestPath = join(VVUGC_RUNS_DIR, entry.name, "manifest.json");
     if (!existsSync(manifestPath)) continue;
 
-    let manifest: RunManifest;
+    let manifest: RunManifest & { config?: { accountId?: string } };
     try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as RunManifest;
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     } catch {
       continue; // malformed manifest — skip this run
     }
+
+    // Tenant isolation: skip runs that don't belong to the requesting org
+    if (orgId && manifest.config?.accountId !== orgId) continue;
 
     const runNiche = manifest.config?.niche ?? "unknown";
     for (const c of manifest.chosen ?? []) {

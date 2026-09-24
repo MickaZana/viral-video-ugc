@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fetchWithRetry } from "@vvugc/shared-http";
 import type { RawClip } from "@vvugc/shared-schema";
 import { pollWithBackoff } from "../poll.js";
+import { mapToPromptEnrichment } from "../visual-mapping.js";
 import type { McpToolCaller, VideoGenAdapter, VideoGenRequest } from "./VideoGenAdapter.js";
 
 /**
@@ -41,11 +42,34 @@ export function createHiggsfieldAdapter(callMcpTool: McpToolCaller, outDir: stri
   return {
     vendor: "higgsfield",
     async generate(req: VideoGenRequest): Promise<RawClip> {
-      const medias = req.referenceImageUrl ? [{ value: await importMedia(callMcpTool, req.referenceImageUrl), role: "image" }] : undefined;
+      // Soul ID + image-to-video: unlike the REST adapters' single image field,
+      // Higgsfield's medias[] genuinely supports multiple images at once, so a
+      // startingFrame and an identityRef aren't mutually exclusive here — the
+      // starting frame goes first (most specific intent: "animate exactly this"),
+      // then the identity references, up to Cinema Studio 4.0's 50-reference cap.
+      let medias: Array<{ value: string; role: string }> | undefined;
+
+      const startingImage = req.startingFrame?.imageUrl ?? req.startingFrame?.imageDataUri;
+      const identityUrls = req.identityRef?.primaryImageUrl
+        ? [req.identityRef.primaryImageUrl, ...req.identityRef.additionalImageUrls]
+        : [];
+      const allUrls = [...(startingImage ? [startingImage] : []), ...identityUrls].slice(0, 50);
+
+      if (allUrls.length > 0) {
+        const imported = await Promise.all(
+          allUrls.map((url) => importMedia(callMcpTool, url))
+        );
+        medias = imported.map((mediaId) => ({ value: mediaId, role: "image" }));
+      } else if (req.referenceImageUrl) {
+        medias = [{ value: await importMedia(callMcpTool, req.referenceImageUrl), role: "image" }];
+      }
+
+      // Cinema Controls: enrich prompt with visual direction
+      const enrichedPrompt = req.visualDirection ? `${req.prompt}. ${mapToPromptEnrichment(req.visualDirection)}` : req.prompt;
 
       const submitResult = await callMcpTool("generate_video", {
         model: DEFAULT_MODEL,
-        prompt: req.prompt,
+        prompt: enrichedPrompt,
         duration: req.durationSec,
         aspect_ratio: req.aspectRatio,
         ...(medias ? { medias } : {})

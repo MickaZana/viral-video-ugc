@@ -1,5 +1,10 @@
 # Viral Video UGC Architecture
 
+> Companion to the canonical [`../ARCHITECTURE.md`](../ARCHITECTURE.md), which owns module
+> boundaries, key identifiers, and feature flags — this doc owns the pipeline/dataflow design
+> and operational hardening notes, and is kept consistent with it. Current status:
+> [`go-live-plan.md`](go-live-plan.md); superseded audits live in [`archive/`](archive/).
+
 ## Why this exists
 
 Yorby.ai (reverse-engineered from its public site) is a **script remixer**: paste a viral video link, get a rewritten hook/point/CTA script back in under a minute. It stops there — no discovery automation, no video generation, no scheduling, no editor. Viral Video UGC is the full pipeline Yorby doesn't build: **discovery → transcript → script rewrite → video generation → assembly → human-reviewed queue**, running on a weekly cadence from one command.
@@ -15,11 +20,11 @@ CLI: vvugc run --niche=fitness --platforms=youtube_shorts
   conductor.runCycle(RunConfig)
         │
         ├─ Stage 1  Discovery         → packages/mcp-discovery   (YouTube live; TikTok + Instagram fully implemented and tested, both pending API approval, not code — see README's Platform support section)
-        ├─ Stage 2  Transcription     → packages/mcp-transcript  (YouTube captions live; ASR fallback stubbed)
+        ├─ Stage 2  Transcription     → packages/mcp-transcript  (YouTube captions live; ASR fallback real — yt-dlp audio extraction → Whisper, used automatically when captions are missing)
         ├─ Stage 3  Script rewrite    → apps/orchestrator/src/agents/script-agent.ts (Claude, via Anthropic SDK)
         ├─ Stage 4  Caption timing    → apps/orchestrator/src/agents/caption-agent.ts (Claude decides cue text/timing)
         ├─ Stage 5  Voiceover         → packages/mcp-voiceover   (ElevenLabs/Grok — opt-in via --voice-vendor, narration synced per-cue to Stage 4's captions; skipped entirely when unset)
-        ├─ Stage 6  Video generation  → packages/mcp-video-gen   (Higgsfield via injected MCP call, Kling/Runway/Pika via REST, Gemini stills + Ken Burns — pixels only)
+        ├─ Stage 6  Video generation  → packages/mcp-video-gen   (Higgsfield via injected MCP call; Kling/Runway/Pika/Alibaba Model Studio/Replicate/Seedance/Grok-video/Wan via REST; Gemini stills + Ken Burns — pixels only)
         ├─ Stage 7  Assembly          → packages/mcp-assembly    (ffmpeg: concat, aspect-ratio crop, burns Claude's caption cues, mixes in Stage 5's narration if present, thumbnail)
         ├─ Stage 8  QA / scoring      → apps/orchestrator/src/agents/qa-agent.ts (Claude, via Anthropic SDK — not a vendor tool)
         └─ Stage 9  Review queue      → packages/review-queue (JSON file, or Postgres via DATABASE_URL — see its README) + apps/review-dashboard (approve/reject UI)
@@ -27,7 +32,7 @@ CLI: vvugc run --niche=fitness --platforms=youtube_shorts
 
 Each candidate, and within it each platform, is wrapped in its own try/catch (`conductor.ts`) — a bad transcript, a vendor timeout, or one failed video-gen call skips just that unit and logs a warning; it does not abort the run. `RunResult`/`manifest.json` report `candidatesFailed`/`platformsFailed` alongside `reviewItemsCreated` so a partially-failed run is visible, not silent — the review-dashboard's run-history table surfaces both.
 
-**Vendor boundary is deliberate**: Higgsfield/Kling/Runway/Pika are called for pixel generation only (`generate_video` / equivalent). Claude is the sole agent that decides captions and virality scores — it never delegates those judgments to a vendor's built-in tool (e.g. Higgsfield's `virality_predictor` is intentionally unused here), because Claude already holds the full script/brand-voice context from the rewrite stage and that context matters more to these judgments than seeing the rendered frames.
+**Vendor boundary is deliberate**: Higgsfield/Kling/Runway/Pika/Alibaba Model Studio are called for pixel generation only (`generate_video` / equivalent). Claude is the sole agent that decides captions and virality scores — it never delegates those judgments to a vendor's built-in tool (e.g. Higgsfield's `virality_predictor` is intentionally unused here), because Claude already holds the full script/brand-voice context from the rewrite stage and that context matters more to these judgments than seeing the rendered frames.
 
 Each MCP-shaped package (`mcp-discovery`, `mcp-transcript`, `mcp-assembly`) ships both a plain library (what the CLI calls directly today) and an MCP server entrypoint (`src/server.ts`) exposing the same logic as tools — so the exact same code can be wired into a real Claude Agent SDK subagent session later without a rewrite.
 
@@ -69,16 +74,17 @@ The review-dashboard similarly used to show a bare QA score and raw flag slugs (
 
 ## Human-in-the-loop
 
-No stage posts to any platform. `runCycle` always terminates by inserting `ReviewItem` records into `packages/review-queue`'s JSON store with `status: "pending"`; `apps/review-dashboard` is where a human approves or rejects. `--auto-post` exists as a CLI flag for future full-autonomy but currently only prints a warning — no publishing API integration has been built, by design, until you decide you trust the pipeline's output unsupervised.
+No stage of `conductor.ts` posts to any platform — publishing is reachable only from the review-dashboard's `POST /queue/:id/publish` route (`apps/review-dashboard/src/server.ts`), gated on `status === "approved"` (plus non-dry-run asset and once-only receipt checks), so the approve-then-publish gate this architecture is built around stays intact. `runCycle` always terminates by inserting `ReviewItem` records into `packages/review-queue`'s store with `status: "pending"`; `apps/review-dashboard` is where a human approves or rejects, and an approved item can then be published through `packages/mcp-publish` (YouTube/TikTok/Facebook/Instagram Reels adapters — TikTok/Meta posting still needs the same external app approvals as their discovery APIs; see "Publishing APIs" below). The CLI's `--auto-post` flag exists for future full-autonomy but today only prints a warning and still writes to the queue — the pipeline never publishes by itself, by design, until you decide you trust its output unsupervised.
 
 ## Known gaps / where to extend next
 
 - **TikTok/Instagram discovery**: real, tested implementations (`packages/mcp-discovery/src/tools/{tiktok,meta}.ts`, 22 tests against mocked-but-verified API shapes) — blocked purely on you obtaining approved API access (TikTok Research API application; Meta app with `instagram_basic`), not on missing code. **Facebook discovery is genuinely unimplemented** — its Graph API has no hashtag/trending search, only a Page Feed API scoped to a specific page you already operate, which needs a niche→Page-ID config mapping this scaffold doesn't have yet.
-- **ASR fallback**: `mcp-transcript`'s `transcribeWithAsrFallback` throws until a Whisper/AssemblyAI/Deepgram client is wired in; YouTube's public caption track covers the currently-live path.
+- **ASR fallback**: now wired end-to-end — `mcp-transcript`'s `transcribeWithAsrFallback` extracts audio via yt-dlp (`audio-extract.ts`) and transcribes with a real Whisper client (`asr.ts`), and `transcribeCandidate` falls back to it automatically when YouTube captions are missing (requires a Whisper-capable `OPENAI_API_KEY`; an earlier version of this doc described it as a throwing stub — no longer true).
 - **Higgsfield in a deployed (non-Claude-session) context**: the Higgsfield adapter takes an injected `callMcpTool` (used only for `generate_video` — pixel generation, never scoring/captions) because Higgsfield today is only reachable via an active MCP connection, not a standalone REST API — see `infra/cron/README.md` for the deployment implication.
 - **`--video-vendor gemini`**: a still-image-driven alternative to the video vendors above — one Gemini-generated image per script segment, Ken-Burns-panned into a clip (`packages/mcp-video-gen/src/adapters/gemini.ts`). Useful when no video-gen vendor credential is configured (or Higgsfield's interactive-session requirement doesn't fit a given deployment) — it's a standalone REST call, not MCP-only like Higgsfield. Also the path `apps/marketing-site/scripts/generate-demo-videos.ts` uses to populate the landing page's placeholder gallery without needing an interactive Claude session — see `docs/marketing-site.md`'s "Phase A".
-- **Publishing APIs**: none are integrated yet (TikTok Content Posting API, Meta Content Publishing API, YouTube Shorts upload) — intentionally deferred behind the human review gate.
-- **ffmpeg execution**: `packages/mcp-assembly` was verified against real ffmpeg-static binaries but this build's dev sandbox blocked spawning the downloaded `ffmpeg.exe` (`EFTYPE`/"Exec format error" even though the binary is a valid PE32+ Windows executable) — likely a local execution-policy restriction on freshly downloaded binaries, not a code issue. `--dry-run` bypasses ffmpeg entirely (mock adapters never write real video), so the full pipeline is verified end-to-end regardless; confirm `ffmpeg -version` runs cleanly on whatever machine does live (non-dry-run) assembly before relying on it.
+- **`--video-vendor alibaba`**: Alibaba Model Studio hosted async video generation (`packages/mcp-video-gen/src/adapters/alibaba.ts`). Defaults to `wan3.0-video`; configure `DASHSCOPE_API_KEY`, the full region-matched `ALIBABA_VIDEO_ENDPOINT`, and optionally `ALIBABA_VIDEO_MODEL` for Wan 2.7 / 3.0 or HappyHorse 1.1 model IDs. The adapter sends `X-DashScope-Async: enable`, polls `/api/v1/tasks/{task_id}` every 15 seconds for up to 15 minutes, then downloads the temporary MP4 before the provider's 24-hour URL expiry. Model Studio requires the API key, model, and endpoint to belong to the same region. Pricing is model/region-specific; the ledger's rate is only a placeholder. See `.env.example` and `docs/cost-table.md`.
+- **Publishing APIs**: real adapters exist in `packages/mcp-publish` for all four targets — YouTube Data API v3 resumable upload (`youtube.ts`, reached with the dashboard's `youtube.upload` OAuth scope in `google-oauth.ts`), TikTok Content Posting direct-post (`tiktok.ts`), Facebook Page resumable upload, and Instagram Reels publish (`meta.ts`), each covered by mocked-contract tests — but they are only reachable from the dashboard's approve-gated `POST /queue/:id/publish` route, never from the pipeline itself. Not yet proven with a real funded/authorized posting account, and TikTok/Meta publishing waits on the same external app approvals as their discovery APIs (see `docs/go-live-plan.md` Part D).
+- **ffmpeg execution**: `packages/mcp-assembly` probes the `ffmpeg-static`/`ffprobe-static` binaries first and falls back to a system `ffmpeg`/`ffprobe` on PATH when the downloaded binary isn't runnable (the original motivation: this project's dev sandbox once blocked the freshly downloaded `ffmpeg.exe` with `EFTYPE`/"Exec format error"; `resolveFfmpegPath`/`resolveFfprobePath` in `src/lib.ts` handle that case instead of failing). The assembly tests run real ffmpeg/ffprobe against real files, and this machine has a working system ffmpeg (`ffmpeg -version` → 8.0.1) — but if you hit spawn failures on a new host, that's the first thing to check (`ffmpeg -version` runs cleanly?) before suspecting the code.
 
 ## Linting
 
@@ -90,7 +96,7 @@ No stage posts to any platform. `runCycle` always terminates by inserting `Revie
 
 Running this for the first time found something real: all three runtime Docker images were shipping `vitest`/`vite`/`esbuild` (including a Critical-severity vitest CVE) despite being pure devDependencies that never execute at runtime — the multi-stage Dockerfiles copied the *entire* build stage's `/repo` (all devDependencies included) into the runtime image with no pruning step. Fixed by wiping `node_modules` and reinstalling `--prod` in the runtime stage of all three Dockerfiles; verified by rebuilding each image and confirming the packages are gone from the running container's filesystem, and that each app still starts/serves/passes its smoke test afterward. (`pnpm prune --prod` looks like the more obvious one-line fix but silently no-ops in this pnpm version when run in a non-interactive Docker `RUN` layer — it wants to prompt "reinstall from scratch?" with no TTY to answer it — so don't reach for it here without checking it actually removed anything.)
 
-**Follow-up not done in this pass**: `vitest`/`vite`/`esbuild` themselves are still on the CVE-affected versions in the *lockfile* (just no longer shipped to production) — bumping vitest 2.x→3.x across every package is a real breaking-change surface (test config, mocking APIs) that deserves its own dedicated pass with full regression testing, not a rushed change bundled into a Dockerfile fix.
+**Follow-up from this pass — since resolved**: the `vitest`/`vite`/`esbuild` lockfile bump that this note deferred has landed (lockfile now carries vitest 3.2.7, vite 6.4.3, esbuild 0.25.12 — the CVE-driven 2.x→3.x migration this paragraph warned about is done; re-verified against `pnpm-lock.yaml`).
 
 ## Process lifecycle
 
@@ -110,4 +116,4 @@ Both web apps limit request volume per client IP (`express-rate-limit`) on the e
 
 ## Running it
 
-See the repo root `README.md` (or the Verification section of the build plan) for `pnpm install`, `--dry-run`, and live-run instructions.
+See the repo root [`README.md`](../README.md) for `pnpm install`, `--dry-run`, and live-run instructions.

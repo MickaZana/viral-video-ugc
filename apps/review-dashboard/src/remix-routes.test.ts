@@ -60,7 +60,7 @@ async function startServer() {
 }
 
 function sessionCookieFrom(res: Response): string {
-  return res.headers.get("set-cookie")!.split(";")[0];
+  return res.headers.get("set-cookie")!.split(";")[0]!;
 }
 
 async function signupAndSession(): Promise<{ cookie: string; csrf: string }> {

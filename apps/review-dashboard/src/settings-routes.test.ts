@@ -30,7 +30,7 @@ async function signUpAndGetCookie(email: string): Promise<string> {
   });
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
-  return setCookie.split(";")[0];
+  return setCookie.split(";")[0]!;
 }
 
 describe("account settings and self-service run routes", () => {
@@ -82,6 +82,120 @@ describe("account settings and self-service run routes", () => {
     const get = await (await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: cookie } })).json();
     expect(get.niche).toBe("fitness");
     expect(get.platforms).toEqual(["tiktok", "youtube_shorts"]);
+  });
+
+  it("new accounts default to standard application mode", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("mode-default@example.com");
+    const res = await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: cookie } });
+    expect(res.status).toBe(200);
+    const settings = await res.json();
+    expect(settings.appMode).toBe("standard");
+  });
+
+  it("persists curriculum mode across requests", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("curriculum@example.com");
+
+    const put = await fetch(`${baseUrl}/accounts/settings`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        niche: "fitness",
+        brandVoice: "punchy",
+        platforms: ["tiktok", "youtube_shorts"],
+        targetDurationSec: 30,
+        videoVendor: "kling",
+        voiceVendor: "elevenlabs",
+        cadence: "weekly",
+        appMode: "curriculum"
+      })
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json()).appMode).toBe("curriculum");
+
+    const get = await (await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: cookie } })).json();
+    expect(get.appMode).toBe("curriculum");
+  });
+
+  it("rejects invalid application modes", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("bad-mode@example.com");
+    const res = await fetch(`${baseUrl}/accounts/settings`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        niche: "fitness",
+        brandVoice: "punchy",
+        platforms: ["tiktok", "youtube_shorts"],
+        targetDurationSec: 30,
+        videoVendor: "kling",
+        voiceVendor: "elevenlabs",
+        cadence: "weekly",
+        appMode: "magic_mode"
+      })
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT /accounts/settings/app-mode sets curriculum without requiring niche", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("app-mode-fresh@example.com");
+
+    const put = await fetch(`${baseUrl}/accounts/settings/app-mode`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ appMode: "curriculum" })
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json()).appMode).toBe("curriculum");
+
+    const get = await (await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: cookie } })).json();
+    expect(get.appMode).toBe("curriculum");
+    expect(get.niche).toBe("");
+  });
+
+  it("PUT /accounts/settings/app-mode rejects an unknown mode", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("app-mode-bad@example.com");
+    const res = await fetch(`${baseUrl}/accounts/settings/app-mode`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ appMode: "nope" })
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT /accounts/settings/app-mode preserves other settings", async () => {
+    await startServer();
+    const cookie = await signUpAndGetCookie("app-mode-preserve@example.com");
+
+    const put = await fetch(`${baseUrl}/accounts/settings`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        niche: "fitness",
+        brandVoice: "punchy",
+        platforms: ["tiktok", "youtube_shorts"],
+        targetDurationSec: 30,
+        videoVendor: "kling",
+        voiceVendor: "elevenlabs",
+        cadence: "weekly"
+      })
+    });
+    expect(put.status).toBe(200);
+
+    const modeRes = await fetch(`${baseUrl}/accounts/settings/app-mode`, {
+      method: "PUT",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ appMode: "curriculum" })
+    });
+    expect(modeRes.status).toBe(200);
+
+    const get = await (await fetch(`${baseUrl}/accounts/settings`, { headers: { Cookie: cookie } })).json();
+    expect(get.appMode).toBe("curriculum");
+    expect(get.niche).toBe("fitness");
+    expect(get.videoVendor).toBe("kling");
   });
 
   it("PUT /accounts/settings rejects an invalid platform with 400, doesn't save", async () => {
@@ -141,11 +255,10 @@ describe("account settings and self-service run routes", () => {
     expect(usage.totalRuns).toBe(1);
   }, 20_000);
 
-  it("GET /account serves the self-service page without Basic Auth", async () => {
+  it("GET /account redirects to the SPA workspace", async () => {
     await startServer();
-    const res = await fetch(`${baseUrl}/account`);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("Sign in");
+    const res = await fetch(`${baseUrl}/account`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/app");
   });
 });

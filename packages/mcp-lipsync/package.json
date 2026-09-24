@@ -1,0 +1,19 @@
+{
+  "name": "@vvugc/mcp-lipsync",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vvugc/shared-config": "workspace:*",
+    "@vvugc/shared-http": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

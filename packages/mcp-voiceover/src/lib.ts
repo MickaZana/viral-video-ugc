@@ -7,10 +7,12 @@ import { createMockAdapter } from "./adapters/mock.js";
 import type { VoiceoverAdapter, VoiceoverVendor } from "./adapters/VoiceoverAdapter.js";
 import { concatAudioTrack, conformAudioDuration } from "./audio-sync.js";
 import { probeDurationSec } from "./ffprobe.js";
+import { detectSpeechBounds, trimAudio } from "./vad.js";
 
 export type { VoiceoverAdapter, VoiceoverVendor } from "./adapters/VoiceoverAdapter.js";
 export { buildAtempoChain, concatAudioTrack, conformAudioDuration } from "./audio-sync.js";
 export { probeDurationSec } from "./ffprobe.js";
+export { detectSpeechBounds, trimAudio, type SpeechBounds } from "./vad.js";
 
 /**
  * Voiceover is opt-in — `vendor` undefined means "no narration wired up",
@@ -40,11 +42,14 @@ export interface VoiceoverTrack {
 
 /**
  * The core "perfect sync" guarantee: synthesizes each caption cue's text
- * separately, force-conforms each one to exactly that cue's [startSec, endSec)
- * window (audio-sync.ts), then concatenates them in order. Because the burned-in
- * captions (mcp-assembly) and this narration both derive from the exact same
- * cue array with the exact same timing, the two can never drift apart — there's
- * no separate "hope the pacing matches" step, the timing is enforced per-cue.
+ * separately, VAD-trims any silence the TTS engine added (vad.ts), force-conforms
+ * the trimmed speech to exactly that cue's [startSec, endSec) window (audio-sync.ts),
+ * then concatenates them in order. Because the burned-in captions (mcp-assembly)
+ * and this narration both derive from the exact same cue array with the exact
+ * same timing, the two can never drift apart — there's no separate "hope the
+ * pacing matches" step, the timing is enforced per-cue, and the VAD trim keeps
+ * that enforcement targeted at the actual spoken words rather than whatever
+ * silence padding the vendor happened to return.
  *
  * Runs once per candidate (not per platform) — captions/script are shared
  * across every target platform for a candidate, so the resulting track is too;
@@ -54,7 +59,8 @@ export async function generateVoiceoverTrack(
   cues: CaptionCue[],
   adapter: VoiceoverAdapter,
   outDir: string,
-  videoId: string
+  videoId: string,
+  profile?: { voiceId?: string; language?: string; accent?: string; speechStyle?: string }
 ): Promise<VoiceoverTrack> {
   if (cues.length === 0) {
     throw new Error("generateVoiceoverTrack requires at least one caption cue");
@@ -72,10 +78,24 @@ export async function generateVoiceoverTrack(
     }
 
     const rawPath = join(outDir, `${videoId}-cue-${i}-raw.mp3`);
-    const { filePath: rawFilePath } = await adapter.synthesize(cue.text, rawPath);
+    const { filePath: rawFilePath } = await adapter.synthesize(cue.text, rawPath, profile);
+
+    // VAD: trim any leading/trailing silence the TTS engine added before
+    // computing the conform ratio below, so atempo correction reflects the
+    // actual spoken content rather than being skewed by silence padding —
+    // otherwise the "perfect sync" guarantee this function provides ends up
+    // syncing burned-in captions to silence, not to what's actually heard.
+    // Fails open (bounds === null) to the untrimmed clip on any VAD issue —
+    // this is a refinement, not a correctness requirement.
+    const bounds = await detectSpeechBounds(rawFilePath);
+    let speechPath = rawFilePath;
+    if (bounds) {
+      speechPath = join(outDir, `${videoId}-cue-${i}-trimmed.mp3`);
+      await trimAudio(rawFilePath, bounds.startSec, bounds.endSec, speechPath);
+    }
 
     const conformedPath = join(outDir, `${videoId}-cue-${i}-conformed.mp3`);
-    await conformAudioDuration(rawFilePath, targetDurationSec, conformedPath);
+    await conformAudioDuration(speechPath, targetDurationSec, conformedPath);
     conformedPaths.push(conformedPath);
   }
 

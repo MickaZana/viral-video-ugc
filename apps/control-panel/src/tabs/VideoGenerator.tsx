@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { paths } from '../lib/paths'
 import type {
   AgencyClient,
   ClientCadence,
@@ -7,12 +9,17 @@ import type {
   ModelsResponse,
   Platform,
   RunResponse,
+  RunQuote,
   VideoVendor,
   VoiceVendor
+  ,ProductProfile, CreatorProfile, UGCTemplate
 } from '../lib/types'
 import { api } from '../lib/api'
 import { useApi } from '../lib/useApi'
 import { Panel } from '../components/primitives'
+import { DiscoverPanel } from '../components/DiscoveryPanel'
+import { PipelineProgress } from '../components/PipelineProgress'
+import { VisualDirectionPanel, toApiFormat, type VisualDirectionState } from '../components/VisualDirectionPanel'
 
 /**
  * Video Generator — pick a model by the result you want, then run the real
@@ -56,21 +63,90 @@ const EMPTY_FORM = {
   cadence: 'manual' as ClientCadence
 }
 
+/**
+ * Pre-built niche presets — let a new user start the pipeline in one click
+ * instead of filling every field manually. Each preset maps directly onto
+ * the new-client form fields; the user can still edit anything after.
+ */
+const NICHE_PRESETS: ReadonlyArray<{
+  emoji: string
+  label: string
+  niche: string
+  brandVoice: string
+  platforms: Platform[]
+}> = [
+  { emoji: '🏋️', label: 'Fitness',  niche: 'fitness motivation',        brandVoice: 'energetic, raw, authentic',       platforms: ['youtube_shorts', 'tiktok'] },
+  { emoji: '💰', label: 'Finance',  niche: 'personal finance tips',      brandVoice: 'calm, authoritative, simple',     platforms: ['youtube_shorts'] },
+  { emoji: '🍔', label: 'Food',     niche: 'food and cooking',           brandVoice: 'warm, fun, approachable',         platforms: ['tiktok', 'instagram_reels'] },
+  { emoji: '✨', label: 'Beauty',   niche: 'skincare and beauty',        brandVoice: 'aspirational, relatable, trendy', platforms: ['tiktok', 'instagram_reels'] },
+  { emoji: '🎮', label: 'Gaming',   niche: 'gaming highlights and tips', brandVoice: 'hype, casual, community-first',   platforms: ['youtube_shorts', 'tiktok'] },
+]
+
+/** Renders the 5 niche preset buttons. Fires onSelect with a partial form
+ *  update so VideoGenerator can merge it into its own form state. */
+function NichePresets({ onSelect }: {
+  onSelect: (patch: Partial<typeof EMPTY_FORM>) => void
+}) {
+  return (
+    <div className="mb-5">
+      <p className="text-[10px] font-mono text-[var(--color-muted-2)] uppercase tracking-widest mb-2">
+        Quick start — pick a niche
+      </p>
+      <div className="grid grid-cols-5 gap-2">
+        {NICHE_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onSelect({ niche: p.niche, brandVoice: p.brandVoice, platforms: [...p.platforms] })}
+            className="border border-[var(--color-border)] p-3 text-left hover:border-[var(--color-lime)] transition-colors group"
+          >
+            <div className="text-base mb-1">{p.emoji}</div>
+            <div className="text-[10px] font-mono uppercase tracking-widest group-hover:text-[var(--color-lime)] transition-colors"
+              style={{ color: 'var(--color-muted-2)' }}>
+              {p.label}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function VideoGenerator() {
+  const navigate = useNavigate()
   const models = useApi<ModelsResponse>(() => api.models())
   const clients = useApi<{ clients: AgencyClient[] }>(() => api.clients())
+  const products = useApi<{ products: ProductProfile[] }>(() => api.products())
+  const creators = useApi<{ creators: CreatorProfile[] }>(() => api.creatorProfiles())
+  const templates = useApi<{ templates: UGCTemplate[] }>(() => api.templates())
   const grouped = models.data?.grouped
   const [selected, setSelected] = useState<Partial<Record<ModelKind, string>>>({})
   const [clientId, setClientId] = useState('')
+  const [productProfileId, setProductProfileId] = useState('')
+  const [creatorProfileId, setCreatorProfileId] = useState('')
+  const [templateId, setTemplateId] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
   const [creating, setCreating] = useState(false)
   const [running, setRunning] = useState(false)
   const [live, setLive] = useState(false)
   const [run, setRun] = useState<RunResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [creatorPreflight, setCreatorPreflight] = useState<{ warnings: string[]; blocking: boolean } | null>(null)
+  const [visualDirection, setVisualDirection] = useState<Partial<VisualDirectionState>>({})
+  const [quote, setQuote] = useState<RunQuote | null>(null)
+  const [quoteState, setQuoteState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [quoteRevision, setQuoteRevision] = useState(0)
+  const [updatingClientConfig, setUpdatingClientConfig] = useState(false)
 
   const clientList = clients.data?.clients ?? []
   const selectedClient = clientList.find((c) => c.id === clientId) ?? clientList[0] ?? null
+  const selectedTemplate = (templates.data?.templates ?? []).find((t) => t.id === templateId)
+  const templateWarnings = selectedTemplate ? [
+    ...(selectedClient?.platforms ?? []).filter((p) => !selectedTemplate.targetPlatforms.includes(p)).length ? [`${selectedTemplate.name} is not optimized for one or more selected platforms`] : [],
+    selectedClient && Math.abs(selectedClient.targetDurationSec - selectedTemplate.recommendedDurationSec) > 15 ? [`Recommended duration is ${selectedTemplate.recommendedDurationSec}s`] : []
+  ].flat() : []
 
   // The effective video/voiceover picks. An explicit picker click wins; otherwise
   // they follow the selected client's saved vendors so the run matches the client.
@@ -86,6 +162,75 @@ export function VideoGenerator() {
     voiceList[0]?.id
   const videoChosen = videoList.find((m) => m.id === videoChosenId)
   const voiceChosen = voiceList.find((m) => m.id === voiceChosenId)
+
+  useEffect(() => {
+    if (!live || !selectedClient) {
+      setQuote(null)
+      setQuoteState('idle')
+      setQuoteError(null)
+      return
+    }
+    let cancelled = false
+    setQuote(null)
+    setQuoteState('loading')
+    setQuoteError(null)
+    void api.runQuote({ clientId: selectedClient.id, templateId: templateId || undefined })
+      .then((value) => {
+        if (!cancelled) {
+          setQuote(value)
+          setQuoteState('success')
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setQuoteState('error')
+          setQuoteError(err instanceof Error ? err.message : String(err))
+        }
+      })
+    return () => { cancelled = true }
+  }, [live, selectedClient?.id, templateId, quoteRevision])
+
+  async function selectModel(kind: ModelKind, modelId: string) {
+    if ((kind !== 'video' && kind !== 'voiceover') || !selectedClient) {
+      setSelected((s) => ({ ...s, [kind]: modelId }))
+      return
+    }
+    const videoVendor = (kind === 'video' ? vendorForModelId(modelId) : selectedClient.videoVendor) as VideoVendor
+    const voiceVendor = kind === 'voiceover' ? vendorForModelId(modelId) as VoiceVendor : selectedClient.voiceVendor
+    setUpdatingClientConfig(true)
+    setError(null)
+    try {
+      const updated = await api.updateClient(selectedClient.id, {
+        name: selectedClient.name,
+        niche: selectedClient.niche,
+        brandVoice: selectedClient.brandVoice,
+        brandKit: selectedClient.brandKit,
+        locale: selectedClient.locale,
+        platforms: selectedClient.platforms,
+        targetDurationSec: selectedClient.targetDurationSec,
+        videoVendor,
+        voiceVendor,
+        cadence: selectedClient.cadence,
+        active: selectedClient.active
+      })
+      setSelected((s) => ({ ...s, [kind]: modelId }))
+      clients.reload()
+      // Quote only after the persisted configuration update succeeds.
+      setQuoteRevision((revision) => revision + 1)
+      void updated
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUpdatingClientConfig(false)
+    }
+  }
+  useEffect(() => {
+    const vendor = videoChosen ? vendorForModelId(videoChosen.id) : selectedClient?.videoVendor
+    if (!creatorProfileId || !vendor) { setCreatorPreflight(null); return }
+    let cancelled = false
+    void api.creatorPreflight(creatorProfileId, vendor, selectedClient?.id).then((value) => { if (!cancelled) setCreatorPreflight(value) }).catch(() => { if (!cancelled) setCreatorPreflight(null) })
+    return () => { cancelled = true }
+  }, [creatorProfileId, selectedClient, videoChosen])
 
   function togglePlatform(p: Platform) {
     setForm((f) => ({
@@ -128,8 +273,10 @@ export function VideoGenerator() {
     setRunning(true)
     setError(null)
     setRun(null)
+    setActiveRunId(null)
     try {
       const videoVendor = (videoChosen ? vendorForModelId(videoChosen.id) : selectedClient.videoVendor) as VideoVendor
+      if (creatorProfileId && creatorPreflight?.blocking) { setError(`Creator profile is incompatible with ${videoVendor}: ${creatorPreflight.warnings.join('; ')}`); setRunning(false); return }
       const voiceVendor = voiceChosen ? (vendorForModelId(voiceChosen.id) as VoiceVendor) : selectedClient.voiceVendor
       let target = selectedClient
       // The video/voiceover picker drives what the run spends on — persist the
@@ -152,8 +299,10 @@ export function VideoGenerator() {
         target = updated.client
         clients.reload()
       }
-      const result = await api.run({ clientId: target.id, dryRun: !live })
+      const result = await api.run({ clientId: target.id, dryRun: !live, productProfileId: productProfileId || undefined, creatorProfileId: creatorProfileId || undefined, templateId: templateId || undefined, visualDirection: toApiFormat(visualDirection) })
       setRun(result)
+      setActiveRunId(result.runId)
+      navigate(paths.studioRun(result.runId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -163,6 +312,17 @@ export function VideoGenerator() {
 
   return (
     <div className="space-y-8">
+      <DiscoverPanel />
+      {/* Batch Mode link */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => navigate(paths.studioBatch)}
+          className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest border border-[var(--color-lime)] text-[var(--color-lime)] hover:bg-[var(--color-lime)] hover:text-[var(--color-on-accent)] transition-colors"
+        >
+          ⚡ Batch Mode
+        </button>
+      </div>
+
       <Panel title="CHOOSE MODELS BY RESULT">
         <div className="divide-y divide-[var(--color-raised)]">
           {KIND_ORDER.map((kind) => {
@@ -177,7 +337,7 @@ export function VideoGenerator() {
             return (
               <div key={kind} className="px-5 py-4">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed', color: 'var(--color-text)' }}>
+                  <span className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', color: 'var(--color-text)' }}>
                     {KIND_LABEL[kind]}
                   </span>
                   {chosen && (
@@ -191,8 +351,9 @@ export function VideoGenerator() {
                   {list.map((m) => (
                     <button
                       key={m.id}
-                      onClick={() => setSelected((s) => ({ ...s, [kind]: m.id }))}
-                      className="text-left bg-[var(--color-bg)] p-4 hover:bg-[var(--color-raised)] transition-colors"
+                      onClick={() => void selectModel(kind, m.id)}
+                      disabled={updatingClientConfig && (kind === 'video' || kind === 'voiceover')}
+                      className="text-left bg-[var(--color-bg)] p-4 hover:bg-[var(--color-raised)] transition-colors disabled:opacity-50"
                       style={{ borderLeft: chosenId === m.id ? '2px solid var(--color-lime)' : '2px solid transparent' }}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -228,8 +389,11 @@ export function VideoGenerator() {
             ) : (
               <>
                 <p className="text-[11px] font-mono text-[var(--color-muted-2)]">
-                  No client yet — a client holds the niche, platforms and vendors a run is built from. Create one to run the pipeline; your selected video/voiceover model becomes its vendor.
+                  No client yet — pick a niche below to pre-fill the form, or type your own. Your selected video/voiceover model becomes its vendor.
                 </p>
+                <NichePresets
+                  onSelect={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <label className="block">
                     <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Client name</span>
@@ -302,7 +466,7 @@ export function VideoGenerator() {
                   onClick={handleCreateClient}
                   disabled={creating || !form.name.trim() || !form.niche.trim() || !form.brandVoice.trim() || form.platforms.length === 0}
                   className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-                  style={{ fontFamily: 'Barlow Condensed', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                  style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                 >
                   {creating ? 'CREATING...' : 'CREATE CLIENT'}
                 </button>
@@ -338,6 +502,35 @@ export function VideoGenerator() {
               )}
             </div>
 
+            <label className="block max-w-md">
+              <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">UGC template</span>
+              <select className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                <option value="">Freeform (no template)</option>
+                {(templates.data?.templates ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {selectedTemplate && <div className="text-[10px] font-mono text-[var(--color-muted-2)] mt-1">{selectedTemplate.description} · Beats: {selectedTemplate.scriptStructure.join(' → ')}</div>}
+              {selectedTemplate && selectedTemplate.requiredInputs.map((input) => <div key={input} className="text-[10px] font-mono text-[var(--color-muted-2)]">✓ Required: {input}</div>)}
+              {templateWarnings.map((warning) => <div key={warning} className="text-[10px] font-mono text-[var(--color-amber)] mt-1">⚠ {warning}</div>)}
+            </label>
+
+            <label className="block max-w-md">
+              <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Product profile (optional)</span>
+              <select
+                className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3 focus:outline-none focus:border-[var(--color-lime)] transition-colors"
+                value={productProfileId}
+                onChange={(e) => setProductProfileId(e.target.value)}
+              >
+                <option value="">No product profile</option>
+                {(products.data?.products ?? []).filter((p) => !selectedClient || !p.clientId || p.clientId === selectedClient.id).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <span className="block text-[10px] font-mono text-[var(--color-muted-3)] mt-1">Create and edit profiles from Brand.</span>
+            </label>
+
+            <label className="block max-w-md"><span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Creator profile (optional)</span><select className="w-full mt-1 bg-[var(--color-bg)] border border-[var(--color-input)] text-[var(--color-text)] font-mono text-sm p-3" value={creatorProfileId} onChange={(e) => setCreatorProfileId(e.target.value)}><option value="">No creator profile</option>{(creators.data?.creators ?? []).filter((c) => c.active && (!selectedClient || !c.clientId || c.clientId === selectedClient.id)).map((c) => <option key={c.id} value={c.id}>{c.displayName}</option>)}</select>{creatorProfileId && <span className="block text-[10px] text-[var(--color-amber)] mt-1">Reference-guided only; persistent identity is not guaranteed across vendors.</span>}</label>
+
+            {creatorPreflight && <div className={`text-[10px] mt-2 ${creatorPreflight.blocking ? 'text-[var(--color-red)]' : 'text-[var(--color-amber)]'}`}>{creatorPreflight.blocking ? 'Creator run blocked: ' : 'Creator capability notice: '}{creatorPreflight.warnings.join(' · ')}</div>}
             {selectedClient && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
@@ -359,12 +552,15 @@ export function VideoGenerator() {
                   </div>
                 </div>
 
+                {/* Cinema Controls */}
+                <VisualDirectionPanel value={visualDirection} onChange={setVisualDirection} />
+
                 <div className="flex items-center gap-4 flex-wrap">
                   <button
                     onClick={handleRun}
-                    disabled={running}
+                    disabled={running || updatingClientConfig}
                     className="px-6 py-3 font-black uppercase tracking-widest text-sm transition-colors disabled:opacity-50"
-                    style={{ fontFamily: 'Barlow Condensed', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
+                    style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', backgroundColor: live ? 'var(--color-orange)' : 'var(--color-lime)', color: 'var(--color-on-accent)' }}
                   >
                     {running ? 'RUNNING...' : live ? 'RUN LIVE' : 'RUN DRY-RUN'}
                   </button>
@@ -378,6 +574,14 @@ export function VideoGenerator() {
                     <span className="text-[10px] font-mono text-[var(--color-muted)] uppercase tracking-widest">Live run (real vendor spend)</span>
                   </label>
                 </div>
+                {live && (
+                  <LiveRunQuote
+                    state={quoteState}
+                    quote={quote}
+                    error={quoteError}
+                    onRetry={() => setQuoteRevision((revision) => revision + 1)}
+                  />
+                )}
                 <p className="text-[10px] font-mono text-[var(--color-muted-3)]">
                   Dry run: full pipeline end-to-end (discovery → script → video → QA → review queue) with no vendor spend. Live run attempts real vendor calls and is billed.
                 </p>
@@ -389,27 +593,18 @@ export function VideoGenerator() {
 
       {error && <p className="text-[11px] font-mono text-[var(--color-red)]">{error}</p>}
 
-      {run && (
-        <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Barlow Condensed' }}>
-              RUN COMPLETE <span className="text-[var(--color-lime)]">({live ? 'LIVE' : 'DRY-RUN'})</span>
-            </p>
-            <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest">✓ QUEUED FOR REVIEW</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Run</span><div className="text-[var(--color-text)]">{run.runId.slice(0, 8)}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Queued for review</span><div className="text-[var(--color-lime)]">{run.reviewItemsCreated}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates found</span><div className="text-[var(--color-text)]">{run.candidatesFound}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Est. cost</span><div className="text-[var(--color-text)]">${run.estimatedCostUsd?.toFixed(2) ?? 'n/a'}</div></div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono mt-3">
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Overage</span><div className="text-[var(--color-orange)]">{run.overage ? `$${run.overage.priceUsdPerRun}/run` : 'none'}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates failed</span><div className="text-[var(--color-text)]">{run.candidatesFailed ?? 0}</div></div>
-            <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Platforms failed</span><div className="text-[var(--color-text)]">{run.platformsFailed ?? 0}</div></div>
-          </div>
-        </div>
+      {/* Pipeline running: take over the visible area so the 9-stage progress
+          is the hero of the screen — this is the feature Higgsfield cannot copy. */}
+      {running && (
+        <PipelineRunningPanel runId={activeRunId ?? run?.runId} />
       )}
+
+      {/* Show compact progress bar after run finishes (not full-panel) */}
+      {!running && (activeRunId || run?.runId) && (
+        <PipelineProgress active={false} runId={activeRunId ?? run?.runId} />
+      )}
+
+      {run && <RunSummary run={run} live={live} />}
 
       {models.error && (
         <p className="text-[11px] font-mono text-[var(--color-red)]">Load error: {models.error}</p>
@@ -417,6 +612,98 @@ export function VideoGenerator() {
       {clients.error && (
         <p className="text-[11px] font-mono text-[var(--color-red)]">Load error: {clients.error}</p>
       )}
+    </div>
+  )
+}
+
+function LiveRunQuote({ state, quote, error, onRetry }: {
+  state: 'idle' | 'loading' | 'success' | 'error'
+  quote: RunQuote | null
+  error: string | null
+  onRetry: () => void
+}) {
+  if (state === 'loading') {
+    return <div role="status" aria-label="Live vendor-spend estimate" className="border border-[var(--color-border)] p-3 text-[10px] font-mono text-[var(--color-muted-2)]">Calculating live vendor-spend estimate…</div>
+  }
+  if (state === 'error') {
+    return (
+      <div role="alert" className="border border-[var(--color-red)] p-3 text-[10px] font-mono text-[var(--color-red)]">
+        <p>Unable to calculate a live vendor-spend estimate{error ? `: ${error}` : '.'}</p>
+        <button type="button" onClick={onRetry} className="mt-2 underline underline-offset-2 text-[var(--color-text)]">Retry estimate</button>
+      </div>
+    )
+  }
+  if (state !== 'success' || !quote) return null
+
+  const minScope = `${quote.clipsPerCandidate} clips × ${quote.platformCount} selected ${quote.platformCount === 1 ? 'platform' : 'platforms'} for ${quote.minimumCandidateCount === 1 ? 'one candidate' : `${quote.minimumCandidateCount} candidates`}`
+  const maxScope = `Up to $${quote.maximumVideoVendorSpendUsd.toFixed(2)} video spend for up to ${quote.maximumPlatformVideosPerFlow} generated platform videos.`
+  const voiceover = quote.voiceover.cost === 'variable'
+    ? `Plus variable ${quote.voiceover.vendor ?? 'voiceover'} usage.`
+    : 'Voiceover is not selected.'
+  return (
+    <div role="status" aria-label="Live vendor-spend estimate" className="border border-[var(--color-orange)] bg-[var(--color-bg)] p-3 text-[10px] font-mono space-y-1">
+      <p className="text-[var(--color-text)]">Estimated vendor spend: <strong className="text-[var(--color-orange)]">from ${quote.minimumVideoVendorSpendUsd.toFixed(2)} {quote.currency}</strong></p>
+      <p className="text-[var(--color-muted-2)]">{minScope} via {quote.videoVendor}.</p>
+      <p className="text-[var(--color-muted-2)]">{maxScope}</p>
+      <p className="text-[var(--color-muted-2)]">{voiceover}</p>
+      <p className="text-[var(--color-muted-3)]">This is vendor spend only. Subscription-plan overages, if any, are shown separately in Billing.</p>
+    </div>
+  )
+}
+
+/**
+ * Full-panel takeover shown while a pipeline run is in progress.
+ * Surfaces the 9-stage automation as the primary visual — this is the
+ * feature Higgsfield cannot match (they generate one clip at a time).
+ */
+function PipelineRunningPanel({ runId }: { runId?: string }) {
+  return (
+    <div className="border border-[var(--color-lime)] bg-[var(--color-surface)] p-6 space-y-6">
+      <div className="flex items-center gap-3">
+        <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest pulse-lime">
+          ● Pipeline Running
+        </span>
+        {runId && (
+          <span className="text-[10px] font-mono text-[var(--color-muted-3)]">
+            run {runId.slice(0, 8)}
+          </span>
+        )}
+      </div>
+      <PipelineProgress active runId={runId} />
+      <p className="text-[11px] font-mono text-[var(--color-muted-2)] text-center">
+        Sit back — discovery → transcript → script → voiceover → video → assembly → QA → queue,
+        all running automatically.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Compact post-run summary shown after a pipeline completes.
+ * Isolated so it can be updated without touching VideoGenerator.
+ */
+function RunSummary({ run, live }: { run: RunResponse; live: boolean }) {
+  return (
+    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-black uppercase tracking-widest" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+          Run Complete <span className="text-[var(--color-lime)]">({live ? 'LIVE' : 'DRY-RUN'})</span>
+        </p>
+        <span className="text-[10px] font-mono text-[var(--color-lime)] uppercase tracking-widest">
+          ✓ Queued for Review
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Run</span><div className="text-[var(--color-text)]">{run.runId.slice(0, 8)}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Queued</span><div className="text-[var(--color-lime)]">{run.reviewItemsCreated}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Candidates</span><div className="text-[var(--color-text)]">{run.candidatesFound}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Est. cost</span><div className="text-[var(--color-text)]">${run.estimatedCostUsd?.toFixed(2) ?? 'n/a'}</div></div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-[10px] font-mono mt-3">
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Overage</span><div className="text-[var(--color-orange)]">{run.overage ? `$${run.overage.priceUsdPerRun}/run` : 'none'}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Failed candidates</span><div className="text-[var(--color-text)]">{run.candidatesFailed ?? 0}</div></div>
+        <div><span className="text-[var(--color-muted-2)] uppercase tracking-widest">Failed platforms</span><div className="text-[var(--color-text)]">{run.platformsFailed ?? 0}</div></div>
+      </div>
     </div>
   )
 }

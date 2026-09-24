@@ -32,7 +32,7 @@ async function signUpAndGetAccount(email: string): Promise<{ cookie: string; org
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("no session cookie returned from signup");
   const { account } = await res.json();
-  return { cookie: setCookie.split(";")[0], orgId: account.orgId, accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, orgId: account.orgId, accountId: account.id };
 }
 
 async function inviteMember(ownerCookie: string, email: string): Promise<{ cookie: string; accountId: string }> {
@@ -49,7 +49,7 @@ async function inviteMember(ownerCookie: string, email: string): Promise<{ cooki
   });
   const setCookie = acceptRes.headers.get("set-cookie")!;
   const { account } = await acceptRes.json();
-  return { cookie: setCookie.split(";")[0], accountId: account.id };
+  return { cookie: setCookie.split(";")[0]!, accountId: account.id };
 }
 
 const CLIENT_BODY = {
@@ -96,6 +96,7 @@ function reviewItem(orgId: string, id: string): ReviewItem {
     score: 82,
     flags: [],
     status: "pending",
+    dryRun: false,
     createdAt: new Date().toISOString()
   };
 }
@@ -156,6 +157,9 @@ describe("data export and account deletion", () => {
       body: JSON.stringify({ clientId: (await (await fetch(`${baseUrl}/accounts/clients`, { headers: { Cookie: owner.cookie } })).json()).clients[0].id })
     });
     expect(jobsRes.status).toBe(202);
+    const clientId = (await (await fetch(`${baseUrl}/accounts/clients`, { headers: { Cookie: owner.cookie } })).json()).clients[0].id;
+    expect((await fetch(`${baseUrl}/accounts/products`, { method: "POST", headers: { Cookie: owner.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Export Product", clientId }) })).status).toBe(201);
+    expect((await fetch(`${baseUrl}/accounts/creators`, { method: "POST", headers: { Cookie: owner.cookie, "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Export Creator", clientId, avatarMode: "none", consentConfirmed: true }) })).status).toBe(201);
 
     const res = await fetch(`${baseUrl}/accounts/export`, { headers: { Cookie: owner.cookie } });
     expect(res.status).toBe(200);
@@ -167,6 +171,8 @@ describe("data export and account deletion", () => {
     expect(bundle.members.length).toBe(1);
     expect(bundle.settings.niche).toBe("fitness");
     expect(bundle.clients.length).toBe(1);
+    expect(bundle.products.map((product: { name: string }) => product.name)).toContain("Export Product");
+    expect(bundle.creators.map((creator: { displayName: string }) => creator.displayName)).toContain("Export Creator");
     expect(bundle.reviewItems.some((item: { id: string }) => item.id === "export-item-1")).toBe(true);
     expect(bundle.usage.totalRuns).toBe(1);
     expect(bundle.jobs.length).toBe(1);
